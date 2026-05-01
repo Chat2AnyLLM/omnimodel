@@ -222,13 +222,24 @@ func promptForGitHubCopilotAuth(cmd *cobra.Command) error {
 	}
 
 	if strings.TrimSpace(method) == "" {
-		selectedMethod, err := SelectFromOptions("Authenticate with GitHub Copilot using:", []string{"Browser login", "Personal token"})
+		const (
+			optBrowser    = "Browser login (auto-open)"
+			optDeviceCode = "Device code (manual copy-paste)"
+			optToken      = "Personal token"
+		)
+		selectedMethod, err := SelectFromOptions("Authenticate with GitHub Copilot using:", []string{optBrowser, optDeviceCode, optToken})
 		if err != nil {
 			return err
 		}
-		if selectedMethod == "Personal token" {
+		switch selectedMethod {
+		case optToken:
 			method = "token"
-		} else {
+		case optDeviceCode:
+			method = "oauth"
+			if err := cmd.Flags().Set("device", "true"); err != nil {
+				return err
+			}
+		default: // optBrowser
 			method = "oauth"
 		}
 		if err := cmd.Flags().Set("method", method); err != nil {
@@ -293,6 +304,7 @@ func addProviderAuthFlags(cmd *cobra.Command) {
 	cmd.Flags().String("region", "", "Region (alibaba, azure-openai)")
 	cmd.Flags().String("plan", "", "Plan (alibaba: standard|coding-plan)")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmations")
+	cmd.Flags().Bool("device", false, "Use device code flow without opening a browser automatically")
 }
 
 func authAndCreateProvider(cmd *cobra.Command, providerType string) error {
@@ -328,11 +340,23 @@ func authAndCreateProvider(cmd *cobra.Command, providerType string) error {
 	if requiresAuth, ok := resp["requiresAuth"].(bool); ok && requiresAuth {
 		verifyURI, _ := resp["verification_uri"].(string)
 		userCode, _ := resp["user_code"].(string)
-		fmt.Printf("\n  Visit: %s\n  Code:  %s\n\nWaiting for authorization", verifyURI, userCode)
+
+		deviceOnly := getBoolFlag(cmd, "device")
+
+		if !deviceOnly {
+			opened := tryOpenBrowser(verifyURI)
+			if opened {
+				fmt.Fprintf(cmd.OutOrStdout(), "\n  Browser opened for authorization.\n  Code:  %s\n\nWaiting for authorization", userCode)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "\n  Could not open browser automatically.\n  Visit: %s\n  Code:  %s\n\nWaiting for authorization", verifyURI, userCode)
+			}
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  Visit: %s\n  Code:  %s\n\nWaiting for authorization", verifyURI, userCode)
+		}
 
 		for {
 			time.Sleep(3 * time.Second)
-			fmt.Print(".")
+			fmt.Fprint(cmd.OutOrStdout(), ".")
 
 			statusData, err := c.Get("/api/admin/auth-status")
 			if err != nil {
@@ -345,12 +369,12 @@ func authAndCreateProvider(cmd *cobra.Command, providerType string) error {
 			status, _ := statusResp["status"].(string)
 			switch status {
 			case "complete":
-				fmt.Println()
+				fmt.Fprintln(cmd.OutOrStdout())
 				providerID, _ := statusResp["providerId"].(string)
-				SuccessMsg(cmd,"Provider '%s' authenticated successfully.", providerID)
+				SuccessMsg(cmd, "Provider '%s' authenticated successfully.", providerID)
 				return nil
 			case "error":
-				fmt.Println()
+				fmt.Fprintln(cmd.OutOrStdout())
 				errMsg, _ := statusResp["error"].(string)
 				return fmt.Errorf("authentication failed: %s", errMsg)
 			}

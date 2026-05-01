@@ -110,6 +110,67 @@ func TestResolveAuthProviderTypeUsesInteractiveSelection(t *testing.T) {
 	t.Skip("interactive provider selection is covered manually")
 }
 
+func TestAddProviderAuthFlagsIncludesDeviceFlag(t *testing.T) {
+	cmd := &cobra.Command{}
+	addProviderAuthFlags(cmd)
+	if cmd.Flags().Lookup("device") == nil {
+		t.Error("addProviderAuthFlags: missing --device flag")
+	}
+	// Verify that device defaults to false
+	device, err := cmd.Flags().GetBool("device")
+	if err != nil {
+		t.Fatalf("GetBool(device): %v", err)
+	}
+	if device {
+		t.Error("expected --device to default to false")
+	}
+}
+
+func TestPromptForGitHubCopilotAuthWithMethodOAuthAndDeviceFlag(t *testing.T) {
+	// When --method=oauth and --device=true are set up-front, the prompt should
+	// skip interactive selection and leave both flags unchanged.
+	cmd := &cobra.Command{}
+	addProviderAuthFlags(cmd)
+	if err := cmd.Flags().Set("method", "oauth"); err != nil {
+		t.Fatalf("set method flag: %v", err)
+	}
+	if err := cmd.Flags().Set("device", "true"); err != nil {
+		t.Fatalf("set device flag: %v", err)
+	}
+	if err := promptForProviderAuth(cmd, "github-copilot"); err != nil {
+		t.Fatalf("promptForProviderAuth returned error: %v", err)
+	}
+	method, _ := cmd.Flags().GetString("method")
+	if method != "oauth" {
+		t.Fatalf("expected method=oauth, got %q", method)
+	}
+	device, _ := cmd.Flags().GetBool("device")
+	if !device {
+		t.Fatal("expected --device to remain true")
+	}
+}
+
+func TestPromptForGitHubCopilotAuthWithMethodOAuth(t *testing.T) {
+	// When --method=oauth is set but --device is not, the prompt should skip
+	// interactive selection and leave method as oauth.
+	cmd := &cobra.Command{}
+	addProviderAuthFlags(cmd)
+	if err := cmd.Flags().Set("method", "oauth"); err != nil {
+		t.Fatalf("set method flag: %v", err)
+	}
+	if err := promptForProviderAuth(cmd, "github-copilot"); err != nil {
+		t.Fatalf("promptForProviderAuth returned error: %v", err)
+	}
+	method, _ := cmd.Flags().GetString("method")
+	if method != "oauth" {
+		t.Fatalf("expected method=oauth, got %q", method)
+	}
+	device, _ := cmd.Flags().GetBool("device")
+	if device {
+		t.Fatal("expected --device to remain false when not explicitly set")
+	}
+}
+
 func TestUsageCmdFlags(t *testing.T) {
 	if UsageCmd.Use != "usage" {
 		t.Errorf("expected Use='usage', got %q", UsageCmd.Use)
