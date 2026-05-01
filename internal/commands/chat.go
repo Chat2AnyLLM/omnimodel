@@ -2,11 +2,17 @@ package commands
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/glamour"
+	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 )
 
@@ -306,17 +312,40 @@ func runInteractiveChat(cmd *cobra.Command, args []string) error {
 	session.IsTTY = IsTerminalWriter(cmd.OutOrStdout())
 	session.Picker = promptModelPicker
 
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Type your message and press Enter.")
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Use /help to see interactive commands. Use /models to browse and switch models.")
-	_, _ = fmt.Fprintln(cmd.OutOrStdout())
-
-	scanner := bufio.NewScanner(cmd.InOrStdin())
-	for {
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), FormatChatPrompt("You", session.IsTTY))
-		if !scanner.Scan() {
-			break
+	// Use full-screen TUI when stdout is a terminal; fall back to readline REPL.
+	if session.IsTTY {
+		_, history, err := loadChatSessionMessages(c, session.ID)
+		if err != nil {
+			return err
 		}
-		line := strings.TrimSpace(scanner.Text())
+		return runChatTUI(c, session.ID, session.Model, history)
+	}
+
+	out := cmd.OutOrStdout()
+
+	_, _ = fmt.Fprintln(out, "Type your message and press Enter. Use ↑↓ for history, Ctrl+R to search.")
+	_, _ = fmt.Fprintln(out, "Use /help for commands, /models to browse models.")
+	_, _ = fmt.Fprintln(out)
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:      FormatChatPrompt("You", session.IsTTY),
+		HistoryFile: os.TempDir() + "/omnillm-chat-history",
+	})
+	if err != nil {
+		return fmt.Errorf("init readline: %w", err)
+	}
+	defer rl.Close()
+
+	for {
+		line, err := rl.Readline()
+		if err != nil {
+			if err == readline.ErrInterrupt || err == io.EOF {
+				_, _ = fmt.Fprintln(out, "Goodbye.")
+				break
+			}
+			return fmt.Errorf("read input: %w", err)
+		}
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -331,7 +360,7 @@ func runInteractiveChat(cmd *cobra.Command, args []string) error {
 				session.Model = result.model
 			}
 			if result.exit {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Goodbye.")
+				_, _ = fmt.Fprintln(out, "Goodbye.")
 				break
 			}
 			if result.handled {
@@ -353,24 +382,24 @@ func runInteractiveChat(cmd *cobra.Command, args []string) error {
 			session.Model = loadedSession.Model
 		}
 
-		assistantContent, err := runChatCompletion(c, session.Model, messages)
+		_, _ = fmt.Fprintln(out, FormatChatHeader("Assistant", session.IsTTY))
+
+		assistantContent, err := runChatCompletionStreaming(c, session.Model, messages, out, session.IsTTY)
 		if err != nil {
 			ErrorMsg(cmd, "completion: %v", err)
 			continue
 		}
 		if assistantContent == "" {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "(no response)")
+			_, _ = fmt.Fprintln(out, "(no response)")
 			continue
 		}
 
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), FormatChatHeader("Assistant", session.IsTTY))
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", assistantContent)
 		if err := postChatSessionMessage(c, session.ID, "assistant", assistantContent); err != nil {
 			ErrorMsg(cmd, "store assistant message: %v", err)
 		}
 	}
 
-	return scanner.Err()
+	return nil
 }
 
 func ensureChatSession(cmd *cobra.Command, c *Client, existingSession string, requestedModel string) (chatSessionState, error) {
@@ -519,10 +548,13 @@ type chatMessage struct {
 }
 
 type chatModelInfo struct {
-	ID       string
-	Owner    string
-	Name     string
-	Selector string
+	ID           string
+	Owner        string
+	OwnerName    string
+	Name         string
+	Selector     string
+	ProviderID   string
+	ProviderName string
 }
 
 func chatModelSelector(model chatModelInfo) string {
@@ -616,7 +648,66 @@ func postChatSessionMessage(c *Client, sessionID string, role string, content st
 	return err
 }
 
-func runChatCompletion(c *Client, model string, messages []chatMessage) (string, error) {
+func showLoading(w io.Writer) func() {
+	phrases := []string{"thinking", "processing", "reasoning", "computing", "generating"}
+	stop := make(chan struct{})
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				fmt.Fprintf(w, "\r  %s... ", phrases[i%len(phrases)])
+				i++
+				time.Sleep(400 * time.Millisecond)
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		fmt.Fprint(w, "\r"+strings.Repeat(" ", 20)+"\r")
+	}
+}
+
+// sseEvent represents a single Server-Sent Events chunk.
+type sseEvent struct {
+	data []byte
+}
+
+// parseSSEStreams reads an SSE body and yields events.
+func parseSSEStreams(body io.Reader, onEvent func(sseEvent) error) error {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	var buf bytes.Buffer
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			if buf.Len() > 0 {
+				if err := onEvent(sseEvent{data: buf.Bytes()}); err != nil {
+					return err
+				}
+				buf.Reset()
+			}
+			continue
+		}
+		if bytes.HasPrefix(line, []byte("data: ")) {
+			buf.Write(bytes.TrimPrefix(line, []byte("data: ")))
+		} else if bytes.HasPrefix(line, []byte("data:")) {
+			buf.Write(bytes.TrimPrefix(line, []byte("data:")))
+		}
+	}
+	if buf.Len() > 0 {
+		if err := onEvent(sseEvent{data: buf.Bytes()}); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+// runChatCompletionStreaming sends a streaming chat completion request and
+// prints chunks as they arrive. Returns the full accumulated content.
+func runChatCompletionStreaming(c *Client, model string, messages []chatMessage, w io.Writer, tty bool) (string, error) {
 	reqModel := model
 	if reqModel == "" {
 		reqModel = "gpt-4"
@@ -625,28 +716,103 @@ func runChatCompletion(c *Client, model string, messages []chatMessage) (string,
 	completionBody := map[string]interface{}{
 		"model":    reqModel,
 		"messages": messages,
-		"stream":   false,
+		"stream":   true,
 	}
 
-	respData, err := c.Post("/v1/chat/completions", completionBody)
+	resp, err := c.PostStream("/v1/chat/completions", completionBody)
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 
-	var completion map[string]interface{}
-	if err := json.Unmarshal(respData, &completion); err != nil {
-		return string(respData), nil
+	if resp.StatusCode >= 400 {
+		data, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 
-	if choices, ok := completion["choices"].([]interface{}); ok && len(choices) > 0 {
+	stop := showLoading(w)
+	var fullContent strings.Builder
+	firstChunk := true
+
+	err = parseSSEStreams(resp.Body, func(ev sseEvent) error {
+		trimmed := bytes.TrimSpace(ev.data)
+		if len(trimmed) == 0 || string(trimmed) == "[DONE]" {
+			return nil
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal(trimmed, &chunk); err != nil {
+			return nil
+		}
+
+		choices, _ := chunk["choices"].([]interface{})
+		if len(choices) == 0 {
+			return nil
+		}
 		choice, _ := choices[0].(map[string]interface{})
-		if message, ok := choice["message"].(map[string]interface{}); ok {
-			assistantContent, _ := message["content"].(string)
-			return assistantContent, nil
+		delta, _ := choice["delta"].(map[string]interface{})
+		content, _ := delta["content"].(string)
+		if content == "" {
+			return nil
+		}
+
+		if firstChunk {
+			stop()
+			firstChunk = false
+		}
+
+		fullContent.WriteString(content)
+		fmt.Fprint(w, content)
+		return nil
+	})
+	if err != nil {
+		if !firstChunk {
+			fmt.Fprintln(w)
+		}
+		return fullContent.String(), fmt.Errorf("stream error: %w", err)
+	}
+
+	if !firstChunk {
+		fmt.Fprint(w, "\n\n")
+	} else {
+		stop()
+	}
+
+	// Re-render with markdown/syntax highlighting after stream completes.
+	if tty && fullContent.Len() > 0 {
+		rendered := renderMarkdown(fullContent.String())
+		if rendered != "" {
+			// Clear the raw streamed text and show rendered output.
+			clearLinesUp(w, fullContent.String())
+			fmt.Fprint(w, rendered)
 		}
 	}
 
-	return "", nil
+	return fullContent.String(), nil
+}
+
+// clearLinesUp moves the cursor up to overwrite previously printed lines.
+func clearLinesUp(w io.Writer, content string) {
+	lines := strings.Count(content, "\n") + 2
+	for i := 0; i < lines; i++ {
+		fmt.Fprint(w, "\033[1A\033[2K")
+	}
+}
+
+// renderMarkdown renders markdown to ANSI terminal output using glamour.
+func renderMarkdown(md string) string {
+	r, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(0),
+	)
+	if err != nil {
+		return ""
+	}
+	out, err := r.Render(md)
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 func updateChatSessionModel(c *Client, sessionID string, modelID string) error {
@@ -657,29 +823,99 @@ func updateChatSessionModel(c *Client, sessionID string, modelID string) error {
 }
 
 func listChatModels(c *Client) ([]chatModelInfo, error) {
-	data, err := c.Get("/models")
+	statusData, err := c.Get("/api/admin/status")
 	if err != nil {
 		return nil, err
 	}
 
-	var resp map[string]interface{}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	var statusResp map[string]interface{}
+	if err := json.Unmarshal(statusData, &statusResp); err != nil {
 		return nil, err
 	}
 
-	items, _ := resp["data"].([]interface{})
-	models := make([]chatModelInfo, 0, len(items))
-	for _, item := range items {
-		entry, _ := item.(map[string]interface{})
-		id, _ := entry["id"].(string)
-		owner, _ := entry["owned_by"].(string)
-		name, _ := entry["display_name"].(string)
-		selector := chatModelSelector(chatModelInfo{ID: id, Owner: owner, Name: name})
-		models = append(models, chatModelInfo{ID: id, Owner: owner, Name: name, Selector: selector})
+	type providerInfo struct {
+		id   string
+		name string
+	}
+	providers := make([]providerInfo, 0)
+	if items, ok := statusResp["activeProviders"].([]interface{}); ok {
+		for _, item := range items {
+			entry, _ := item.(map[string]interface{})
+			id, _ := entry["id"].(string)
+			name, _ := entry["name"].(string)
+			if id == "" {
+				continue
+			}
+			providers = append(providers, providerInfo{id: id, name: name})
+		}
+	}
+
+	models := make([]chatModelInfo, 0)
+	for _, provider := range providers {
+		data, err := c.Get("/api/admin/providers/" + provider.id + "/models")
+		if err != nil {
+			continue
+		}
+
+		var resp map[string]interface{}
+		if err := json.Unmarshal(data, &resp); err != nil {
+			continue
+		}
+		items, _ := resp["models"].([]interface{})
+		for _, item := range items {
+			entry, _ := item.(map[string]interface{})
+			enabled, _ := entry["enabled"].(bool)
+			if !enabled {
+				continue
+			}
+			id, _ := entry["id"].(string)
+			name, _ := entry["name"].(string)
+			selector := chatModelSelector(chatModelInfo{ID: id, Owner: provider.id, Name: name})
+			models = append(models, chatModelInfo{
+				ID:           id,
+				Owner:        provider.id,
+				OwnerName:    provider.name,
+				Name:         name,
+				Selector:     selector,
+				ProviderID:   provider.id,
+				ProviderName: provider.name,
+			})
+		}
+	}
+
+	// Keep virtual models from /models because they don't live under a provider-specific admin list.
+	allModelsData, err := c.Get("/models")
+	if err == nil {
+		var allResp map[string]interface{}
+		if json.Unmarshal(allModelsData, &allResp) == nil {
+			items, _ := allResp["data"].([]interface{})
+			for _, item := range items {
+				entry, _ := item.(map[string]interface{})
+				owner, _ := entry["owned_by"].(string)
+				if owner != "virtual" {
+					continue
+				}
+				id, _ := entry["id"].(string)
+				name, _ := entry["display_name"].(string)
+				selector := chatModelSelector(chatModelInfo{ID: id, Owner: owner, Name: name})
+				models = append(models, chatModelInfo{
+					ID:           id,
+					Owner:        owner,
+					OwnerName:    "Virtual",
+					Name:         name,
+					Selector:     selector,
+					ProviderID:   owner,
+					ProviderName: "Virtual",
+				})
+			}
+		}
 	}
 
 	sort.Slice(models, func(i, j int) bool {
-		return models[i].ID < models[j].ID
+		if models[i].ProviderName != models[j].ProviderName {
+			return models[i].ProviderName < models[j].ProviderName
+		}
+		return models[i].Name < models[j].Name
 	})
 	return models, nil
 }

@@ -30,6 +30,7 @@ interface ServicePids {
 type ProcessInfo = {
   pid: number
   cmd: string
+  executablePath?: string
 }
 
 type StructuredLogPayload = Record<string, unknown>
@@ -219,6 +220,29 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
+function getInstalledBackendPath(): string {
+  return process.platform === "win32" ?
+      `${process.env.USERPROFILE}/.local/bin/omnillm.exe`
+    : `${homedir()}/.local/bin/omnillm`
+}
+
+async function waitForProcessExit(
+  pid: number,
+  timeoutMs = 10000,
+  pollMs = 200,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) {
+      return true
+    }
+    await Bun.sleep(pollMs)
+  }
+
+  return !isProcessRunning(pid)
+}
+
 async function listProcesses(): Promise<Array<ProcessInfo>> {
   // Cross-platform process listing with minimal dependencies
   if (process.platform === "win32") {
@@ -227,7 +251,7 @@ async function listProcesses(): Promise<Array<ProcessInfo>> {
         "powershell",
         "-NoProfile",
         "-Command",
-        "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine,ExecutablePath | ConvertTo-Json",
       ],
       { stdout: "pipe", stderr: "pipe" },
     )
@@ -237,10 +261,15 @@ async function listProcesses(): Promise<Array<ProcessInfo>> {
       const rows = JSON.parse(output) as Array<{
         ProcessId: number
         CommandLine?: string
+        ExecutablePath?: string
       }>
       return rows
         .filter((row) => typeof row.ProcessId === "number")
-        .map((row) => ({ pid: row.ProcessId, cmd: row.CommandLine || "" }))
+        .map((row) => ({
+          pid: row.ProcessId,
+          cmd: row.CommandLine || "",
+          executablePath: row.ExecutablePath || "",
+        }))
     } catch {
       return []
     }
@@ -273,6 +302,9 @@ function matchesProcess(cmd: string, keywords: Array<string>): boolean {
 
 async function findMatchingPids(): Promise<Array<number>> {
   const processes = await listProcesses()
+  const installPath = getInstalledBackendPath()
+    .toLowerCase()
+    .replaceAll("/", "\\")
 
   // Keywords chosen to uniquely identify OmniLLM dev processes
   // Use path-separator-agnostic keywords (avoid / vs \ issues on Windows)
@@ -285,6 +317,13 @@ async function findMatchingPids(): Promise<Array<number>> {
 
   for (const processInfo of processes) {
     if (processInfo.pid === process.pid) continue // Skip self
+
+    const executablePath =
+      processInfo.executablePath?.toLowerCase().replaceAll("/", "\\") || ""
+    if (executablePath === installPath) {
+      matching.add(processInfo.pid)
+      continue
+    }
 
     for (const keywords of patterns) {
       if (matchesProcess(processInfo.cmd, keywords)) {
@@ -317,6 +356,49 @@ async function checkPortAvailable(port: number): Promise<boolean> {
   }
 
   return true // Port is available
+}
+
+async function waitForPortAvailable(
+  port: number,
+  timeoutMs = 10000,
+  pollMs = 200,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (await checkPortAvailable(port)) {
+      return true
+    }
+    await Bun.sleep(pollMs)
+  }
+
+  return checkPortAvailable(port)
+}
+
+async function copyInstalledBinary(localBin: string, installPath: string) {
+  const { copyFileSync } = await import("node:fs")
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      copyFileSync(localBin, installPath)
+      return
+    } catch (error) {
+      lastError = error
+      const code =
+        typeof error === "object" && error && "code" in error ?
+          String(error.code)
+        : ""
+
+      if (code !== "EBUSY" && code !== "EPERM") {
+        throw error
+      }
+
+      await Bun.sleep(300)
+    }
+  }
+
+  throw lastError
 }
 
 function stripAnsi(value: string): string {
@@ -694,8 +776,7 @@ async function startServices() {
   }
 
   // Copy to install path
-  const { copyFileSync } = await import("node:fs")
-  copyFileSync(localBin, installPath)
+  await copyInstalledBinary(localBin, installPath)
   consola.success("✅ Golang backend built successfully")
 
   const backendProc = createLoggedProcess("go-backend", {
@@ -770,6 +851,7 @@ async function killPid(pid: number): Promise<boolean> {
 
 async function stopServices() {
   const pids = loadPids()
+  const runtime = getSavedRuntimeConfig(pids)
   consola.info("🛑 Stopping services...")
 
   const killed = new Set<number>()
@@ -778,8 +860,20 @@ async function stopServices() {
   if (pids?.backend && isProcessRunning(pids.backend)) {
     const ok = await killPid(pids.backend)
     if (ok) {
-      killed.add(pids.backend)
-      consola.success(`✅ Backend stopped (PID: ${pids.backend})`)
+      const exited = await waitForProcessExit(pids.backend)
+      const portReleased =
+        runtime.serverPort ?
+          await waitForPortAvailable(Number(runtime.serverPort))
+        : true
+
+      if (exited && portReleased) {
+        killed.add(pids.backend)
+        consola.success(`✅ Backend stopped (PID: ${pids.backend})`)
+      } else {
+        consola.warn(
+          `⚠️  Backend stop is still draining (PID: ${pids.backend})`,
+        )
+      }
     } else {
       consola.warn(`⚠️  Could not stop backend (PID: ${pids.backend})`)
     }
@@ -788,8 +882,20 @@ async function stopServices() {
   if (pids?.frontend && isProcessRunning(pids.frontend)) {
     const ok = await killPid(pids.frontend)
     if (ok) {
-      killed.add(pids.frontend)
-      consola.success(`✅ Frontend stopped (PID: ${pids.frontend})`)
+      const exited = await waitForProcessExit(pids.frontend)
+      const portReleased =
+        runtime.frontendPort ?
+          await waitForPortAvailable(Number(runtime.frontendPort))
+        : true
+
+      if (exited && portReleased) {
+        killed.add(pids.frontend)
+        consola.success(`✅ Frontend stopped (PID: ${pids.frontend})`)
+      } else {
+        consola.warn(
+          `⚠️  Frontend stop is still draining (PID: ${pids.frontend})`,
+        )
+      }
     } else {
       consola.warn(`⚠️  Could not stop frontend (PID: ${pids.frontend})`)
     }
@@ -1056,8 +1162,7 @@ if (values.help || command === "help") {
         }
 
         // Copy to install path
-        const { copyFileSync } = await import("node:fs")
-        copyFileSync(localBin, installPath)
+        await copyInstalledBinary(localBin, installPath)
         consola.success("✅ Golang backend rebuilt successfully")
         // Rebuild frontend
         consola.info("🔨 Rebuilding frontend...")

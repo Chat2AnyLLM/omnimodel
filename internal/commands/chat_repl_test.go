@@ -39,16 +39,27 @@ func TestHandleChatSlashCommandUnknown(t *testing.T) {
 
 func TestListChatModelsSorted(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
+		switch r.URL.Path {
+		case "/api/admin/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"activeProviders": []map[string]any{
+					{"id": "provider-b", "name": "Provider B"},
+					{"id": "provider-a", "name": "Provider A"},
+				},
+			})
+		case "/api/admin/providers/provider-a/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "a-model", "name": "Alpha", "enabled": true}},
+			})
+		case "/api/admin/providers/provider-b/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "z-model", "name": "Zed", "enabled": true}},
+			})
+		case "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"id": "z-model", "owned_by": "provider-b", "display_name": "Zed"},
-				{"id": "a-model", "owned_by": "provider-a", "display_name": "Alpha"},
-			},
-		})
 	}))
 	defer server.Close()
 
@@ -61,7 +72,10 @@ func TestListChatModelsSorted(t *testing.T) {
 		t.Fatalf("expected 2 models, got %d", len(models))
 	}
 	if models[0].ID != "a-model" || models[1].ID != "z-model" {
-		t.Fatalf("models not sorted by ID: %+v", models)
+		t.Fatalf("models not sorted by provider/name: %+v", models)
+	}
+	if models[0].ProviderName != "Provider A" || models[1].ProviderName != "Provider B" {
+		t.Fatalf("unexpected provider names: %+v", models)
 	}
 }
 
@@ -117,16 +131,27 @@ func TestHandleChatSlashCommandModelSwitch(t *testing.T) {
 
 func TestHandleChatSlashCommandModelsFilterOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
+		switch r.URL.Path {
+		case "/api/admin/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"activeProviders": []map[string]any{
+					{"id": "provider-a", "name": "Provider A"},
+					{"id": "provider-b", "name": "Provider B"},
+				},
+			})
+		case "/api/admin/providers/provider-a/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "gpt-4", "name": "GPT 4", "enabled": true}},
+			})
+		case "/api/admin/providers/provider-b/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "qwen3", "name": "Qwen 3", "enabled": true}},
+			})
+		case "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"id": "gpt-4", "owned_by": "provider-a", "display_name": "GPT 4"},
-				{"id": "qwen3", "owned_by": "provider-b", "display_name": "Qwen 3"},
-			},
-		})
 	}))
 	defer server.Close()
 
@@ -152,13 +177,23 @@ func TestHandleChatSlashCommandModelsFilterOutput(t *testing.T) {
 func TestHandleChatSlashCommandModelsPicker(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/models":
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data": []map[string]any{
-					{"id": "gpt-4", "owned_by": "provider-a", "display_name": "GPT 4"},
-					{"id": "qwen3", "owned_by": "provider-b", "display_name": "Qwen 3"},
+				"activeProviders": []map[string]any{
+					{"id": "provider-a", "name": "Provider A"},
+					{"id": "provider-b", "name": "Provider B"},
 				},
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/providers/provider-a/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "gpt-4", "name": "GPT 4", "enabled": true}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/providers/provider-b/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"id": "qwen3", "name": "Qwen 3", "enabled": true}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
 		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 		default:
@@ -181,7 +216,10 @@ func TestHandleChatSlashCommandModelsPicker(t *testing.T) {
 			if len(models) != 2 {
 				t.Fatalf("expected 2 models, got %d", len(models))
 			}
-			return "qwen3", nil
+			if models[0].ProviderName == "" || models[1].ProviderName == "" {
+				t.Fatalf("expected provider names to be populated: %+v", models)
+			}
+			return "provider-b/qwen3", nil
 		},
 	}
 
@@ -189,10 +227,10 @@ func TestHandleChatSlashCommandModelsPicker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleChatSlashCommand returned error: %v", err)
 	}
-	if result.model != "qwen3" {
-		t.Fatalf("expected selected model qwen3, got %+v", result)
+	if result.model != "provider-b/qwen3" {
+		t.Fatalf("expected selected model provider-b/qwen3, got %+v", result)
 	}
-	if !strings.Contains(out.String(), "Switched model to qwen3") {
+	if !strings.Contains(out.String(), "Switched model to provider-b/qwen3") {
 		t.Fatalf("unexpected output: %s", out.String())
 	}
 }

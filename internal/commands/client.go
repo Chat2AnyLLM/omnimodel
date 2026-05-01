@@ -159,6 +159,23 @@ func (c *Client) GetStream(path string) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
+// PostStream performs a POST and returns the raw response body for streaming (caller must close).
+func (c *Client) PostStream(path string, body any) (*http.Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+	req, err := c.newRequest("POST", path, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	return c.http.Do(req)
+}
+
 // IsJSON returns true when --output json was requested.
 func (c *Client) IsJSON() bool { return c.OutputMode == "json" }
 
