@@ -3,7 +3,10 @@ package commands
 import (
 	"fmt"
 	"io"
+	"os/exec"
+	"runtime"
 	"strings"
+	"time"
 )
 
 type Table struct {
@@ -92,4 +95,26 @@ func PrintKeyValue(w io.Writer, key string, value any) error {
 func PrintEmpty(w io.Writer, entity string) error {
 	_, err := fmt.Fprintf(w, "No %s.\n", entity)
 	return err
+}
+
+// authPollInterval is the time between status polls during OAuth device code flow.
+// It is a variable so tests can override it for faster execution.
+var authPollInterval = 3 * time.Second
+
+// openBrowser attempts to open url in the default system browser.
+// Returns an error if url is empty or the browser command fails to start.
+func openBrowser(url string) error {
+	if url == "" {
+		return fmt.Errorf("empty URL")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
 }

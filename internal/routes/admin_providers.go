@@ -368,12 +368,14 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 			}()
 
 			c.JSON(http.StatusOK, gin.H{
-				"success":          false,
-				"requiresAuth":     true,
-				"pending_id":       pendingID,
-				"user_code":        deviceCode.UserCode,
-				"verification_uri": deviceCode.VerificationURI,
-				"message":          fmt.Sprintf("Visit %s and enter code: %s", deviceCode.VerificationURI, deviceCode.UserCode),
+				"success":                   false,
+				"requiresAuth":              true,
+				"pending_id":                pendingID,
+				"user_code":                 deviceCode.UserCode,
+				"verification_uri":          deviceCode.VerificationURI,
+				"verification_uri_complete": deviceCode.VerificationURIComplete,
+				"expires_in":                deviceCode.ExpiresIn,
+				"message":                   fmt.Sprintf("Visit %s and enter code: %s", deviceCode.VerificationURI, deviceCode.UserCode),
 			})
 			return
 		}

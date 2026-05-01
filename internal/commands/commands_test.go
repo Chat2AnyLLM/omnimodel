@@ -1,8 +1,13 @@
 package commands
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -620,4 +625,187 @@ func TestNewClientDefaultServer(t *testing.T) {
 
 	const expectedDefault = "http://127.0.0.1:5000"
 	_ = expectedDefault // guard against renaming without updating
+}
+
+// ─── OAuth browser / no-browser flag ─────────────────────────────────────────
+
+func TestAuthCmdHasNoBrowserFlag(t *testing.T) {
+	if AuthCmd.Flags().Lookup("no-browser") == nil {
+		t.Error("auth: missing --no-browser flag")
+	}
+}
+
+func TestProviderAddHasNoBrowserFlag(t *testing.T) {
+	for _, sub := range ProviderCmd.Commands() {
+		if sub.Name() == "add" {
+			if sub.Flags().Lookup("no-browser") == nil {
+				t.Error("provider add: missing --no-browser flag")
+			}
+			return
+		}
+	}
+	t.Error("provider add: subcommand not found")
+}
+
+func TestOpenBrowserRejectsEmptyURL(t *testing.T) {
+	if err := openBrowser(""); err == nil {
+		t.Error("openBrowser should return an error for an empty URL")
+	}
+}
+
+// TestAuthAndCreateProviderOAuthPollingCompletes verifies that the CLI polling
+// loop detects a "complete" auth-status response and returns successfully, and
+// that it times out when the server never transitions to a terminal state.
+func TestAuthAndCreateProviderOAuthPollingCompletes(t *testing.T) {
+	// Speed up polling so the test finishes quickly.
+	origInterval := authPollInterval
+	authPollInterval = 50 * time.Millisecond
+	t.Cleanup(func() { authPollInterval = origInterval })
+
+	pollCount := 0
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/admin/providers/auth-and-create/github-copilot",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{
+				"requiresAuth":     true,
+				"verification_uri": "https://github.com/login/device",
+				"user_code":        "TEST-CODE",
+				"expires_in":       5
+			}`)
+		})
+	mux.HandleFunc("/api/admin/auth-status",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			pollCount++
+			if pollCount >= 2 {
+				fmt.Fprint(w, `{"status":"complete","providerId":"github-copilot-testuser"}`)
+			} else {
+				fmt.Fprint(w, `{"status":"awaiting_user"}`)
+			}
+		})
+
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	root := &cobra.Command{Use: "test"}
+	root.PersistentFlags().String("server", ts.URL, "")
+	root.PersistentFlags().String("api-key", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+
+	cmd := &cobra.Command{Use: "sub"}
+	addProviderAuthFlags(cmd)
+	if err := cmd.Flags().Set("no-browser", "true"); err != nil {
+		t.Fatalf("set no-browser: %v", err)
+	}
+	root.AddCommand(cmd)
+
+	var out strings.Builder
+	cmd.SetOut(&out)
+
+	if err := authAndCreateProvider(cmd, "github-copilot"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pollCount < 2 {
+		t.Errorf("expected at least 2 polls, got %d", pollCount)
+	}
+	if !strings.Contains(out.String(), "github-copilot-testuser") {
+		t.Errorf("expected provider ID in output, got: %q", out.String())
+	}
+}
+
+func TestAuthAndCreateProviderOAuthTimesOut(t *testing.T) {
+	origInterval := authPollInterval
+	authPollInterval = 50 * time.Millisecond
+	t.Cleanup(func() { authPollInterval = origInterval })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/admin/providers/auth-and-create/github-copilot",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			// expires_in=1 forces a 1-second timeout.
+			fmt.Fprint(w, `{
+				"requiresAuth":     true,
+				"verification_uri": "https://github.com/login/device",
+				"user_code":        "TEST-CODE",
+				"expires_in":       1
+			}`)
+		})
+	mux.HandleFunc("/api/admin/auth-status",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"awaiting_user"}`)
+		})
+
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	root := &cobra.Command{Use: "test"}
+	root.PersistentFlags().String("server", ts.URL, "")
+	root.PersistentFlags().String("api-key", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+
+	cmd := &cobra.Command{Use: "sub"}
+	addProviderAuthFlags(cmd)
+	if err := cmd.Flags().Set("no-browser", "true"); err != nil {
+		t.Fatalf("set no-browser: %v", err)
+	}
+	root.AddCommand(cmd)
+	cmd.SetOut(io.Discard)
+
+	err := authAndCreateProvider(cmd, "github-copilot")
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("expected timeout error, got: %v", err)
+	}
+}
+
+func TestAuthAndCreateProviderOAuthErrorStatus(t *testing.T) {
+	origInterval := authPollInterval
+	authPollInterval = 50 * time.Millisecond
+	t.Cleanup(func() { authPollInterval = origInterval })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/admin/providers/auth-and-create/github-copilot",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{
+				"requiresAuth":     true,
+				"verification_uri": "https://github.com/login/device",
+				"user_code":        "TEST-CODE",
+				"expires_in":       30
+			}`)
+		})
+	mux.HandleFunc("/api/admin/auth-status",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"error","error":"token exchange failed"}`)
+		})
+
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	root := &cobra.Command{Use: "test"}
+	root.PersistentFlags().String("server", ts.URL, "")
+	root.PersistentFlags().String("api-key", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+
+	cmd := &cobra.Command{Use: "sub"}
+	addProviderAuthFlags(cmd)
+	if err := cmd.Flags().Set("no-browser", "true"); err != nil {
+		t.Fatalf("set no-browser: %v", err)
+	}
+	root.AddCommand(cmd)
+	cmd.SetOut(io.Discard)
+
+	err := authAndCreateProvider(cmd, "github-copilot")
+	if err == nil {
+		t.Fatal("expected error from auth status, got nil")
+	}
+	if !strings.Contains(err.Error(), "token exchange failed") {
+		t.Errorf("expected auth error message, got: %v", err)
+	}
 }
