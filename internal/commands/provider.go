@@ -223,23 +223,17 @@ func promptForGitHubCopilotAuth(cmd *cobra.Command) error {
 
 	if strings.TrimSpace(method) == "" {
 		const (
-			optBrowser    = "Browser login (auto-open)"
-			optDeviceCode = "Device code (manual copy-paste)"
-			optToken      = "Personal token"
+			optOAuth = "Browser login"
+			optToken = "Personal token"
 		)
-		selectedMethod, err := SelectFromOptions("Authenticate with GitHub Copilot using:", []string{optBrowser, optDeviceCode, optToken})
+		selectedMethod, err := SelectFromOptions("Authenticate with GitHub Copilot using:", []string{optOAuth, optToken})
 		if err != nil {
 			return err
 		}
 		switch selectedMethod {
 		case optToken:
 			method = "token"
-		case optDeviceCode:
-			method = "oauth"
-			if err := cmd.Flags().Set("device", "true"); err != nil {
-				return err
-			}
-		default: // optBrowser
+		default: // optOAuth
 			method = "oauth"
 		}
 		if err := cmd.Flags().Set("method", method); err != nil {

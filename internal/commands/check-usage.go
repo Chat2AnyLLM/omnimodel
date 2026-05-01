@@ -41,6 +41,7 @@ func addUsageFlags(cmd *cobra.Command) {
 func runUsage(cmd *cobra.Command, args []string) error {
 	c := NewClient(cmd)
 	query := usageQuery(cmd)
+	out := cmd.OutOrStdout()
 
 	statsData, err := c.Get("/api/admin/metering/stats" + query)
 	if err != nil {
@@ -56,14 +57,31 @@ func runUsage(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse stats response: %w", err)
 	}
 
-	fmt.Println("Usage summary:")
-	fmt.Println(strings.Repeat("─", 40))
-	printUsageValue("Requests", stats["total_requests"])
-	printUsageValue("Input tokens", stats["total_input_tokens"])
-	printUsageValue("Output tokens", stats["total_output_tokens"])
-	printUsageValue("Total tokens", stats["total_tokens"])
-	printUsageValue("Average latency ms", stats["avg_latency_ms"])
-	printUsageValue("Errors", stats["error_count"])
+	if err := PrintSection(out, "Usage summary"); err != nil {
+		return err
+	}
+	if filters := activeUsageFilters(cmd); len(filters) > 0 {
+		filterTable := NewTable("FILTER", "VALUE")
+		for _, filter := range filters {
+			filterTable.AddRow(filter[0], filter[1])
+		}
+		if err := filterTable.Render(out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	summary := NewTable("METRIC", "VALUE")
+	summary.AddRow("Requests", fmt.Sprint(stats["total_requests"]))
+	summary.AddRow("Input tokens", fmt.Sprint(stats["total_input_tokens"]))
+	summary.AddRow("Output tokens", fmt.Sprint(stats["total_output_tokens"]))
+	summary.AddRow("Total tokens", fmt.Sprint(stats["total_tokens"]))
+	summary.AddRow("Average latency ms", fmt.Sprint(stats["avg_latency_ms"]))
+	summary.AddRow("Errors", fmt.Sprint(stats["error_count"]))
+	if err := summary.Render(out); err != nil {
+		return err
+	}
 
 	breakdown, _ := cmd.Flags().GetString("breakdown")
 	path, err := usageBreakdownPath(breakdown)
@@ -87,17 +105,21 @@ func runUsage(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Println()
-	fmt.Printf("Usage by %s:\n", breakdown)
-	fmt.Println(strings.Repeat("─", 80))
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
+	if err := PrintSection(out, fmt.Sprintf("Usage by %s", usageBreakdownTitle(breakdown))); err != nil {
+		return err
+	}
+	table := usageBreakdownTable(breakdown)
 	for _, item := range items {
 		row, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		printUsageBreakdownRow(breakdown, row)
+		addUsageBreakdownRow(table, breakdown, row)
 	}
-	return nil
+	return table.Render(out)
 }
 
 func usageQuery(cmd *cobra.Command) string {
@@ -112,6 +134,40 @@ func usageQuery(cmd *cobra.Command) string {
 		return ""
 	}
 	return "?" + params.Encode()
+}
+
+func activeUsageFilters(cmd *cobra.Command) [][2]string {
+	filters := make([][2]string, 0, 6)
+	for _, entry := range []struct {
+		flag  string
+		label string
+	}{
+		{flag: "provider-id", label: "Provider"},
+		{flag: "model-id", label: "Model"},
+		{flag: "client", label: "Client"},
+		{flag: "api-shape", label: "API shape"},
+		{flag: "since", label: "Since"},
+		{flag: "until", label: "Until"},
+	} {
+		value, _ := cmd.Flags().GetString(entry.flag)
+		if value != "" {
+			filters = append(filters, [2]string{entry.label, value})
+		}
+	}
+	return filters
+}
+
+func usageBreakdownTitle(breakdown string) string {
+	switch breakdown {
+	case "providers":
+		return "provider"
+	case "models":
+		return "model"
+	case "clients":
+		return "client"
+	default:
+		return breakdown
+	}
 }
 
 func usageBreakdownPath(breakdown string) (string, error) {
@@ -129,11 +185,19 @@ func usageBreakdownPath(breakdown string) (string, error) {
 	}
 }
 
-func printUsageValue(label string, value any) {
-	fmt.Printf("  %-20s %v\n", label+":", value)
+func usageBreakdownTable(breakdown string) *Table {
+	labelHeader := map[string]string{
+		"provider":  "PROVIDER",
+		"providers": "PROVIDER",
+		"model":     "MODEL",
+		"models":    "MODEL",
+		"client":    "CLIENT",
+		"clients":   "CLIENT",
+	}[breakdown]
+	return NewTable(labelHeader, "REQUESTS", "TOKENS", "AVG LATENCY MS")
 }
 
-func printUsageBreakdownRow(breakdown string, row map[string]any) {
+func addUsageBreakdownRow(table *Table, breakdown string, row map[string]any) {
 	labelKey := map[string]string{
 		"provider":  "provider_id",
 		"providers": "provider_id",
@@ -146,6 +210,10 @@ func printUsageBreakdownRow(breakdown string, row map[string]any) {
 	if label == "" {
 		label = "(unknown)"
 	}
-	fmt.Printf("  %-36s requests=%v tokens=%v avg_latency_ms=%v\n",
-		padRight(label, 36), row["requests"], row["total_tokens"], row["avg_latency_ms"])
+	table.AddRow(
+		label,
+		fmt.Sprint(row["requests"]),
+		fmt.Sprint(row["total_tokens"]),
+		fmt.Sprint(row["avg_latency_ms"]),
+	)
 }

@@ -3,7 +3,6 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -34,6 +33,7 @@ func runServerStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	out := cmd.OutOrStdout()
 	status, _ := resp["status"].(string)
 	uptime, _ := resp["uptime"].(string)
 	modelCount, _ := resp["modelCount"].(float64)
@@ -41,56 +41,102 @@ func runServerStatus(cmd *cobra.Command, args []string) error {
 	rateLimitSeconds := resp["rateLimitSeconds"]
 	rateLimitWait, _ := resp["rateLimitWait"].(bool)
 
-	activeProviders := []string{}
+	if err := PrintSection(out, "Server status"); err != nil {
+		return err
+	}
+	if err := PrintKeyValue(out, "Status", status); err != nil {
+		return err
+	}
+	if err := PrintKeyValue(out, "Uptime", uptime); err != nil {
+		return err
+	}
+	if err := PrintKeyValue(out, "Model count", fmt.Sprintf("%.0f", modelCount)); err != nil {
+		return err
+	}
+	if err := PrintKeyValue(out, "Manual approve", manualApprove); err != nil {
+		return err
+	}
+	if rateLimitSeconds != nil {
+		if err := PrintKeyValue(out, "Rate limit", fmt.Sprintf("%vs (wait=%v)", rateLimitSeconds, rateLimitWait)); err != nil {
+			return err
+		}
+	} else if err := PrintKeyValue(out, "Rate limit", "none"); err != nil {
+		return err
+	}
+
+	providerTable := NewTable("NAME", "ID")
+	providerCount := 0
 	if providers, ok := resp["activeProviders"].([]interface{}); ok {
 		for _, entry := range providers {
 			provider, _ := entry.(map[string]interface{})
 			name, _ := provider["name"].(string)
 			id, _ := provider["id"].(string)
-			if name != "" && id != "" {
-				activeProviders = append(activeProviders, fmt.Sprintf("%s (%s)", name, id))
+			if name == "" && id == "" {
+				continue
 			}
+			providerTable.AddRow(name, id)
+			providerCount++
 		}
-	}
-	activeProvider := "none"
-	if len(activeProviders) > 0 {
-		activeProvider = strings.Join(activeProviders, ", ")
 	} else if ap, ok := resp["activeProvider"].(map[string]interface{}); ok {
 		name, _ := ap["name"].(string)
 		id, _ := ap["id"].(string)
-		activeProvider = fmt.Sprintf("%s (%s)", name, id)
+		if name != "" || id != "" {
+			providerTable.AddRow(name, id)
+			providerCount = 1
+		}
 	}
-
-	fmt.Printf("Status:          %s\n", status)
-	fmt.Printf("Uptime:          %s\n", uptime)
-	fmt.Printf("Active provider: %s\n", activeProvider)
-	fmt.Printf("Model count:     %.0f\n", modelCount)
-	fmt.Printf("Manual approve:  %v\n", manualApprove)
-	if rateLimitSeconds != nil {
-		fmt.Printf("Rate limit:      %vs (wait=%v)\n", rateLimitSeconds, rateLimitWait)
-	} else {
-		fmt.Printf("Rate limit:      none\n")
+	if providerCount > 0 {
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+		if err := PrintSection(out, "Active providers"); err != nil {
+			return err
+		}
+		if err := providerTable.Render(out); err != nil {
+			return err
+		}
+	} else if err := PrintKeyValue(out, "Active providers", "none"); err != nil {
+		return err
 	}
 
 	if services, ok := resp["services"].(map[string]interface{}); ok {
-		fmt.Println("\nServices:")
-		fmt.Printf("  API:      %v\n", services["api"])
-		fmt.Printf("  Database: %v\n", services["database"])
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+		if err := PrintSection(out, "Services"); err != nil {
+			return err
+		}
+		serviceTable := NewTable("SERVICE", "STATUS")
+		serviceTable.AddRow("API", fmt.Sprint(services["api"]))
+		serviceTable.AddRow("Database", fmt.Sprint(services["database"]))
 		if providers, ok := services["providers"].(map[string]interface{}); ok {
-			fmt.Printf("  Providers: %v total, %v active\n",
-				providers["total"], providers["active"])
+			serviceTable.AddRow("Providers", fmt.Sprintf("%v total, %v active", providers["total"], providers["active"]))
+		}
+		if err := serviceTable.Render(out); err != nil {
+			return err
 		}
 	}
 
 	if authFlow, ok := resp["authFlow"].(map[string]interface{}); ok && authFlow != nil {
 		flowStatus, _ := authFlow["status"].(string)
 		providerID, _ := authFlow["providerId"].(string)
-		fmt.Printf("\nActive auth flow: %s (%s)\n", flowStatus, providerID)
-		if uc, ok := authFlow["userCode"].(string); ok {
-			fmt.Printf("  User code: %s\n", uc)
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
 		}
-		if url, ok := authFlow["instructionURL"].(string); ok {
-			fmt.Printf("  Visit:     %s\n", url)
+		if err := PrintSection(out, "Active auth flow"); err != nil {
+			return err
+		}
+		authTable := NewTable("FIELD", "VALUE")
+		authTable.AddRow("Status", flowStatus)
+		authTable.AddRow("Provider", providerID)
+		if uc, ok := authFlow["userCode"].(string); ok && uc != "" {
+			authTable.AddRow("User code", uc)
+		}
+		if url, ok := authFlow["instructionURL"].(string); ok && url != "" {
+			authTable.AddRow("Visit", url)
+		}
+		if err := authTable.Render(out); err != nil {
+			return err
 		}
 	}
 
@@ -118,25 +164,26 @@ var statusAuthCmd = &cobra.Command{
 
 		status, _ := resp["status"].(string)
 		if status == "idle" {
-			fmt.Println("No active authentication flow.")
-			return nil
+			return PrintEmpty(cmd.OutOrStdout(), "active authentication flow")
 		}
 
+		out := cmd.OutOrStdout()
 		providerID, _ := resp["providerId"].(string)
-		fmt.Printf("Provider:  %s\n", providerID)
-		fmt.Printf("Status:    %s\n", status)
-
+		if err := PrintSection(out, "Auth flow status"); err != nil {
+			return err
+		}
+		table := NewTable("FIELD", "VALUE")
+		table.AddRow("Provider", providerID)
+		table.AddRow("Status", status)
 		if uc, ok := resp["userCode"].(string); ok && uc != "" {
-			fmt.Printf("User code: %s\n", uc)
+			table.AddRow("User code", uc)
 		}
 		if url, ok := resp["instructionURL"].(string); ok && url != "" {
-			fmt.Printf("Visit:     %s\n", url)
+			table.AddRow("Visit", url)
 		}
 		if errMsg, ok := resp["error"].(string); ok && errMsg != "" {
-			fmt.Printf("Error:     %s\n", errMsg)
+			table.AddRow("Error", errMsg)
 		}
-
-		_ = strings.Repeat("", 0) // keep strings import
-		return nil
+		return table.Render(out)
 	},
 }

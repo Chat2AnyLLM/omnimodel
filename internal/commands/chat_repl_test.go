@@ -144,7 +144,7 @@ func TestHandleChatSlashCommandModelsFilterOutput(t *testing.T) {
 		t.Fatalf("expected handled result, got %+v", result)
 	}
 	text := out.String()
-	if !strings.Contains(text, "qwen3") || strings.Contains(text, "gpt-4") {
+	if !strings.Contains(text, "provider-b/qwen3") || strings.Contains(text, "provider-a/gpt-4") {
 		t.Fatalf("unexpected filtered output:\n%s", text)
 	}
 }

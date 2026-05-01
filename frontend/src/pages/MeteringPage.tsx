@@ -17,6 +17,16 @@ import {
 } from "@/api"
 import { SearchableSelect } from "@/components/SearchableSelect"
 
+type DateRangePreset = "today" | "yesterday" | "last7d" | "last30d" | "custom"
+
+type StoredDateRange = {
+  preset: DateRangePreset
+  since: string
+  until: string
+}
+
+const METERING_DATE_RANGE_KEY = "olp-metering-date-range"
+
 function sortItems<T>(
   items: Array<T>,
   sortKey: keyof T | null,
@@ -66,7 +76,89 @@ function formatDateTime(value: string) {
 }
 
 function isoInputValue(date: Date) {
-  return date.toISOString().slice(0, 16)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function startOfToday() {
+  const value = new Date()
+  value.setHours(0, 0, 0, 0)
+  return value
+}
+
+function startOfYesterday() {
+  const value = startOfToday()
+  value.setDate(value.getDate() - 1)
+  return value
+}
+
+function getPresetRange(preset: Exclude<DateRangePreset, "custom">): {
+  since: string
+  until: string
+} {
+  switch (preset) {
+    case "today": {
+      return { since: isoInputValue(startOfToday()), until: "" }
+    }
+    case "yesterday": {
+      const since = startOfYesterday()
+      const until = startOfToday()
+      return { since: isoInputValue(since), until: isoInputValue(until) }
+    }
+    case "last7d": {
+      const since = startOfToday()
+      since.setDate(since.getDate() - 6)
+      return { since: isoInputValue(since), until: "" }
+    }
+    case "last30d": {
+      const since = startOfToday()
+      since.setDate(since.getDate() - 29)
+      return { since: isoInputValue(since), until: "" }
+    }
+    default: {
+      return { since: isoInputValue(startOfToday()), until: "" }
+    }
+  }
+}
+
+function loadStoredDateRange(): StoredDateRange {
+  const fallback = { preset: "today" as const, ...getPresetRange("today") }
+
+  try {
+    const raw = localStorage.getItem(METERING_DATE_RANGE_KEY)
+    if (!raw) return fallback
+
+    const parsed = JSON.parse(raw) as Partial<StoredDateRange>
+    if (
+      parsed.preset !== "today"
+      && parsed.preset !== "yesterday"
+      && parsed.preset !== "last7d"
+      && parsed.preset !== "last30d"
+      && parsed.preset !== "custom"
+    ) {
+      return fallback
+    }
+
+    return {
+      preset: parsed.preset,
+      since: typeof parsed.since === "string" ? parsed.since : fallback.since,
+      until: typeof parsed.until === "string" ? parsed.until : fallback.until,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function saveStoredDateRange(value: StoredDateRange) {
+  try {
+    localStorage.setItem(METERING_DATE_RANGE_KEY, JSON.stringify(value))
+  } catch {
+    // ignore
+  }
 }
 
 function Card({
@@ -490,15 +582,12 @@ export function MeteringPage({
   showToast: (msg: string, type?: "success" | "error") => void
 }) {
   const { t } = useTranslation("metering")
-  const now = useMemo(() => new Date(), [])
-  const defaultSince = useMemo(() => {
-    const value = new Date(now)
-    value.setHours(value.getHours() - 24)
-    return isoInputValue(value)
-  }, [now])
+  const initialDateRange = useMemo(loadStoredDateRange, [])
 
-  const [since, setSince] = useState(defaultSince)
-  const [until, setUntil] = useState("")
+  const [selectedRangePreset, setSelectedRangePreset] =
+    useState<DateRangePreset>(initialDateRange.preset)
+  const [since, setSince] = useState(initialDateRange.since)
+  const [until, setUntil] = useState(initialDateRange.until)
   const [modelId, setModelId] = useState("")
   const [providerId, setProviderId] = useState("")
   const [client, setClient] = useState("")
@@ -605,6 +694,30 @@ export function MeteringPage({
       stopAutoRefresh()
     }
   }
+
+  const applyDateRange = (
+    preset: DateRangePreset,
+    nextSince: string,
+    nextUntil: string,
+  ) => {
+    setSelectedRangePreset(preset)
+    setSince(nextSince)
+    setUntil(nextUntil)
+    setPage(1)
+  }
+
+  const applyPreset = (preset: Exclude<DateRangePreset, "custom">) => {
+    const range = getPresetRange(preset)
+    applyDateRange(preset, range.since, range.until)
+  }
+
+  useEffect(() => {
+    saveStoredDateRange({
+      preset: selectedRangePreset,
+      since,
+      until,
+    })
+  }, [selectedRangePreset, since, until])
 
   useEffect(() => {
     let cancelled = false
@@ -800,87 +913,142 @@ export function MeteringPage({
       <Card style={{ padding: 18, overflow: "visible" }}>
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
           }}
         >
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("filters.since")}</span>
-            <input
-              className="sys-input"
-              type="datetime-local"
-              value={since}
-              onChange={(e) => {
-                setSince(e.target.value)
-                setPage(1)
-              }}
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("filters.until")}</span>
-            <input
-              className="sys-input"
-              type="datetime-local"
-              value={until}
-              onChange={(e) => {
-                setUntil(e.target.value)
-                setPage(1)
-              }}
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("filters.model")}</span>
-            <SearchableSelect
-              options={modelOptions}
-              value={modelId}
-              onChange={(v) => {
-                setModelId(v)
-                setPage(1)
-              }}
-              placeholder={t("filters.allModels")}
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("filters.provider")}</span>
-            <SearchableSelect
-              options={providerOptions}
-              value={providerId}
-              onChange={(v) => {
-                setProviderId(v)
-                setPage(1)
-              }}
-              placeholder={t("filters.allProviders")}
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("table.client")}</span>
-            <SearchableSelect
-              options={clientOptions}
-              value={client}
-              onChange={(v) => {
-                setClient(v)
-                setPage(1)
-              }}
-              placeholder={t("filters.allClients")}
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={labelStyle}>{t("filters.apiShape")}</span>
-            <select
-              className="sys-select"
-              value={apiShape}
-              onChange={(e) => {
-                setAPIShape(e.target.value)
-                setPage(1)
+          <div style={fieldStyle}>
+            <span style={labelStyle}>{t("filters.quickRange")}</span>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
               }}
             >
-              <option value="">{t("filters.all")}</option>
-              <option value="openai">openai</option>
-              <option value="anthropic">anthropic</option>
-              <option value="responses">responses</option>
-            </select>
-          </label>
+              {(["today", "yesterday", "last7d", "last30d"] as const).map(
+                (preset) => {
+                  const active = selectedRangePreset === preset
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => applyPreset(preset)}
+                      style={{
+                        borderColor:
+                          active ? "var(--color-primary)" : undefined,
+                        color: active ? "var(--color-text)" : undefined,
+                        background:
+                          active ?
+                            "color-mix(in srgb, var(--color-primary) 16%, transparent)"
+                          : undefined,
+                      }}
+                    >
+                      {t(`filters.${preset}`)}
+                    </button>
+                  )
+                },
+              )}
+              {selectedRangePreset === "custom" && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{
+                    borderColor: "var(--color-primary)",
+                    color: "var(--color-text)",
+                    background:
+                      "color-mix(in srgb, var(--color-primary) 16%, transparent)",
+                  }}
+                >
+                  {t("filters.custom")}
+                </button>
+              )}
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 12,
+            }}
+          >
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("filters.since")}</span>
+              <input
+                className="sys-input"
+                type="datetime-local"
+                value={since}
+                onChange={(e) => {
+                  applyDateRange("custom", e.target.value, until)
+                }}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("filters.until")}</span>
+              <input
+                className="sys-input"
+                type="datetime-local"
+                value={until}
+                onChange={(e) => {
+                  applyDateRange("custom", since, e.target.value)
+                }}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("filters.model")}</span>
+              <SearchableSelect
+                options={modelOptions}
+                value={modelId}
+                onChange={(v) => {
+                  setModelId(v)
+                  setPage(1)
+                }}
+                placeholder={t("filters.allModels")}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("filters.provider")}</span>
+              <SearchableSelect
+                options={providerOptions}
+                value={providerId}
+                onChange={(v) => {
+                  setProviderId(v)
+                  setPage(1)
+                }}
+                placeholder={t("filters.allProviders")}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("table.client")}</span>
+              <SearchableSelect
+                options={clientOptions}
+                value={client}
+                onChange={(v) => {
+                  setClient(v)
+                  setPage(1)
+                }}
+                placeholder={t("filters.allClients")}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>{t("filters.apiShape")}</span>
+              <select
+                className="sys-select"
+                value={apiShape}
+                onChange={(e) => {
+                  setAPIShape(e.target.value)
+                  setPage(1)
+                }}
+              >
+                <option value="">{t("filters.all")}</option>
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic</option>
+                <option value="responses">responses</option>
+              </select>
+            </label>
+          </div>
         </div>
       </Card>
 

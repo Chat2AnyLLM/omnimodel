@@ -16,6 +16,12 @@
     "errorsSubtext": "Requests recorded with a status code ≥ 400"
   },
   "filters": {
+    "quickRange": "Quick range",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "last7d": "Last 7 days",
+    "last30d": "Last 30 days",
+    "custom": "Custom",
     "since": "Since",
     "until": "Until",
     "model": "Model",

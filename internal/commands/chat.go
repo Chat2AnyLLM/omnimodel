@@ -476,9 +476,9 @@ func handleChatSlashCommand(cmd *cobra.Command, c *Client, session *chatSessionS
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No models match %q\n", filter)
 			return replCommandResult{handled: true}, nil
 		}
-		table := NewTable("MODEL", "OWNER", "NAME")
+		table := NewTable("SELECTOR", "NAME")
 		for _, model := range filtered {
-			table.AddRow(model.ID, model.Owner, model.Name)
+			table.AddRow(model.Selector, model.Name)
 		}
 		if err := table.Render(cmd.OutOrStdout()); err != nil {
 			return replCommandResult{}, err
@@ -508,7 +508,7 @@ func printChatHelp(cmd *cobra.Command) {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /model             Show the current model")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /model <id>        Switch to a different model")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /models            Open the model selector in a terminal")
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /models <filter>   List models matching a filter")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /models <filter>   List model selectors matching a filter")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  /quit, /exit       Leave the chat shell")
 }
 
@@ -519,17 +519,25 @@ type chatMessage struct {
 }
 
 type chatModelInfo struct {
-	ID    string
-	Owner string
-	Name  string
+	ID       string
+	Owner    string
+	Name     string
+	Selector string
+}
+
+func chatModelSelector(model chatModelInfo) string {
+	if model.Owner == "" || model.Owner == "virtual" || strings.HasPrefix(model.ID, model.Owner+"/") {
+		return model.ID
+	}
+	return model.Owner + "/" + model.ID
 }
 
 func promptModelPicker(prompt string, models []chatModelInfo) (string, error) {
 	items := make([]string, 0, len(models))
 	for _, model := range models {
-		label := model.ID
+		label := model.Selector
 		if model.Name != "" && model.Name != model.ID {
-			label = fmt.Sprintf("%s — %s", model.ID, model.Name)
+			label = fmt.Sprintf("%s — %s", model.Selector, model.Name)
 		}
 		items = append(items, label)
 	}
@@ -540,7 +548,7 @@ func promptModelPicker(prompt string, models []chatModelInfo) (string, error) {
 	}
 	for i, item := range items {
 		if item == selected {
-			return models[i].ID, nil
+			return models[i].Selector, nil
 		}
 	}
 	return "", nil
@@ -554,7 +562,7 @@ func filterChatModels(models []chatModelInfo, filter string) []chatModelInfo {
 
 	filtered := make([]chatModelInfo, 0, len(models))
 	for _, model := range models {
-		if strings.Contains(strings.ToLower(model.ID), filter) || strings.Contains(strings.ToLower(model.Name), filter) || strings.Contains(strings.ToLower(model.Owner), filter) {
+		if strings.Contains(strings.ToLower(model.ID), filter) || strings.Contains(strings.ToLower(model.Name), filter) || strings.Contains(strings.ToLower(model.Owner), filter) || strings.Contains(strings.ToLower(model.Selector), filter) {
 			filtered = append(filtered, model)
 		}
 	}
@@ -666,7 +674,8 @@ func listChatModels(c *Client) ([]chatModelInfo, error) {
 		id, _ := entry["id"].(string)
 		owner, _ := entry["owned_by"].(string)
 		name, _ := entry["display_name"].(string)
-		models = append(models, chatModelInfo{ID: id, Owner: owner, Name: name})
+		selector := chatModelSelector(chatModelInfo{ID: id, Owner: owner, Name: name})
+		models = append(models, chatModelInfo{ID: id, Owner: owner, Name: name, Selector: selector})
 	}
 
 	sort.Slice(models, func(i, j int) bool {
