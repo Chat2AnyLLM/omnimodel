@@ -1,39 +1,64 @@
-# OmniLLM
+<div align="center">
 
-<p align="center">
-  <strong>Intelligent LLM Router &mdash; Unify every AI provider behind one API.</strong>
-</p>
+# 🌐 OmniLLM
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" />
-  <img src="https://img.shields.io/npm/v/omnillm?style=flat-square&logo=npm" alt="npm" />
-  <a href="https://hub.docker.com/r/zhujian0805/omnillm"><img src="https://img.shields.io/docker/v/zhujian0805/omnillm?style=flat-square&logo=docker&label=docker" alt="Docker" /></a>
-  <img src="https://img.shields.io/github/license/OmniLLM/omnillm?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/github/stars/OmniLLM/omnillm?style=flat-square&logo=github" alt="Stars" />
-  <img src="https://img.shields.io/github/last-commit/OmniLLM/omnillm?style=flat-square&logo=github" alt="Last Commit" />
-</p>
+**Intelligent LLM Router &mdash; Unify every AI provider behind one OpenAI-compatible API.**
 
-<p align="center">
-  <a href="#-features">Features</a> &middot;
-  <a href="#-quick-start">Quick Start</a> &middot;
-  <a href="#-deployment">Deployment</a> &middot;
-  <a href="#%EF%B8%8F-configuration">Configuration</a> &middot;
-  <a href="#-supported-providers">Providers</a> &middot;
-  <a href="#-architecture">Architecture</a> &middot;
-  <a href="#-api-reference">API Reference</a> &middot;
-  <a href="#-faq">FAQ</a>
-</p>
+*One gateway. Every model. Zero rewrites.*
+
+<br/>
+
+[![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://golang.org)
+[![Bun](https://img.shields.io/badge/Bun-1.2+-fbf0df?style=for-the-badge&logo=bun&logoColor=black)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+
+[![npm version](https://img.shields.io/npm/v/omnillm?style=flat-square&logo=npm&color=CB3837)](https://www.npmjs.com/package/omnillm)
+[![Docker](https://img.shields.io/docker/v/zhujian0805/omnillm?style=flat-square&logo=docker&label=docker&color=2496ED)](https://hub.docker.com/r/zhujian0805/omnillm)
+[![License: MIT](https://img.shields.io/github/license/OmniLLM/omnillm?style=flat-square&color=green)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/OmniLLM/omnillm?style=flat-square&logo=github)](https://github.com/OmniLLM/omnillm/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/OmniLLM/omnillm?style=flat-square&logo=github)](https://github.com/OmniLLM/omnillm/commits)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/OmniLLM/omnillm/pulls)
+
+<br/>
+
+[🇨🇳 中文文档](README.zh-CN.md) &nbsp;|&nbsp;
+[✨ Features](#-features) &nbsp;|&nbsp;
+[🚀 Quick Start](#-quick-start) &nbsp;|&nbsp;
+[📦 Deployment](#-deployment) &nbsp;|&nbsp;
+[⚙️ Config](#%EF%B8%8F-configuration) &nbsp;|&nbsp;
+[🔌 Providers](#-supported-providers) &nbsp;|&nbsp;
+[🏗 Architecture](#-architecture) &nbsp;|&nbsp;
+[📡 API](#-api-reference) &nbsp;|&nbsp;
+[❓ FAQ](#-faq)
+
+</div>
 
 ---
 
-OmniLLM is a unified control plane and gateway for LLM model access. It sits between your applications/agents and upstream LLM providers, translating requests through a **Canonical Intermediate Format (CIF)** so any client can talk to any provider regardless of API shape.
+## 🤔 What is OmniLLM?
 
-> **TL;DR** &mdash; Point `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` at OmniLLM and your existing code works with every supported provider, with automatic failover, virtual models, metering, and a full admin console.
+OmniLLM is a unified control plane and API gateway for LLM model access. It sits between your applications, agents, and coding tools, and upstream LLM providers, translating requests through a **Canonical Intermediate Format (CIF)** so any client can talk to any provider regardless of API shape.
+
+> 💡 **TL;DR** &mdash; Point `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` at OmniLLM and your existing code works with **every** supported provider, with automatic failover, virtual models, metering, and a full admin console.
+
+### Why OmniLLM?
+
+| Problem | OmniLLM Solution |
+|---|---|
+| Different providers have different APIs | One unified OpenAI/Anthropic-compatible endpoint |
+| Provider outages break your app | Automatic priority-based failover across providers |
+| Juggling API keys for every tool | Single gateway key; rotate upstream keys in one place |
+| No visibility into model costs/usage | Per-request metering, token counts, latency tracking |
+| Manually configuring every AI coding tool | ToolConfig UI manages Claude Code, Codex, Droid & more |
+
+---
+
+## 📸 Screenshots
 
 ![OmniLLM Admin Console](docs/assets/admin-console.png)
 
 <details>
-<summary>More screenshots</summary>
+<summary>💬 Chat Interface &nbsp;|&nbsp; 🔀 Virtual Models &nbsp;|&nbsp; 🔧 ToolConfig</summary>
 
 ### Chat
 
@@ -53,22 +78,58 @@ OmniLLM is a unified control plane and gateway for LLM model access. It sits bet
 
 ## ✨ Features
 
-- **Unified API** &mdash; OpenAI (`/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/responses`) and Anthropic (`/v1/messages`, `/v1/messages/count_tokens`) endpoints from a single gateway
-- **7+ Provider Types** &mdash; GitHub Copilot, Alibaba DashScope, Azure OpenAI, Google, Kimi, Antigravity, any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, llama.cpp)
-- **Priority-Based Failover** &mdash; Automatic retry across providers when one fails mid-request
-- **Virtual Models** &mdash; Abstract model IDs with round-robin, random, priority, or weighted load-balancing
-- **CIF Translation** &mdash; Canonical Intermediate Format eliminates pairwise format translations; adding a provider requires only two adapters
-- **ToolConfig** &mdash; Manage config files for Claude Code, Codex, Droid, OpenCode, and AMP from a single admin UI
-- **Metering & Logging** &mdash; Per-request token counts, latency, provider attribution, client tracking, and live log streaming via SSE/WebSocket
+<table>
+<tr>
+<td width="50%">
+
+🔗 **Unified API**  
+OpenAI & Anthropic-compatible endpoints from a single gateway — no client rewrites needed.
+
+🔄 **Priority-Based Failover**  
+Automatically retries across providers when one fails mid-request.
+
+🎛 **Virtual Models**  
+Abstract model IDs with round-robin, random, priority, or weighted load-balancing.
+
+🧩 **CIF Translation**  
+Canonical Intermediate Format eliminates pairwise format translations.
+
+</td>
+<td width="50%">
+
+🔌 **7+ Provider Types**  
+GitHub Copilot, Alibaba DashScope, Azure OpenAI, Google, Kimi, Antigravity, and any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, llama.cpp).
+
+📊 **Metering & Logging**  
+Per-request token counts, latency, provider attribution, client tracking, and live log streaming via SSE/WebSocket.
+
+🛡 **Security First**  
+API key auth, SSRF protection, CORS restrictions, token masking, config editing guard.
+
+🔧 **ToolConfig**  
+Manage config files for Claude Code, Codex, Droid, OpenCode, and AMP from a single admin UI.
+
+</td>
+</tr>
+</table>
+
+Additional capabilities:
 - **Streaming Resilience** &mdash; Auto-retries failed SSE streams as non-streaming requests and re-streams locally
 - **Admin Console** &mdash; Provider switching, model discovery, log streaming, config editing, and virtual model management
-- **Security** &mdash; API key auth, SSRF protection, CORS restrictions, token masking, config editing guard
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+> **One-line install** &mdash; No config needed. Just run and go.
+
+```sh
+bunx omnillm@latest start
+```
+
+Then open `http://localhost:4141/admin/` in your browser.
+
+### Prerequisites (for development)
 
 - [Bun](https://bun.sh) >= 1.2
 - [Go](https://golang.org) >= 1.22
@@ -222,17 +283,19 @@ bun run omni start   # starts the gateway
 
 ## 🔌 Supported Providers
 
-| Provider | Authentication | Notes |
+| Provider | Auth Method | Notes |
 |---|---|---|
-| **GitHub Copilot** | OAuth device flow or token | Requires active Copilot subscription |
-| **Alibaba DashScope** | API key | Supports global and China regions; coding plan variant |
-| **OpenAI-Compatible** | API key (optional) | Any OpenAI-compatible endpoint: Ollama, vLLM, LM Studio, llama.cpp, OpenAI |
-| **Azure OpenAI** | API key | Configurable endpoint, API version, and deployments |
-| **Google** | API key | Generic Google provider |
-| **Kimi** | API key | Generic Kimi provider |
-| **Antigravity** | Google OAuth | Requires Google OAuth client credentials |
+| 🐙 **GitHub Copilot** | OAuth device flow or token | Requires active Copilot subscription |
+| 🟧 **Alibaba DashScope** | API key | Supports global and China regions; coding plan variant |
+| 🤖 **OpenAI-Compatible** | API key (optional) | Any OpenAI-compatible endpoint: Ollama, vLLM, LM Studio, llama.cpp, OpenAI |
+| ☁️ **Azure OpenAI** | API key | Configurable endpoint, API version, and deployments |
+| 🔵 **Google** | API key | Generic Google provider |
+| 🌙 **Kimi** | API key | Generic Kimi provider |
+| 🌐 **Antigravity** | Google OAuth | Requires Google OAuth client credentials |
 
 New providers are registered with canonical instance IDs derived from their endpoint URL and API key suffix, ensuring stable identification across restarts.
+
+> 💡 **Adding a new provider?** See [docs/ADDING_A_PROVIDER.md](docs/ADDING_A_PROVIDER.md) — only two CIF adapters are needed.
 
 ---
 
@@ -555,6 +618,22 @@ Frontend source lives in `frontend/` and uses Vite + React + Tailwind v4. In dev
 
 ---
 
+## 🤝 Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repository and create your branch from `main`
+2. **Install** dependencies: `bun install`
+3. **Make** your changes, following the code style (run `bun run lint` to check)
+4. **Test** your changes: `bun test`
+5. **Submit** a pull request — please describe what you changed and why
+
+> For adding new LLM providers, see [docs/ADDING_A_PROVIDER.md](docs/ADDING_A_PROVIDER.md).
+
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/OmniLLM/omnillm/pulls)
+
+---
+
 ## 🌟 Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=OmniLLM/omnillm&type=Date)](https://star-history.com/#OmniLLM/omnillm&Date)
@@ -564,3 +643,11 @@ Frontend source lives in `frontend/` and uses Vite + React + Tailwind v4. In dev
 ## 📄 License
 
 [MIT](LICENSE)
+
+---
+
+<div align="center">
+
+Made with ❤️ by the OmniLLM contributors &nbsp;·&nbsp; [⭐ Star us on GitHub](https://github.com/OmniLLM/omnillm)
+
+</div>
