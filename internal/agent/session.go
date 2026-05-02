@@ -44,8 +44,8 @@ func NewInMemorySessionStore(ttl time.Duration) *InMemorySessionStore {
 }
 
 func (s *InMemorySessionStore) Get(id string) *Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sess, ok := s.sessions[id]
 	if !ok {
 		return nil

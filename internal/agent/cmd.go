@@ -39,7 +39,7 @@ func ParseCommand(input string, currentMode string) CommandResult {
 		mode := "chat"
 		return CommandResult{
 			IsCommand: true,
-			Response:  "Chat mode disabled",
+			Response:  "Agent mode disabled",
 			NewMode:   &mode,
 		}
 	default:

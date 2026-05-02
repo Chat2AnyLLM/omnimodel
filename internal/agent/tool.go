@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"omnillm/internal/cif"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Tool defines a callable tool that an agent can use.
@@ -70,8 +72,12 @@ func (r *Registry) ToCIFTools() []cif.CIFTool {
 		if t.InputSchema != nil {
 			// Convert InputSchema to map[string]interface{}
 			data, err := json.Marshal(t.InputSchema)
-			if err == nil {
-				_ = json.Unmarshal(data, &schema)
+			if err != nil {
+				log.Warn().Err(err).Str("tool", t.Name).Msg("agent: failed to marshal tool InputSchema, using empty schema")
+			} else {
+				if err := json.Unmarshal(data, &schema); err != nil {
+					log.Warn().Err(err).Str("tool", t.Name).Msg("agent: failed to unmarshal tool InputSchema, using empty schema")
+				}
 			}
 		}
 		if schema == nil {

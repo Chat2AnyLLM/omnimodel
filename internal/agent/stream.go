@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // EventType represents the type of agent streaming event.
@@ -50,7 +52,11 @@ func SerializeToSSE(e Event, streamID string) []byte {
 				},
 			},
 		}
-		data, _ := json.Marshal(chunk)
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			log.Error().Err(err).Msg("agent: failed to marshal token event")
+			return nil
+		}
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	case EventToolCall:
@@ -67,7 +73,11 @@ func SerializeToSSE(e Event, streamID string) []byte {
 				},
 			},
 		}
-		data, _ := json.Marshal(chunk)
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			log.Error().Err(err).Msg("agent: failed to marshal tool_call event")
+			return nil
+		}
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	case EventToolResult:
@@ -84,7 +94,11 @@ func SerializeToSSE(e Event, streamID string) []byte {
 				},
 			},
 		}
-		data, _ := json.Marshal(chunk)
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			log.Error().Err(err).Msg("agent: failed to marshal tool_result event")
+			return nil
+		}
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	case EventDone:
@@ -97,7 +111,11 @@ func SerializeToSSE(e Event, streamID string) []byte {
 				"type":    "agent_error",
 			},
 		}
-		data, _ := json.Marshal(chunk)
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			log.Error().Err(err).Msg("agent: failed to marshal error event")
+			return nil
+		}
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	default:
