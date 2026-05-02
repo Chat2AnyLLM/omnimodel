@@ -222,7 +222,7 @@ func (db *Database) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id          ON chat_messages (session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at          ON chat_sessions (updated_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created_at  ON chat_messages (session_id, created_at, message_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_virtual_model_upstreams_vmodel_id ON virtual_model_upstreams (virtual_model_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_virtual_model_upstreams_virtual_model_id ON virtual_model_upstreams (virtual_model_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_virtual_model_upstreams_ordering  ON virtual_model_upstreams (virtual_model_id, priority, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_request_logs_created_at           ON request_logs (created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_request_logs_model_created_at     ON request_logs (model_id, created_at)`,

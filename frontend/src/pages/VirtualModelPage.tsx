@@ -7,6 +7,7 @@ import {
   getProviderModels,
   createVirtualModel,
   updateVirtualModel,
+  renameVirtualModel,
   deleteVirtualModel,
   type VirtualModel,
   type VirtualModelUpstream,
@@ -22,7 +23,7 @@ import {
   resolveUpstreamProvider,
 } from "@/lib/virtualmodels"
 
-const _log = createLogger("vmodel-page")
+const _log = createLogger("virtualmodel-page")
 
 interface Props {
   showToast: (msg: string, type?: "success" | "error") => void
@@ -75,7 +76,7 @@ const emptyUpstreamRow = (): UpstreamRow => ({
 
 export function VirtualModelPage({ showToast }: Props) {
   const confirm = useConfirm()
-  const [vmodels, setVmodels] = useState<Array<VirtualModel>>([])
+  const [virtualmodels, setVirtualmodels] = useState<Array<VirtualModel>>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<VirtualModel | null>(null)
   const [form, setForm] = useState<Partial<VirtualModel>>(emptyForm())
@@ -95,7 +96,7 @@ export function VirtualModelPage({ showToast }: Props) {
     setLoading(true)
     try {
       const data = await listVirtualModels()
-      setVmodels(data)
+      setVirtualmodels(data)
     } catch {
       showToast("Failed to load virtual models", "error")
     } finally {
@@ -232,7 +233,12 @@ export function VirtualModelPage({ showToast }: Props) {
         await createVirtualModel(payload as VirtualModel)
         showToast("Virtual model created", "success")
       } else {
-        await updateVirtualModel(form.virtual_model_id, payload as VirtualModel)
+        const oldID = selected?.virtual_model_id ?? form.virtual_model_id
+        const newID = form.virtual_model_id
+        if (oldID !== newID) {
+          await renameVirtualModel(oldID, newID)
+        }
+        await updateVirtualModel(newID, payload as VirtualModel)
         showToast("Virtual model updated", "success")
       }
       closeForm()
@@ -350,20 +356,21 @@ export function VirtualModelPage({ showToast }: Props) {
                   marginTop: 4,
                 }}
               >
-                {vmodels.length} virtual model{vmodels.length !== 1 ? "s" : ""}
+                {virtualmodels.length} virtual model
+                {virtualmodels.length !== 1 ? "s" : ""}
               </div>
             </div>
           </div>
 
           {loading ?
             <div style={emptyStateStyle}>Loading virtual models…</div>
-          : vmodels.length === 0 ?
+          : virtualmodels.length === 0 ?
             <div style={emptyStateStyle}>
               No virtual models yet. Click <strong>+ New Virtual Model</strong>{" "}
               to create one.
             </div>
           : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {vmodels.map((vm) => {
+              {virtualmodels.map((vm) => {
                 const isSelected =
                   selected?.virtual_model_id === vm.virtual_model_id
                 const virtualFamily = detectModelFamily(vm.virtual_model_id)
@@ -751,7 +758,7 @@ export function VirtualModelPage({ showToast }: Props) {
                           virtual_model_id: e.target.value,
                         }))
                       }
-                      disabled={!isNew}
+                      disabled={false}
                       placeholder="e.g. claude-mythos-5.0"
                     />
                   </Field>

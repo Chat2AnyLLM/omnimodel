@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"omnillm/internal/database"
 	"omnillm/internal/lib/modelrouting"
+	"omnillm/internal/lib/virtualmodelrouting"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -14,6 +16,7 @@ func SetupVirtualModelRoutes(router *gin.RouterGroup) {
 	router.POST("/virtualmodels", handleCreateVirtualModel)
 	router.GET("/virtualmodels/:id", handleGetVirtualModel)
 	router.PUT("/virtualmodels/:id", handleUpdateVirtualModel)
+	router.POST("/virtualmodels/:id/rename", handleRenameVirtualModel)
 	router.DELETE("/virtualmodels/:id", handleDeleteVirtualModel)
 }
 
@@ -109,18 +112,18 @@ func providerDisplayPrefix(instanceID string) string {
 
 func handleListVirtualModels(c *gin.Context) {
 	store := database.NewVirtualModelStore()
-	vmodels, err := store.GetAll()
+	virtualmodels, err := store.GetAll()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list virtual models")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list virtual models"})
 		return
 	}
 
-	result := make([]virtualModelResponse, 0, len(vmodels))
-	for i := range vmodels {
-		resp, err := vmWithUpstreams(&vmodels[i])
+	result := make([]virtualModelResponse, 0, len(virtualmodels))
+	for i := range virtualmodels {
+		resp, err := vmWithUpstreams(&virtualmodels[i])
 		if err != nil {
-			log.Warn().Err(err).Str("id", vmodels[i].VirtualModelID).Msg("Failed to load upstreams")
+			log.Warn().Err(err).Str("id", virtualmodels[i].VirtualModelID).Msg("Failed to load upstreams")
 			continue
 		}
 		result = append(result, *resp)
@@ -237,6 +240,47 @@ func handleUpdateVirtualModel(c *gin.Context) {
 
 	updated, _ := store.Get(id)
 	resp, _ := vmWithUpstreams(updated)
+	c.JSON(http.StatusOK, resp)
+}
+
+type renamePayload struct {
+	NewID string `json:"new_id" binding:"required"`
+}
+
+func handleRenameVirtualModel(c *gin.Context) {
+	oldID := c.Param("id")
+
+	var payload renamePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new_id is required"})
+		return
+	}
+
+	newID := strings.TrimSpace(payload.NewID)
+	if newID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new_id cannot be empty"})
+		return
+	}
+
+	store := database.NewVirtualModelStore()
+	if err := store.Rename(oldID, newID); err != nil {
+		msg := err.Error()
+		switch {
+		case msg == "virtual model not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "Virtual model not found"})
+		case msg == "virtual model ID already exists":
+			c.JSON(http.StatusConflict, gin.H{"error": "Virtual model ID already exists"})
+		default:
+			log.Error().Err(err).Str("old_id", oldID).Str("new_id", newID).Msg("Failed to rename virtual model")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rename virtual model"})
+		}
+		return
+	}
+
+	virtualmodelrouting.MigrateRoundRobinCursor(oldID, newID)
+
+	vm, _ := store.Get(newID)
+	resp, _ := vmWithUpstreams(vm)
 	c.JSON(http.StatusOK, resp)
 }
 

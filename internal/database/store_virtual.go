@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 )
 
@@ -91,6 +92,40 @@ func (s *VirtualModelStore) Update(r *VirtualModelRecord) error {
 func (s *VirtualModelStore) Delete(virtualModelID string) error {
 	_, err := s.db.db.Exec("DELETE FROM virtual_models WHERE virtual_model_id = ?", virtualModelID)
 	return err
+}
+
+func (s *VirtualModelStore) Rename(oldID string, newID string) error {
+	tx, err := s.db.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Verify old ID exists
+	var count int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM virtual_models WHERE virtual_model_id = ?", oldID).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("virtual model not found")
+	}
+
+	// Verify new ID does not exist
+	if err := tx.QueryRow("SELECT COUNT(*) FROM virtual_models WHERE virtual_model_id = ?", newID).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("virtual model ID already exists")
+	}
+
+	if _, err := tx.Exec("UPDATE virtual_models SET virtual_model_id = ?, updated_at = datetime('now') WHERE virtual_model_id = ?", newID, oldID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE virtual_model_upstreams SET virtual_model_id = ? WHERE virtual_model_id = ?", newID, oldID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // ─── Virtual model upstream operations ───────────────────────────────────────

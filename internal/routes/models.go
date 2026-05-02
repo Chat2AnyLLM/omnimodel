@@ -86,9 +86,9 @@ func handleModels(c *gin.Context) {
 	}
 
 	// Append enabled virtual models
-	vmodelStore := database.NewVirtualModelStore()
-	if vmodels, err := vmodelStore.GetAll(); err == nil {
-		for _, vm := range vmodels {
+	virtualmodelStore := database.NewVirtualModelStore()
+	if virtualmodels, err := virtualmodelStore.GetAll(); err == nil {
+		for _, vm := range virtualmodels {
 			if !vm.Enabled {
 				continue
 			}

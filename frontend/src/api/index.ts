@@ -953,6 +953,15 @@ export const deleteVirtualModel = (id: string) =>
     },
   )
 
+export const renameVirtualModel = (oldId: string, newId: string) =>
+  apiFetch<VirtualModel>(
+    `/api/admin/virtualmodels/${encodeURIComponent(oldId)}/rename`,
+    {
+      method: "POST",
+      body: JSON.stringify({ new_id: newId }),
+    },
+  )
+
 // ─── Config files ────────────────────────────────────────────────────────────
 
 export interface ConfigFileEntry {

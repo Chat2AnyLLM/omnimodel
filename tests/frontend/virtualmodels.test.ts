@@ -4,9 +4,9 @@ import {
   detectModelFamily,
   formatVirtualModelUpstreamSummary,
   resolveUpstreamProvider,
-} from "../../frontend/src/lib/vmodels"
+} from "../../frontend/src/lib/virtualmodels"
 
-describe("vmodels helpers", () => {
+describe("virtualmodels helpers", () => {
   test("detectModelFamily recognizes common model families", () => {
     expect(detectModelFamily("claude-sonnet-4.5")).toBe("Claude")
     expect(detectModelFamily("gpt-4o")).toBe("OpenAI")

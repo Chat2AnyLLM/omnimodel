@@ -50,14 +50,14 @@ func resolveRequestedModels(requestID, requestedModel string) []resolvedModelAtt
 
 	normalizedModel := modelrouting.NormalizeModelName(requestedModel)
 
-	vmodelStore := database.NewVirtualModelStore()
-	vm, err := vmodelStore.Get(requestedModel)
+	virtualmodelStore := database.NewVirtualModelStore()
+	vm, err := virtualmodelStore.Get(requestedModel)
 	if err != nil {
 		log.Warn().Err(err).Str("request_id", requestID).Str("model", requestedModel).Str("normalized_model", normalizedModel).Msg("Failed to load virtual model")
 		return []resolvedModelAttempt{{RequestedModel: requestedModel, NormalizedModel: normalizedModel}}
 	}
 	if vm == nil && normalizedModel != requestedModel {
-		vm, err = vmodelStore.Get(normalizedModel)
+		vm, err = virtualmodelStore.Get(normalizedModel)
 		if err != nil {
 			log.Warn().Err(err).Str("request_id", requestID).Str("model", requestedModel).Str("normalized_model", normalizedModel).Msg("Failed to load normalized virtual model")
 			return []resolvedModelAttempt{{RequestedModel: requestedModel, NormalizedModel: normalizedModel}}

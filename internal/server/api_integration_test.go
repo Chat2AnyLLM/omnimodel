@@ -761,8 +761,8 @@ func TestAnthropicMessagesRouteStripsPrefixedVirtualModelUpstreamID(t *testing.T
 		nil,
 	)
 
-	vmodelStore := database.NewVirtualModelStore()
-	if err := vmodelStore.Create(&database.VirtualModelRecord{
+	virtualmodelStore := database.NewVirtualModelStore()
+	if err := virtualmodelStore.Create(&database.VirtualModelRecord{
 		VirtualModelID: virtualModel,
 		Name:           "Prefixed Upstream Test",
 		Description:    "Ensure prefixed upstream model IDs are preserved",
@@ -772,7 +772,7 @@ func TestAnthropicMessagesRouteStripsPrefixedVirtualModelUpstreamID(t *testing.T
 	}); err != nil {
 		t.Fatalf("create virtual model: %v", err)
 	}
-	t.Cleanup(func() { _ = vmodelStore.Delete(virtualModel) })
+	t.Cleanup(func() { _ = virtualmodelStore.Delete(virtualModel) })
 
 	upstreamStore := database.NewVirtualModelUpstreamStore()
 	if err := upstreamStore.SetForVModel(virtualModel, []database.VirtualModelUpstreamRecord{{
@@ -826,8 +826,8 @@ func TestAnthropicMessagesRouteRoutesVirtualModelsBeforeProviderExecution(t *tes
 	nil,
 	)
 
-	vmodelStore := database.NewVirtualModelStore()
-	if err := vmodelStore.Create(&database.VirtualModelRecord{
+	virtualmodelStore := database.NewVirtualModelStore()
+	if err := virtualmodelStore.Create(&database.VirtualModelRecord{
 	VirtualModelID: virtualModel,
 	Name:           "Claude Mythos 5.0",
 	Description:    "Anthropic virtual model alias",
@@ -838,7 +838,7 @@ func TestAnthropicMessagesRouteRoutesVirtualModelsBeforeProviderExecution(t *tes
 	t.Fatalf("failed to create virtual model: %v", err)
 	}
 	t.Cleanup(func() {
-	_ = vmodelStore.Delete(virtualModel)
+	_ = virtualmodelStore.Delete(virtualModel)
 	})
 
 	upstreamStore := database.NewVirtualModelUpstreamStore()

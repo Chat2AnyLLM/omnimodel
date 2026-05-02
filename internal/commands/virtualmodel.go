@@ -39,6 +39,8 @@ func init() {
 
 	vmDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation")
 	VirtualModelCmd.AddCommand(vmDeleteCmd)
+
+	VirtualModelCmd.AddCommand(vmRenameCmd)
 }
 
 // ─── list ─────────────────────────────────────────────────────────────────────
@@ -266,6 +268,31 @@ var vmDeleteCmd = &cobra.Command{
 			return nil
 		}
 		SuccessMsg(cmd,"Virtual model '%s' deleted.", args[0])
+		return nil
+	},
+}
+
+// ─── rename ───────────────────────────────────────────────────────────────────
+
+var vmRenameCmd = &cobra.Command{
+	Use:   "rename <old-id> <new-id>",
+	Short: "Rename a virtual model",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		oldID := args[0]
+		newID := args[1]
+
+		c := NewClient(cmd)
+		body := map[string]string{"new_id": newID}
+		data, err := c.Post("/api/admin/virtualmodels/"+oldID+"/rename", body)
+		if err != nil {
+			return err
+		}
+		if c.IsJSON() {
+			c.PrintJSON(data)
+			return nil
+		}
+		SuccessMsg(cmd, "Virtual model '%s' renamed to '%s'.", oldID, newID)
 		return nil
 	},
 }

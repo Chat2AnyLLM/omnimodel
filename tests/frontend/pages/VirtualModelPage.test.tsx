@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { Model, Provider, VirtualModel } from "../../../frontend/src/api"
 
-import { formatVirtualModelUpstreamSummary } from "../../../frontend/src/lib/vmodels"
+import { formatVirtualModelUpstreamSummary } from "../../../frontend/src/lib/virtualmodels"
 
 const providers: Array<Provider> = [
   {

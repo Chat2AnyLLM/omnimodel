@@ -94,3 +94,13 @@ func moveToFront(upstreams []database.VirtualModelUpstreamRecord, idx int) []dat
 	ordered = append(ordered, upstreams[idx+1:]...)
 	return ordered
 }
+
+func MigrateRoundRobinCursor(oldID, newID string) {
+	rrMu.Lock()
+	defer rrMu.Unlock()
+
+	if cursor, exists := rrState[oldID]; exists {
+		rrState[newID] = cursor
+		delete(rrState, oldID)
+	}
+}

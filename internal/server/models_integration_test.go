@@ -23,7 +23,7 @@ func TestModelsEndpointIncludesEnabledVirtualModels(t *testing.T) {
 
 	store := database.NewVirtualModelStore()
 	if err := store.Create(&database.VirtualModelRecord{
-		VirtualModelID: "vmodel-1",
+		VirtualModelID: "virtualmodel-1",
 		Name:           "Virtual Model",
 		Description:    "Aggregated route",
 		APIShape:       "responses",
@@ -55,7 +55,7 @@ func TestModelsEndpointIncludesEnabledVirtualModels(t *testing.T) {
 		if model["id"] == "provider-model" {
 			foundProvider = true
 		}
-		if model["id"] == "vmodel-1" {
+		if model["id"] == "virtualmodel-1" {
 			foundVirtual = true
 			if model["owned_by"] != "virtual" {
 				t.Fatalf("unexpected virtual model owner: %#v", model)
