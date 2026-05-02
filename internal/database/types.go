@@ -128,6 +128,7 @@ type VirtualModelUpstreamRecord struct {
 	Weight         int       `json:"weight"`
 	Priority       int       `json:"priority"`
 	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // AccessTokenRecord holds a generated access token for authenticating with the proxy.

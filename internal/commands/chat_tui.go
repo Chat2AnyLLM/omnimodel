@@ -802,7 +802,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 
 func runChatTUI(c *Client, sessionID, model string, history []chatMessage) error {
 	m := newChatTUIModel(c, sessionID, model, history)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	go func() { p.Send(progReadyMsg{p: p}) }()
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI: %w", err)

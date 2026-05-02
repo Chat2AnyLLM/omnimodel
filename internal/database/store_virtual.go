@@ -1,6 +1,9 @@
 package database
 
-import "database/sql"
+import (
+	"database/sql"
+	"strings"
+)
 
 // ─── Virtual model operations ─────────────────────────────────────────────────
 
@@ -44,8 +47,10 @@ func (s *VirtualModelStore) Get(virtualModelID string) (*VirtualModelRecord, err
 	var createdAtStr, updatedAtStr string
 	err := s.db.db.QueryRow(`
 		SELECT virtual_model_id, name, description, api_shape, lb_strategy, enabled, created_at, updated_at
-		FROM virtual_models WHERE virtual_model_id = ?
-	`, virtualModelID).Scan(&r.VirtualModelID, &r.Name, &r.Description, &r.APIShape, &r.LbStrategy, &enabledInt, &createdAtStr, &updatedAtStr)
+		FROM virtual_models WHERE virtual_model_id = ? OR LOWER(virtual_model_id) = ?
+		ORDER BY CASE WHEN virtual_model_id = ? THEN 0 ELSE 1 END, virtual_model_id ASC
+		LIMIT 1
+	`, virtualModelID, strings.ToLower(virtualModelID), virtualModelID).Scan(&r.VirtualModelID, &r.Name, &r.Description, &r.APIShape, &r.LbStrategy, &enabledInt, &createdAtStr, &updatedAtStr)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -100,7 +105,7 @@ func NewVirtualModelUpstreamStore() *VirtualModelUpstreamStore {
 
 func (s *VirtualModelUpstreamStore) GetForVModel(virtualModelID string) ([]VirtualModelUpstreamRecord, error) {
 	rows, err := s.db.db.Query(`
-		SELECT id, virtual_model_id, provider_id, model_id, weight, priority, created_at
+		SELECT id, virtual_model_id, provider_id, model_id, weight, priority, created_at, updated_at
 		FROM virtual_model_upstreams
 		WHERE virtual_model_id = ?
 		ORDER BY priority ASC, id ASC
@@ -113,11 +118,12 @@ func (s *VirtualModelUpstreamStore) GetForVModel(virtualModelID string) ([]Virtu
 	var records []VirtualModelUpstreamRecord
 	for rows.Next() {
 		var r VirtualModelUpstreamRecord
-		var createdAtStr string
-		if err := rows.Scan(&r.ID, &r.VirtualModelID, &r.ProviderID, &r.ModelID, &r.Weight, &r.Priority, &createdAtStr); err != nil {
+		var createdAtStr, updatedAtStr string
+		if err := rows.Scan(&r.ID, &r.VirtualModelID, &r.ProviderID, &r.ModelID, &r.Weight, &r.Priority, &createdAtStr, &updatedAtStr); err != nil {
 			return nil, err
 		}
 		r.CreatedAt = parseTime(createdAtStr)
+		r.UpdatedAt = parseTime(updatedAtStr)
 		records = append(records, r)
 	}
 	return records, nil

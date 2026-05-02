@@ -51,10 +51,17 @@ func resolveRequestedModels(requestID, requestedModel string) []resolvedModelAtt
 	normalizedModel := modelrouting.NormalizeModelName(requestedModel)
 
 	vmodelStore := database.NewVirtualModelStore()
-	vm, err := vmodelStore.Get(normalizedModel)
+	vm, err := vmodelStore.Get(requestedModel)
 	if err != nil {
-		log.Warn().Err(err).Str("request_id", requestID).Str("model", requestedModel).Msg("Failed to load virtual model")
+		log.Warn().Err(err).Str("request_id", requestID).Str("model", requestedModel).Str("normalized_model", normalizedModel).Msg("Failed to load virtual model")
 		return []resolvedModelAttempt{{RequestedModel: requestedModel, NormalizedModel: normalizedModel}}
+	}
+	if vm == nil && normalizedModel != requestedModel {
+		vm, err = vmodelStore.Get(normalizedModel)
+		if err != nil {
+			log.Warn().Err(err).Str("request_id", requestID).Str("model", requestedModel).Str("normalized_model", normalizedModel).Msg("Failed to load normalized virtual model")
+			return []resolvedModelAttempt{{RequestedModel: requestedModel, NormalizedModel: normalizedModel}}
+		}
 	}
 	if vm == nil || !vm.Enabled {
 		return []resolvedModelAttempt{{RequestedModel: requestedModel, NormalizedModel: normalizedModel}}
@@ -75,26 +82,28 @@ func resolveRequestedModels(requestID, requestedModel string) []resolvedModelAtt
 
 	attempts := make([]resolvedModelAttempt, 0, len(ordered))
 	for _, upstream := range ordered {
-		// Preserve the stored upstream model_id exactly as configured. Virtual-model
-		// upstreams may intentionally include a provider prefix/subtitle segment
-		// (e.g. "alipay01/DeepSeek-V4-Flash") because some upstreams require the
-		// prefixed form as the actual request model identifier. We still derive the
-		// bare model for normalization/debugging, but execution must use the stored
-		// model string verbatim.
-		_, bareUpstreamModel := modelrouting.ParseProviderPrefix(upstream.ModelID)
+		upstreamPrefix, bareUpstreamModel := modelrouting.ParseProviderPrefix(upstream.ModelID)
+		executionModel := upstream.ModelID
+		providerID := upstream.ProviderID
+		if upstreamPrefix != "" {
+			executionModel = bareUpstreamModel
+			if providerID == "" {
+				providerID = resolveProviderPrefix(upstreamPrefix)
+			}
+		}
 
 		log.Debug().
 			Str("request_id", requestID).
 			Str("virtual_model", vm.VirtualModelID).
 			Str("upstream", upstream.ModelID).
-			Str("bare_model", bareUpstreamModel).
-			Str("provider", upstream.ProviderID).
+			Str("execution_model", executionModel).
+			Str("provider", providerID).
 			Str("strategy", string(vm.LbStrategy)).
 			Msg("Virtual model routing candidate")
 		attempts = append(attempts, resolvedModelAttempt{
-			RequestedModel:  upstream.ModelID,
-			NormalizedModel: modelrouting.NormalizeModelName(bareUpstreamModel),
-			ProviderID:      upstream.ProviderID,
+			RequestedModel:  executionModel,
+			NormalizedModel: modelrouting.NormalizeModelName(executionModel),
+			ProviderID:      providerID,
 		})
 	}
 

@@ -735,19 +735,18 @@ func TestAnthropicMessagesRouteNormalizesAliasesBeforeProviderExecution(t *testi
 	}
 }
 
-// TestAnthropicMessagesRoutePreservesPrefixedVirtualModelUpstreamID is a regression
-// test for the bug where virtual-model upstreams stored with a provider-prefix
-// (e.g. "alipay01/DeepSeek-V4-Flash") had the prefix stripped before execution,
-// causing upstream providers that require the prefixed form to receive an invalid
-// model ID and return 400.
-func TestAnthropicMessagesRoutePreservesPrefixedVirtualModelUpstreamID(t *testing.T) {
+// TestAnthropicMessagesRouteStripsPrefixedVirtualModelUpstreamID verifies that
+// virtual-model upstreams stored with a provider prefix use that prefix for provider
+// selection but send only the bare model ID upstream.
+func TestAnthropicMessagesRouteStripsPrefixedVirtualModelUpstreamID(t *testing.T) {
 	const virtualModel = "prefixed-upstream-test"
 	const storedUpstreamModel = "alipay01/DeepSeek-V4-Flash"
+	const upstreamModel = "DeepSeek-V4-Flash"
 
 	var executedModel string
 	providerID := registerStubProvider(
 		t,
-		storedUpstreamModel,
+		upstreamModel,
 		func(_ context.Context, req *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
 			executedModel = req.Model
 			return &cif.CanonicalResponse{
@@ -799,8 +798,8 @@ func TestAnthropicMessagesRoutePreservesPrefixedVirtualModelUpstreamID(t *testin
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 	}
-	if executedModel != storedUpstreamModel {
-		t.Fatalf("upstream model should be preserved as %q, but got %q — provider prefix was stripped", storedUpstreamModel, executedModel)
+	if executedModel != upstreamModel {
+		t.Fatalf("upstream model should be stripped to %q, got %q", upstreamModel, executedModel)
 	}
 }
 

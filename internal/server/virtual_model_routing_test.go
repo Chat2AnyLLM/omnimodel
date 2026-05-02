@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -260,8 +261,28 @@ func TestVirtualModelRouting_ModelForwardedBareToUpstream(t *testing.T) {
 	}
 }
 
-// TestVirtualModelRouting_DisabledVirtualModelReturnsError verifies that a
-// request to a disabled virtual model is rejected.
+func TestVirtualModelRouting_ModelIDCaseInsensitive(t *testing.T) {
+	sfx := fmt.Sprintf("%d", stubProviderCounter.Add(1))
+	vmID := "Vm-Case-" + sfx
+	pID := "vm-case-p1-" + sfx
+
+	var capturedModel string
+	setupVirtualModel(t, vmID, database.LbStrategyPriority, []vmUpstreamSpec{
+		{providerID: pID, modelID: "case-upstream-model", capturedModel: &capturedModel},
+	})
+
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	status, body := chatCompletions(t, srv.URL, strings.ToLower(vmID))
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, body)
+	}
+	if capturedModel != "case-upstream-model" {
+		t.Errorf("expected upstream to receive bare model %q, got %q", "case-upstream-model", capturedModel)
+	}
+}
+
 func TestVirtualModelRouting_DisabledVirtualModelReturnsError(t *testing.T) {
 	sfx := fmt.Sprintf("%d", stubProviderCounter.Add(1))
 	vmID := "vm-disabled-" + sfx

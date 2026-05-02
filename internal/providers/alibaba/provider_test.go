@@ -340,8 +340,6 @@ func TestRemapModel(t *testing.T) {
 	}
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
 func modelIDs(models []types.Model) []string {
 	ids := make([]string, len(models))
 	for i, m := range models {

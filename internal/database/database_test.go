@@ -264,6 +264,25 @@ func TestVirtualModelStoresCRUD(t *testing.T) {
 	if err != nil || got == nil || got.Name != "VM 1" {
 		t.Fatalf("unexpected virtual model: %#v err=%v", got, err)
 	}
+	gotCaseInsensitive, err := vmStore.Get("VM-1")
+	if err != nil || gotCaseInsensitive == nil || gotCaseInsensitive.VirtualModelID != "vm-1" {
+		t.Fatalf("expected case-insensitive virtual model lookup, got %#v err=%v", gotCaseInsensitive, err)
+	}
+	caseVariant := &VirtualModelRecord{
+		VirtualModelID: "VM-1",
+		Name:           "VM 1 exact case",
+		Description:    "test",
+		APIShape:       "openai",
+		LbStrategy:     LbStrategyWeighted,
+		Enabled:        true,
+	}
+	if err := vmStore.Create(caseVariant); err != nil {
+		t.Fatalf("create case variant virtual model failed: %v", err)
+	}
+	gotExactCase, err := vmStore.Get("VM-1")
+	if err != nil || gotExactCase == nil || gotExactCase.VirtualModelID != "VM-1" {
+		t.Fatalf("expected exact case virtual model lookup, got %#v err=%v", gotExactCase, err)
+	}
 	record.Name = "VM 1 updated"
 	record.Enabled = false
 	if err := vmStore.Update(record); err != nil {
@@ -286,6 +305,12 @@ func TestVirtualModelStoresCRUD(t *testing.T) {
 	}
 	if gotUpstreams[0].ProviderID != "provider-a" || gotUpstreams[1].ProviderID != "provider-b" {
 		t.Fatalf("unexpected upstream order: %#v", gotUpstreams)
+	}
+	if gotUpstreams[0].UpdatedAt.IsZero() || gotUpstreams[1].UpdatedAt.IsZero() {
+		t.Fatalf("expected upstream updated_at timestamps, got %#v", gotUpstreams)
+	}
+	if err := vmStore.Delete("VM-1"); err != nil {
+		t.Fatalf("delete case variant virtual model failed: %v", err)
 	}
 	if err := vmStore.Delete("vm-1"); err != nil {
 		t.Fatalf("delete virtual model failed: %v", err)

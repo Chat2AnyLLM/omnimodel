@@ -352,7 +352,7 @@ func APIKeyProviderName(config map[string]interface{}) string {
 	}
 }
 
-// RemapModel is a no-op for Alibaba — model IDs are used as-is.
+// RemapModel trims Alibaba model IDs before sending them upstream.
 func RemapModel(modelID string) string { return strings.TrimSpace(modelID) }
 
 // IsChatCompletionsModel returns true if the model is not realtime-only.
