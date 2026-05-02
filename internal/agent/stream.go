@@ -1,0 +1,106 @@
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+// EventType represents the type of agent streaming event.
+type EventType string
+
+const (
+	EventToken      EventType = "token"
+	EventToolCall   EventType = "tool_call"
+	EventToolResult EventType = "tool_result"
+	EventDone       EventType = "done"
+	EventError      EventType = "error"
+)
+
+// Event represents a single agent streaming event.
+type Event struct {
+	Type    EventType
+	Content string
+	Tool    string
+}
+
+// SerializeToSSE converts an agent Event to OpenAI-compatible SSE format.
+// EventToken maps to a normal content delta chunk.
+// EventToolCall/EventToolResult map to content with metadata.
+// EventDone maps to the [DONE] sentinel.
+// EventError maps to an error chunk.
+func SerializeToSSE(e Event, streamID string) []byte {
+	if streamID == "" {
+		streamID = fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	}
+
+	switch e.Type {
+	case EventToken:
+		content := e.Content
+		chunk := map[string]interface{}{
+			"id":      streamID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"content": content,
+					},
+				},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		return []byte(fmt.Sprintf("data: %s\n\n", data))
+
+	case EventToolCall:
+		chunk := map[string]interface{}{
+			"id":      streamID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"content": fmt.Sprintf("[tool_call: %s] %s", e.Tool, e.Content),
+					},
+				},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		return []byte(fmt.Sprintf("data: %s\n\n", data))
+
+	case EventToolResult:
+		chunk := map[string]interface{}{
+			"id":      streamID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"content": fmt.Sprintf("[tool_result: %s] %s", e.Tool, e.Content),
+					},
+				},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		return []byte(fmt.Sprintf("data: %s\n\n", data))
+
+	case EventDone:
+		return []byte("data: [DONE]\n\n")
+
+	case EventError:
+		chunk := map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": e.Content,
+				"type":    "agent_error",
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		return []byte(fmt.Sprintf("data: %s\n\n", data))
+
+	default:
+		return nil
+	}
+}
