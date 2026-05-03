@@ -84,12 +84,13 @@ type ProviderModelsCacheRecord struct {
 }
 
 type ChatSessionRecord struct {
-	SessionID string    `json:"session_id"`
-	Title     string    `json:"title"`
-	ModelID   string    `json:"model_id"`
-	APIShape  string    `json:"api_shape"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	SessionID    string    `json:"session_id"`
+	Title        string    `json:"title"`
+	ModelID      string    `json:"model_id"`
+	APIShape     string    `json:"api_shape"`
+	AgentBackend string    `json:"agent_backend"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type ChatMessageRecord struct {

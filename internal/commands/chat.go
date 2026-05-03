@@ -69,7 +69,7 @@ func runInteractiveChat(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		return chatpkg.RunTUI(c, session.ID, session.Model, history)
+		return chatpkg.RunTUI(c, session.ID, session.Model, session.Mode, session.AgentBackend, history)
 	}
 
 	return chatpkg.RunREPL(cmd, c, requestedModel, existingSession, picker)

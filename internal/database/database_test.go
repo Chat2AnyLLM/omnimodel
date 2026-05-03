@@ -126,7 +126,7 @@ func TestTokenStoreCRUD(t *testing.T) {
 
 func TestChatStoreCRUD(t *testing.T) {
 	store := NewChatStore()
-	if err := store.CreateSession("session-1", "Title", "model-1", "openai"); err != nil {
+	if err := store.CreateSession("session-1", "Title", "model-1", "openai", "agent-sdk-go"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	if err := store.AddMessage("msg-1", "session-1", "user", "hello"); err != nil {
@@ -157,7 +157,7 @@ func TestChatStoreCRUD(t *testing.T) {
 
 func TestChatStoreOrdersMessagesDeterministically(t *testing.T) {
 	store := NewChatStore()
-	if err := store.CreateSession("session-order", "Title", "model-1", "openai"); err != nil {
+	if err := store.CreateSession("session-order", "Title", "model-1", "openai", "agent-sdk-go"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	for _, msgID := range []string{"msg-b", "msg-a", "msg-c"} {
@@ -180,7 +180,7 @@ func TestChatStoreOrdersMessagesDeterministically(t *testing.T) {
 func TestChatStoreOrdersSessionsDeterministically(t *testing.T) {
 	store := NewChatStore()
 	for _, sessionID := range []string{"session-b", "session-a", "session-c"} {
-		if err := store.CreateSession(sessionID, sessionID, "model-1", "openai"); err != nil {
+		if err := store.CreateSession(sessionID, sessionID, "model-1", "openai", "agent-sdk-go"); err != nil {
 			t.Fatalf("create session %s failed: %v", sessionID, err)
 		}
 	}

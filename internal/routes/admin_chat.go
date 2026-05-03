@@ -65,15 +65,16 @@ func handleGetChatSessions(c *gin.Context) {
 		return
 	}
 
-	var sessionList []map[string]interface{}
+	var sessionList []map[string]any
 	for _, session := range sessions {
-		sessionInfo := map[string]interface{}{
-			"id":         session.SessionID,
-			"title":      session.Title,
-			"model_id":   session.ModelID,
-			"api_shape":  session.APIShape,
-			"created_at": session.CreatedAt.Format(time.RFC3339),
-			"updated_at": session.UpdatedAt.Format(time.RFC3339),
+		sessionInfo := map[string]any{
+			"id":            session.SessionID,
+			"title":         session.Title,
+			"model_id":      session.ModelID,
+			"api_shape":     session.APIShape,
+			"agent_backend": session.AgentBackend,
+			"created_at":    session.CreatedAt.Format(time.RFC3339),
+			"updated_at":    session.UpdatedAt.Format(time.RFC3339),
 		}
 
 		messages, err := chatStore.GetMessages(session.SessionID)
@@ -102,10 +103,11 @@ func generateSessionID() string {
 
 func handleCreateChatSession(c *gin.Context) {
 	var req struct {
-		SessionID string `json:"session_id"`
-		Title     string `json:"title"`
-		ModelID   string `json:"model_id"`
-		APIShape  string `json:"api_shape"`
+		SessionID    string `json:"session_id"`
+		Title        string `json:"title"`
+		ModelID      string `json:"model_id"`
+		APIShape     string `json:"api_shape"`
+		AgentBackend string `json:"agent_backend"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
@@ -116,13 +118,17 @@ func handleCreateChatSession(c *gin.Context) {
 		req.APIShape = "openai"
 	}
 
+	if req.AgentBackend == "" {
+		req.AgentBackend = "agent-sdk-go"
+	}
+
 	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = generateSessionID()
 	}
 
 	chatStore := database.NewChatStore()
-	if err := chatStore.CreateSession(sessionID, req.Title, req.ModelID, req.APIShape); err != nil {
+	if err := chatStore.CreateSession(sessionID, req.Title, req.ModelID, req.APIShape, req.AgentBackend); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
@@ -172,21 +178,23 @@ func handleGetChatSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":         session.SessionID,
-		"title":      session.Title,
-		"model_id":   session.ModelID,
-		"api_shape":  session.APIShape,
-		"created_at": session.CreatedAt.Format(time.RFC3339),
-		"updated_at": session.UpdatedAt.Format(time.RFC3339),
-		"messages":   messageList,
+		"id":            session.SessionID,
+		"title":         session.Title,
+		"model_id":      session.ModelID,
+		"api_shape":     session.APIShape,
+		"agent_backend": session.AgentBackend,
+		"created_at":    session.CreatedAt.Format(time.RFC3339),
+		"updated_at":    session.UpdatedAt.Format(time.RFC3339),
+		"messages":      messageList,
 	})
 }
 
 func handleUpdateChatSession(c *gin.Context) {
 	sessionID := c.Param("id")
 	var req struct {
-		Title   string `json:"title"`
-		ModelID string `json:"model_id"`
+		Title        string `json:"title"`
+		ModelID      string `json:"model_id"`
+		AgentBackend string `json:"agent_backend"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
@@ -194,7 +202,7 @@ func handleUpdateChatSession(c *gin.Context) {
 	}
 
 	chatStore := database.NewChatStore()
-	if err := chatStore.UpdateSession(sessionID, req.Title, req.ModelID); err != nil {
+	if err := chatStore.UpdateSession(sessionID, req.Title, req.ModelID, req.AgentBackend); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
 		return
 	}

@@ -23,9 +23,10 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 	}
 
 	body := map[string]any{
-		"title":     "CLI session",
-		"model_id":  requestedModel,
-		"api_shape": "openai",
+		"title":         "CLI session",
+		"model_id":      requestedModel,
+		"api_shape":     "openai",
+		"agent_backend": "agent-sdk-go",
 	}
 	data, err := c.Post("/api/admin/chat/sessions", body)
 	if err != nil {
@@ -43,7 +44,7 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 	if requestedModel != "" {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Using model: %s\n", requestedModel)
 	}
-	return SessionState{ID: sid, Model: requestedModel}, nil
+	return SessionState{ID: sid, Model: requestedModel, Mode: "chat", AgentBackend: "agent-sdk-go"}, nil
 }
 
 func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, error) {
@@ -56,9 +57,12 @@ func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, e
 		return SessionState{}, nil, fmt.Errorf("parse session: %w", err)
 	}
 
-	state := SessionState{ID: sessionID}
+	state := SessionState{ID: sessionID, Mode: "chat", AgentBackend: "agent-sdk-go"}
 	if mid, ok := session["model_id"].(string); ok {
 		state.Model = mid
+	}
+	if backend, ok := session["agent_backend"].(string); ok && backend != "" {
+		state.AgentBackend = backend
 	}
 
 	var messages []Message
@@ -88,6 +92,13 @@ func UpdateSessionModel(c Client, sessionID string, modelID string) error {
 	return err
 }
 
+func UpdateSessionAgentBackend(c Client, sessionID string, agentBackend string) error {
+	_, err := c.Put("/api/admin/chat/sessions/"+sessionID, map[string]string{
+		"agent_backend": agentBackend,
+	})
+	return err
+}
+
 func CurrentModel(c Client, sessionID string, fallback string) (string, error) {
 	session, _, err := LoadSessionMessages(c, sessionID)
 	if err != nil {
@@ -95,6 +106,17 @@ func CurrentModel(c Client, sessionID string, fallback string) (string, error) {
 	}
 	if session.Model != "" {
 		return session.Model, nil
+	}
+	return fallback, nil
+}
+
+func CurrentAgentBackend(c Client, sessionID string, fallback string) (string, error) {
+	session, _, err := LoadSessionMessages(c, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if session.AgentBackend != "" {
+		return session.AgentBackend, nil
 	}
 	return fallback, nil
 }

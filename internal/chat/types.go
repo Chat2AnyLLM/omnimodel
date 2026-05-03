@@ -3,7 +3,15 @@ package chat
 import (
 	"io"
 	"net/http"
+	"os"
+
+	agentpkg "omnillm/internal/agent"
 )
+
+type permissionRequestMsg struct {
+	req    agentpkg.PermissionRequest
+	respCh chan bool
+}
 
 type Client interface {
 	Get(path string) ([]byte, error)
@@ -19,11 +27,19 @@ type CommandContext interface {
 	ErrOrStderr() io.Writer
 }
 
+type stdioCommandContext struct{}
+
+func (stdioCommandContext) InOrStdin() io.Reader   { return os.Stdin }
+func (stdioCommandContext) OutOrStdout() io.Writer { return os.Stdout }
+func (stdioCommandContext) ErrOrStderr() io.Writer { return os.Stderr }
+
 type SessionState struct {
-	ID     string
-	Model  string
-	IsTTY  bool
-	Picker ModelPickerFunc
+	ID           string
+	Model        string
+	Mode         string
+	AgentBackend string
+	IsTTY        bool
+	Picker       ModelPickerFunc
 }
 
 type ModelPickerFunc func(string, []ModelInfo) (string, error)
@@ -44,9 +60,10 @@ type ModelInfo struct {
 }
 
 type replCommandResult struct {
-	handled bool
-	exit    bool
-	model   string
+	handled      bool
+	exit         bool
+	model        string
+	agentBackend string
 }
 
 type sseEvent struct {

@@ -42,7 +42,6 @@ func NewAgent(registry *Registry, memory Memory, maxSteps int, dispatch Dispatch
 
 // Run executes the agent loop synchronously, returning the full trace.
 func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunResult, error) {
-	// Add user message to memory
 	userMsg := cif.CIFUserMessage{
 		Role: "user",
 		Content: []cif.CIFContentPart{
@@ -54,7 +53,6 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 	var finalOutput string
 
 	for step := 0; step < a.maxSteps; step++ {
-		// Respect context cancellation
 		select {
 		case <-ctx.Done():
 			return &RunResult{
@@ -65,16 +63,13 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 		default:
 		}
 
-		// Build the request from memory
 		req := a.buildRequest()
 
-		// Dispatch to provider
 		respCh, err := a.dispatch(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("dispatch error at step %d: %w", step, err)
 		}
 
-		// Collect the response
 		var response *cif.CanonicalResponse
 		for resp := range respCh {
 			response = resp
@@ -83,17 +78,14 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			return nil, fmt.Errorf("nil response at step %d", step)
 		}
 
-		// Add assistant message to memory
 		assistantMsg := cif.CIFAssistantMessage{
 			Role:    "assistant",
 			Content: response.Content,
 		}
 		a.memory.Append(assistantMsg)
 
-		// Check if the model wants to call tools
 		toolCalls := extractToolCalls(response.Content)
 		if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
-			// No tool calls — extract final text output
 			finalOutput = extractTextContent(response.Content)
 			return &RunResult{
 				Output:   finalOutput,
@@ -102,10 +94,8 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			}, nil
 		}
 
-		// Execute tool calls concurrently
-		results := a.registry.ExecuteToolCalls(ctx, toolCalls)
+		results := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
 
-		// Add tool results as a user message with tool_result parts
 		var resultParts []cif.CIFContentPart
 		for _, r := range results {
 			isErr := r.IsError
@@ -134,7 +124,6 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 	go func() {
 		defer close(events)
 
-		// Add user message to memory
 		userMsg := cif.CIFUserMessage{
 			Role: "user",
 			Content: []cif.CIFContentPart{
@@ -144,7 +133,6 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 		a.memory.Append(userMsg)
 
 		for step := 0; step < a.maxSteps; step++ {
-			// Respect context cancellation
 			select {
 			case <-ctx.Done():
 				events <- Event{Type: EventError, Content: ctx.Err().Error()}
@@ -163,7 +151,6 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			var response *cif.CanonicalResponse
 			for resp := range respCh {
 				response = resp
-				// Stream text tokens as they arrive
 				for _, part := range resp.Content {
 					if tp, ok := part.(cif.CIFTextPart); ok {
 						events <- Event{Type: EventToken, Content: tp.Text}
@@ -175,29 +162,24 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 				return
 			}
 
-			// Add assistant message to memory
 			assistantMsg := cif.CIFAssistantMessage{
 				Role:    "assistant",
 				Content: response.Content,
 			}
 			a.memory.Append(assistantMsg)
 
-			// Check for tool calls
 			toolCalls := extractToolCalls(response.Content)
 			if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
 				events <- Event{Type: EventDone}
 				return
 			}
 
-			// Emit tool call events
 			for _, tc := range toolCalls {
 				events <- Event{Type: EventToolCall, Tool: tc.ToolName, Content: tc.ToolCallID}
 			}
 
-			// Execute tool calls
-			results := a.registry.ExecuteToolCalls(ctx, toolCalls)
+			results := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
 
-			// Emit tool result events and add to memory
 			var resultParts []cif.CIFContentPart
 			for _, r := range results {
 				events <- Event{Type: EventToolResult, Tool: r.ToolName, Content: r.Content}

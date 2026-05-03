@@ -11,11 +11,11 @@ func NewChatStore() *ChatStore {
 	return &ChatStore{db: GetDatabase()}
 }
 
-func (cs *ChatStore) CreateSession(sessionID, title, modelID, apiShape string) error {
+func (cs *ChatStore) CreateSession(sessionID, title, modelID, apiShape, agentBackend string) error {
 	_, err := cs.db.db.Exec(`
-		INSERT INTO chat_sessions (session_id, title, model_id, api_shape)
-		VALUES (?, ?, ?, ?)
-	`, sessionID, title, modelID, apiShape)
+		INSERT INTO chat_sessions (session_id, title, model_id, api_shape, agent_backend)
+		VALUES (?, ?, ?, ?, ?)
+	`, sessionID, title, modelID, apiShape, agentBackend)
 	return err
 }
 
@@ -27,14 +27,15 @@ func (cs *ChatStore) UpdateSessionTitle(sessionID, title string) error {
 	return err
 }
 
-func (cs *ChatStore) UpdateSession(sessionID, title, modelID string) error {
+func (cs *ChatStore) UpdateSession(sessionID, title, modelID, agentBackend string) error {
 	_, err := cs.db.db.Exec(`
 		UPDATE chat_sessions
 		SET title = COALESCE(NULLIF(?, ''), title),
 		    model_id = COALESCE(NULLIF(?, ''), model_id),
+		    agent_backend = COALESCE(NULLIF(?, ''), agent_backend),
 		    updated_at = datetime('now')
 		WHERE session_id = ?
-	`, title, modelID, sessionID)
+	`, title, modelID, agentBackend, sessionID)
 	return err
 }
 
@@ -47,7 +48,7 @@ func (cs *ChatStore) TouchSession(sessionID string) error {
 
 func (cs *ChatStore) ListSessions() ([]ChatSessionRecord, error) {
 	rows, err := cs.db.db.Query(`
-		SELECT session_id, title, model_id, api_shape, created_at, updated_at
+		SELECT session_id, title, model_id, api_shape, agent_backend, created_at, updated_at
 		FROM chat_sessions ORDER BY updated_at DESC, session_id ASC
 	`)
 	if err != nil {
@@ -59,7 +60,7 @@ func (cs *ChatStore) ListSessions() ([]ChatSessionRecord, error) {
 	for rows.Next() {
 		var session ChatSessionRecord
 		var createdAtStr, updatedAtStr string
-		if err := rows.Scan(&session.SessionID, &session.Title, &session.ModelID, &session.APIShape, &createdAtStr, &updatedAtStr); err != nil {
+		if err := rows.Scan(&session.SessionID, &session.Title, &session.ModelID, &session.APIShape, &session.AgentBackend, &createdAtStr, &updatedAtStr); err != nil {
 			return nil, err
 		}
 		session.CreatedAt = parseTime(createdAtStr)
@@ -73,9 +74,9 @@ func (cs *ChatStore) GetSession(sessionID string) (*ChatSessionRecord, error) {
 	var session ChatSessionRecord
 	var createdAtStr, updatedAtStr string
 	err := cs.db.db.QueryRow(`
-		SELECT session_id, title, model_id, api_shape, created_at, updated_at
+		SELECT session_id, title, model_id, api_shape, agent_backend, created_at, updated_at
 		FROM chat_sessions WHERE session_id = ?
-	`, sessionID).Scan(&session.SessionID, &session.Title, &session.ModelID, &session.APIShape, &createdAtStr, &updatedAtStr)
+	`, sessionID).Scan(&session.SessionID, &session.Title, &session.ModelID, &session.APIShape, &session.AgentBackend, &createdAtStr, &updatedAtStr)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

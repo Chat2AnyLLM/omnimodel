@@ -119,6 +119,12 @@ func (c *Client) Put(path string, body any) ([]byte, error)   { return c.do("PUT
 func (c *Client) Patch(path string, body any) ([]byte, error) { return c.do("PATCH", path, body) }
 func (c *Client) Delete(path string) ([]byte, error)          { return c.do("DELETE", path, nil) }
 
+// GetBaseURL returns the configured server base URL.
+func (c *Client) GetBaseURL() string { return c.BaseURL }
+
+// GetAPIKey returns the configured API key used for OmniLLM requests.
+func (c *Client) GetAPIKey() string { return c.APIKey }
+
 // DoRaw performs a request with a raw reader body (e.g. multipart form).
 func (c *Client) DoRaw(method, path, contentType string, body io.Reader) ([]byte, error) {
 	req, err := c.newRequest(method, path, body)

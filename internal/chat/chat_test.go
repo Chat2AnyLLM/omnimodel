@@ -2,12 +2,18 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	agentpkg "omnillm/internal/agent"
+
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type testCommandContext struct {
@@ -31,23 +37,165 @@ func (c *testCommandContext) ErrOrStderr() io.Writer { return c.err }
 func TestHandleSlashCommandHelp(t *testing.T) {
 	cmd := newTestCommandContext()
 
-	result, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1"}, "/help")
+	result, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "chat"}, "/help")
 	if err != nil {
 		t.Fatalf("handleSlashCommand returned error: %v", err)
 	}
 	if !result.handled || result.exit {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	if !strings.Contains(cmd.out.String(), "/agent <backend>") {
+		t.Fatalf("help output missing agent backend guidance:\n%s", cmd.out.String())
+	}
 	if !strings.Contains(cmd.out.String(), "/models <filter>") {
 		t.Fatalf("help output missing filter guidance:\n%s", cmd.out.String())
+	}
+	if !strings.Contains(cmd.out.String(), "/mode <chat|agent>") {
+		t.Fatalf("help output missing mode guidance:\n%s", cmd.out.String())
 	}
 }
 
 func TestHandleSlashCommandUnknown(t *testing.T) {
 	cmd := newTestCommandContext()
-	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1"}, "/wat")
+	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "chat"}, "/wat")
 	if err == nil || !strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("expected unknown command error, got %v", err)
+	}
+}
+
+func TestHandleSlashCommandModeShow(t *testing.T) {
+	cmd := newTestCommandContext()
+	session := &SessionState{ID: "session-1", Mode: "chat"}
+
+	result, err := handleSlashCommand(cmd, nil, session, "/mode")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled {
+		t.Fatalf("expected handled result, got %+v", result)
+	}
+	if session.Mode != "chat" {
+		t.Fatalf("mode = %q, want chat", session.Mode)
+	}
+	if !strings.Contains(cmd.out.String(), "Current mode: chat") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestHandleSlashCommandModeSwitch(t *testing.T) {
+	cmd := newTestCommandContext()
+	session := &SessionState{ID: "session-1", Mode: "chat"}
+
+	result, err := handleSlashCommand(cmd, nil, session, "/mode agent")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled {
+		t.Fatalf("expected handled result, got %+v", result)
+	}
+	if session.Mode != "agent" {
+		t.Fatalf("mode = %q, want agent", session.Mode)
+	}
+	if !strings.Contains(cmd.out.String(), "Agent mode enabled") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestHandleSlashCommandAgentShow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "session-1",
+				"model_id":      "gpt-4",
+				"agent_backend": "google-adk",
+				"messages":      []any{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: "agent-sdk-go"}
+
+	result, err := handleSlashCommand(cmd, client, session, "/agent")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.agentBackend != "google-adk" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	text := cmd.out.String()
+	if !strings.Contains(text, "Current agent backend: google-adk") {
+		t.Fatalf("unexpected output: %s", text)
+	}
+	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk") {
+		t.Fatalf("missing supported backends in output: %s", text)
+	}
+}
+
+func TestHandleSlashCommandAgentSwitch(t *testing.T) {
+	var updatedBackend string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			updatedBackend = body["agent_backend"]
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+
+	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "agent"}, "/agent google-adk")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.agentBackend != "google-adk" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if updatedBackend != "google-adk" {
+		t.Fatalf("updated backend = %q, want google-adk", updatedBackend)
+	}
+	text := cmd.out.String()
+	if !strings.Contains(text, "Switched agent backend to google-adk") {
+		t.Fatalf("unexpected output: %s", text)
+	}
+	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk") {
+		t.Fatalf("missing supported backends in output: %s", text)
+	}
+}
+
+func TestHandleSlashCommandAgentInvalid(t *testing.T) {
+	cmd := newTestCommandContext()
+	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "agent"}, "/agent nope")
+	if err == nil || !strings.Contains(err.Error(), "supported backends: agent-sdk-go, google-adk") {
+		t.Fatalf("expected supported backend error, got %v", err)
+	}
+}
+
+func TestSupportedAgentBackendsText(t *testing.T) {
+	if got := supportedAgentBackendsText(); got != "agent-sdk-go, google-adk" {
+		t.Fatalf("supportedAgentBackendsText() = %q", got)
+	}
+	if !isSupportedAgentBackend("agent-sdk-go") {
+		t.Fatal("expected agent-sdk-go to be supported")
+	}
+	if !isSupportedAgentBackend("google-adk") {
+		t.Fatal("expected google-adk to be supported")
+	}
+	if isSupportedAgentBackend("nope") {
+		t.Fatal("did not expect nope to be supported")
 	}
 }
 
@@ -126,7 +274,7 @@ func TestHandleSlashCommandModelSwitch(t *testing.T) {
 	cmd := newTestCommandContext()
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 
-	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1"}, "/model qwen3")
+	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "chat"}, "/model qwen3")
 	if err != nil {
 		t.Fatalf("handleSlashCommand returned error: %v", err)
 	}
@@ -162,7 +310,7 @@ func TestHandleSlashCommandModelsFilterOutput(t *testing.T) {
 
 	cmd := newTestCommandContext()
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	session := &SessionState{ID: "session-1", IsTTY: false}
+	session := &SessionState{ID: "session-1", IsTTY: false, Mode: "chat"}
 
 	result, err := handleSlashCommand(cmd, client, session, "/models qwe")
 	if err != nil {
@@ -174,6 +322,225 @@ func TestHandleSlashCommandModelsFilterOutput(t *testing.T) {
 	text := cmd.out.String()
 	if !strings.Contains(text, "provider-b/qwen3") || strings.Contains(text, "provider-a/gpt-4") {
 		t.Fatalf("unexpected filtered output:\n%s", text)
+	}
+}
+
+func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
+	var postBodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "session-1",
+				"model_id":      "gpt-5.4",
+				"agent_backend": "agent-sdk-go",
+				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			postBodies = append(postBodies, body)
+			if len(postBodies) == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":    "resp-1",
+					"model": "gpt-5.4",
+					"choices": []map[string]any{{
+						"index": 0,
+						"message": map[string]any{
+							"role": "assistant",
+							"tool_calls": []map[string]any{{
+								"id":   "call-1",
+								"type": "function",
+								"function": map[string]any{
+									"name":      "run_command",
+									"arguments": `{"command":"Write-Output disk-ok"}`,
+								},
+							}},
+						},
+						"finish_reason": "tool_calls",
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":    "resp-2",
+				"model": "gpt-5.4",
+				"choices": []map[string]any{{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "disk-ok",
+					},
+					"finish_reason": "stop",
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	checkerCalls := 0
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", func(ctx context.Context, req agentpkg.PermissionRequest) (bool, error) {
+		checkerCalls++
+		if req.ToolName != "run_command" {
+			t.Fatalf("tool name = %q", req.ToolName)
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("RunAgentTurnWithChecker returned error: %v", err)
+	}
+	if content != "disk-ok" {
+		t.Fatalf("content = %q", content)
+	}
+	if checkerCalls != 1 {
+		t.Fatalf("checker calls = %d, want 1", checkerCalls)
+	}
+	if len(postBodies) != 2 {
+		t.Fatalf("expected 2 completion calls, got %d", len(postBodies))
+	}
+}
+
+func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
+	var postBodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "session-1",
+				"model_id":      "gpt-5.4",
+				"agent_backend": "agent-sdk-go",
+				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			postBodies = append(postBodies, body)
+			if len(postBodies) == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":    "resp-1",
+					"model": "gpt-5.4",
+					"choices": []map[string]any{{
+						"index": 0,
+						"message": map[string]any{
+							"role": "assistant",
+							"tool_calls": []map[string]any{{
+								"id":   "call-1",
+								"type": "function",
+								"function": map[string]any{
+									"name":      "run_command",
+									"arguments": `{"command":"Write-Output disk-ok"}`,
+								},
+							}},
+						},
+						"finish_reason": "tool_calls",
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":    "resp-2",
+				"model": "gpt-5.4",
+				"choices": []map[string]any{{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "disk-ok",
+					},
+					"finish_reason": "stop",
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	cmd.in.WriteString("y\n")
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+
+	content, err := RunAgentTurn(client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", cmd)
+	if err != nil {
+		t.Fatalf("RunAgentTurn returned error: %v", err)
+	}
+	if content != "disk-ok" {
+		t.Fatalf("content = %q", content)
+	}
+	if len(postBodies) != 2 {
+		t.Fatalf("expected 2 completion calls, got %d", len(postBodies))
+	}
+	if !strings.Contains(cmd.err.String(), "Allow tool execution?") {
+		t.Fatalf("expected permission prompt, got %q", cmd.err.String())
+	}
+}
+
+func TestTUIHandlesPermissionRequestInTranscript(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", "agent-sdk-go", nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.textarea.Focus()
+
+	toModel := func(model tea.Model) *chatTUIModel {
+		switch v := model.(type) {
+		case chatTUIModel:
+			copy := v
+			return &copy
+		case *chatTUIModel:
+			return v
+		default:
+			t.Fatalf("unexpected model type %T", model)
+			return nil
+		}
+	}
+
+	respCh := make(chan bool, 1)
+	model, _ := m.Update(permissionRequestMsg{
+		req: agentpkg.PermissionRequest{
+			SessionID: "session-1",
+			ToolName:  "run_command",
+			Arguments: map[string]any{"command": "Get-PSDrive"},
+		},
+		respCh: respCh,
+	})
+	updated := toModel(model)
+	if updated.pendingPermission == nil {
+		t.Fatal("expected pending permission to be set")
+	}
+	if len(updated.entries) == 0 || updated.entries[len(updated.entries)-1].kind != transcriptPermission {
+		t.Fatalf("expected permission transcript entry, got %+v", updated.entries)
+	}
+	if updated.textarea.Placeholder != "y/n (approve tool execution)" {
+		t.Fatalf("placeholder = %q", updated.textarea.Placeholder)
+	}
+
+	updated.textarea.SetValue("y")
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	approved := toModel(model)
+	if approved.pendingPermission != nil {
+		t.Fatal("expected pending permission to clear")
+	}
+	select {
+	case decision := <-respCh:
+		if !decision {
+			t.Fatal("expected approval decision true")
+		}
+	default:
+		t.Fatal("expected approval decision to be sent")
+	}
+	if approved.textarea.Placeholder != approved.normalPlaceholder {
+		t.Fatalf("placeholder = %q, want %q", approved.textarea.Placeholder, approved.normalPlaceholder)
 	}
 }
 
@@ -201,6 +568,7 @@ func TestHandleSlashCommandModelsPicker(t *testing.T) {
 	session := &SessionState{
 		ID:    "session-1",
 		IsTTY: true,
+		Mode:  "chat",
 		Picker: func(prompt string, models []ModelInfo) (string, error) {
 			if prompt != "Select a model" {
 				t.Fatalf("unexpected prompt: %s", prompt)
@@ -224,6 +592,29 @@ func TestHandleSlashCommandModelsPicker(t *testing.T) {
 	}
 	if !strings.Contains(cmd.out.String(), "Switched model to provider-b/qwen3") {
 		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestEnsureSessionDefaultsModeToChat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"session_id": "session-1"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+
+	session, err := EnsureSession(cmd, client, "", "")
+	if err != nil {
+		t.Fatalf("EnsureSession returned error: %v", err)
+	}
+	if session.Mode != "chat" {
+		t.Fatalf("mode = %q, want chat", session.Mode)
 	}
 }
 

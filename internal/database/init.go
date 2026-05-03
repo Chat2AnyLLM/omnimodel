@@ -137,12 +137,13 @@ func (db *Database) createTables() error {
 
 		// Chat sessions.
 		`CREATE TABLE IF NOT EXISTS chat_sessions (
-			session_id TEXT PRIMARY KEY,
-			title      TEXT NOT NULL,
-			model_id   TEXT NOT NULL,
-			api_shape  TEXT NOT NULL DEFAULT 'openai',
-			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+			session_id    TEXT PRIMARY KEY,
+			title         TEXT NOT NULL,
+			model_id      TEXT NOT NULL,
+			api_shape     TEXT NOT NULL DEFAULT 'openai',
+			agent_backend TEXT NOT NULL DEFAULT 'agent-sdk-go',
+			created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+			updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 		)`,
 
 		// Chat messages — role is enforced at the DB level.
@@ -356,6 +357,10 @@ var migrations = []migration{
 		     SELECT pc.instance_id FROM provider_configs pc
 		     WHERE pc.config_data LIKE '%modelscope.cn%'
 		 )`,
+	}},
+	// v12: persist selected chat agent backend per session.
+	{12, []string{
+		`ALTER TABLE chat_sessions ADD COLUMN agent_backend TEXT NOT NULL DEFAULT 'agent-sdk-go'`,
 	}},
 }
 
