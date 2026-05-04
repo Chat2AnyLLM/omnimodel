@@ -3,7 +3,19 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// SessionSummary holds the metadata for a single chat session returned by the list endpoint.
+type SessionSummary struct {
+	ID           string    `json:"session_id"`
+	Title        string    `json:"title"`
+	Model        string    `json:"model_id"`
+	AgentBackend string    `json:"agent_backend"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	MessageCount int       `json:"message_count"`
+}
 
 func EnsureSession(cmd CommandContext, c Client, existingSession string, requestedModel string) (SessionState, error) {
 	if existingSession != "" {
@@ -119,4 +131,53 @@ func CurrentAgentBackend(c Client, sessionID string, fallback string) (string, e
 		return session.AgentBackend, nil
 	}
 	return fallback, nil
+}
+
+// ListSessions fetches the list of all chat sessions from the server.
+func ListSessions(c Client) ([]SessionSummary, error) {
+	data, err := c.Get("/api/admin/chat/sessions")
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	// Accept either a bare array or {"sessions":[...]}
+	var sessions []SessionSummary
+	if err := json.Unmarshal(data, &sessions); err == nil {
+		return sessions, nil
+	}
+	var wrapped struct {
+		Sessions []SessionSummary `json:"sessions"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return nil, fmt.Errorf("parse sessions: %w", err)
+	}
+	return wrapped.Sessions, nil
+}
+
+// CreateSession creates a new chat session and returns its ID.
+func CreateSession(c Client, title, model, agentBackend string) (string, error) {
+	if title == "" {
+		title = "New session"
+	}
+	if agentBackend == "" {
+		agentBackend = "agent-sdk-go"
+	}
+	body := map[string]any{
+		"title":         title,
+		"model_id":      model,
+		"api_shape":     "openai",
+		"agent_backend": agentBackend,
+	}
+	data, err := c.Post("/api/admin/chat/sessions", body)
+	if err != nil {
+		return "", fmt.Errorf("create session: %w", err)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("parse create response: %w", err)
+	}
+	sid, ok := resp["session_id"].(string)
+	if !ok {
+		return "", fmt.Errorf("server did not return a session_id")
+	}
+	return sid, nil
 }

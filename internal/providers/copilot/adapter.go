@@ -33,7 +33,7 @@ func (a *CopilotAdapter) Execute(ctx context.Context, request *cif.CanonicalRequ
 	if request != nil {
 		model = a.RemapModel(request.Model)
 	}
-	if !a.forceChatCompletions(request) && shared.IsGPT5Family(model) {
+	if a.shouldUseResponsesAPI(model, request) {
 		return a.executeResponses(ctx, request)
 	}
 	return a.executeOpenAI(ctx, request)
@@ -52,7 +52,7 @@ func (a *CopilotAdapter) ExecuteStream(ctx context.Context, request *cif.Canonic
 	if request != nil {
 		model = a.RemapModel(request.Model)
 	}
-	if !a.forceChatCompletions(request) && shared.IsGPT5Family(model) {
+	if a.shouldUseResponsesAPI(model, request) {
 		return a.executeResponsesStream(ctx, request)
 	}
 	return a.executeOpenAIStream(ctx, request)
@@ -79,6 +79,15 @@ func (a *CopilotAdapter) forceChatCompletions(request *cif.CanonicalRequest) boo
 		request.Extensions != nil &&
 		request.Extensions.ForceChatCompletions != nil &&
 		*request.Extensions.ForceChatCompletions
+}
+
+func (a *CopilotAdapter) shouldUseResponsesAPI(model string, request *cif.CanonicalRequest) bool {
+	if a.forceChatCompletions(request) {
+		return false
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return shared.IsGPT5Family(lower) && !strings.HasPrefix(lower, "gpt-5-mini")
 }
 
 // isUnsupportedChatCompletionsModel detects Copilot's

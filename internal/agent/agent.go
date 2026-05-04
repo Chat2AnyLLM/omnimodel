@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
 	"omnillm/internal/cif"
+	"omnillm/internal/tools"
 )
 
 // DispatchFn wraps the existing provider dispatch. It sends a CIF request
@@ -20,7 +23,7 @@ type RunResult struct {
 
 // Agent orchestrates multi-step LLM interactions with tool calling.
 type Agent struct {
-	registry *Registry
+	registry *tools.Registry
 	memory   Memory
 	maxSteps int
 	dispatch DispatchFn
@@ -28,7 +31,7 @@ type Agent struct {
 
 // NewAgent creates a new Agent with the given configuration.
 // If maxSteps <= 0, defaults to 10.
-func NewAgent(registry *Registry, memory Memory, maxSteps int, dispatch DispatchFn) *Agent {
+func NewAgent(registry *tools.Registry, memory Memory, maxSteps int, dispatch DispatchFn) *Agent {
 	if maxSteps <= 0 {
 		maxSteps = 10
 	}
@@ -42,50 +45,28 @@ func NewAgent(registry *Registry, memory Memory, maxSteps int, dispatch Dispatch
 
 // Run executes the agent loop synchronously, returning the full trace.
 func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunResult, error) {
-	userMsg := cif.CIFUserMessage{
-		Role: "user",
-		Content: []cif.CIFContentPart{
-			cif.CIFTextPart{Type: "text", Text: prompt},
-		},
-	}
-	a.memory.Append(userMsg)
+	a.appendUserMessage(prompt)
 
 	var finalOutput string
 
 	for step := 0; step < a.maxSteps; step++ {
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			return &RunResult{
 				Output:   finalOutput,
 				Steps:    step,
 				Messages: a.memory.Messages(),
-			}, ctx.Err()
-		default:
+			}, err
 		}
 
-		req := a.buildRequest()
-
-		respCh, err := a.dispatch(ctx, req)
+		response, err := a.dispatchAndCollect(ctx, step)
 		if err != nil {
-			return nil, fmt.Errorf("dispatch error at step %d: %w", step, err)
+			return nil, err
 		}
 
-		var response *cif.CanonicalResponse
-		for resp := range respCh {
-			response = resp
-		}
-		if response == nil {
-			return nil, fmt.Errorf("nil response at step %d", step)
-		}
-
-		assistantMsg := cif.CIFAssistantMessage{
-			Role:    "assistant",
-			Content: response.Content,
-		}
-		a.memory.Append(assistantMsg)
+		a.memory.Append(toAssistantMessage(response.Content))
 
 		toolCalls := extractToolCalls(response.Content)
-		if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
+		if len(toolCalls) == 0 {
 			finalOutput = extractTextContent(response.Content)
 			return &RunResult{
 				Output:   finalOutput,
@@ -94,12 +75,11 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			}, nil
 		}
 
-		results := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
-
-		var resultParts []cif.CIFContentPart
-		for _, r := range results {
+		toolResults := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
+		var toolResultParts []cif.CIFContentPart
+		for _, r := range toolResults {
 			isErr := r.IsError
-			resultParts = append(resultParts, cif.CIFToolResultPart{
+			toolResultParts = append(toolResultParts, cif.CIFToolResultPart{
 				Type:       "tool_result",
 				ToolCallID: r.ToolCallID,
 				ToolName:   r.ToolName,
@@ -107,11 +87,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 				IsError:    &isErr,
 			})
 		}
-		toolResultMsg := cif.CIFUserMessage{
-			Role:    "user",
-			Content: resultParts,
-		}
-		a.memory.Append(toolResultMsg)
+		a.memory.Append(toToolResultMessage(toolResultParts))
 	}
 
 	return nil, errors.New("agent loop exceeded maximum steps (" + fmt.Sprint(a.maxSteps) + ")")
@@ -124,52 +100,30 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 	go func() {
 		defer close(events)
 
-		userMsg := cif.CIFUserMessage{
-			Role: "user",
-			Content: []cif.CIFContentPart{
-				cif.CIFTextPart{Type: "text", Text: prompt},
-			},
-		}
-		a.memory.Append(userMsg)
+		a.appendUserMessage(prompt)
 
 		for step := 0; step < a.maxSteps; step++ {
-			select {
-			case <-ctx.Done():
-				events <- Event{Type: EventError, Content: ctx.Err().Error()}
+			if err := ctx.Err(); err != nil {
+				events <- Event{Type: EventError, Content: err.Error()}
 				return
-			default:
 			}
 
-			req := a.buildRequest()
-
-			respCh, err := a.dispatch(ctx, req)
+			response, err := a.dispatchAndCollect(ctx, step)
 			if err != nil {
 				events <- Event{Type: EventError, Content: err.Error()}
 				return
 			}
 
-			var response *cif.CanonicalResponse
-			for resp := range respCh {
-				response = resp
-				for _, part := range resp.Content {
-					if tp, ok := part.(cif.CIFTextPart); ok {
-						events <- Event{Type: EventToken, Content: tp.Text}
-					}
+			for _, part := range response.Content {
+				if tp, ok := part.(cif.CIFTextPart); ok {
+					events <- Event{Type: EventToken, Content: tp.Text}
 				}
 			}
-			if response == nil {
-				events <- Event{Type: EventError, Content: "nil response from provider"}
-				return
-			}
 
-			assistantMsg := cif.CIFAssistantMessage{
-				Role:    "assistant",
-				Content: response.Content,
-			}
-			a.memory.Append(assistantMsg)
+			a.memory.Append(toAssistantMessage(response.Content))
 
 			toolCalls := extractToolCalls(response.Content)
-			if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
+			if len(toolCalls) == 0 {
 				events <- Event{Type: EventDone}
 				return
 			}
@@ -178,13 +132,13 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 				events <- Event{Type: EventToolCall, Tool: tc.ToolName, Content: tc.ToolCallID}
 			}
 
-			results := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
+			toolResults := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
 
-			var resultParts []cif.CIFContentPart
-			for _, r := range results {
+			var toolResultParts []cif.CIFContentPart
+			for _, r := range toolResults {
 				events <- Event{Type: EventToolResult, Tool: r.ToolName, Content: r.Content}
 				isErr := r.IsError
-				resultParts = append(resultParts, cif.CIFToolResultPart{
+				toolResultParts = append(toolResultParts, cif.CIFToolResultPart{
 					Type:       "tool_result",
 					ToolCallID: r.ToolCallID,
 					ToolName:   r.ToolName,
@@ -192,11 +146,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 					IsError:    &isErr,
 				})
 			}
-			toolResultMsg := cif.CIFUserMessage{
-				Role:    "user",
-				Content: resultParts,
-			}
-			a.memory.Append(toolResultMsg)
+			a.memory.Append(toToolResultMessage(toolResultParts))
 		}
 
 		events <- Event{Type: EventError, Content: fmt.Sprintf("agent loop exceeded maximum steps (%d)", a.maxSteps)}
@@ -205,15 +155,60 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 	return events, nil
 }
 
+func (a *Agent) appendUserMessage(prompt string) {
+	a.memory.Append(cif.CIFUserMessage{
+		Role: "user",
+		Content: []cif.CIFContentPart{
+			cif.CIFTextPart{Type: "text", Text: prompt},
+		},
+	})
+}
+
+func toToolResultMessage(results []cif.CIFContentPart) cif.CIFUserMessage {
+	return cif.CIFUserMessage{
+		Role:    "user",
+		Content: results,
+	}
+}
+
+func toAssistantMessage(content []cif.CIFContentPart) cif.CIFAssistantMessage {
+	return cif.CIFAssistantMessage{
+		Role:    "assistant",
+		Content: content,
+	}
+}
+
+func (a *Agent) dispatchAndCollect(ctx context.Context, step int) (*cif.CanonicalResponse, error) {
+	req := a.buildRequest()
+
+	respCh, err := a.dispatch(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch error at step %d: %w", step, err)
+	}
+
+	var response *cif.CanonicalResponse
+	for resp := range respCh {
+		response = resp
+	}
+	if response == nil {
+		return nil, fmt.Errorf("nil response at step %d", step)
+	}
+
+	return response, nil
+}
+
 func (a *Agent) buildRequest() *cif.CanonicalRequest {
 	messages := a.memory.Messages()
-	tools := a.registry.ToCIFTools()
+	cifTools := a.registry.ToCIFTools()
 
 	req := &cif.CanonicalRequest{
-		Messages:   messages,
-		Tools:      tools,
-		ToolChoice: "auto",
-		Stream:     false,
+		Messages: messages,
+		Tools:    cifTools,
+		Stream:   false,
+	}
+	// Per OpenAI spec: tool_choice must only be set when tools are present.
+	if len(cifTools) > 0 {
+		req.ToolChoice = "auto"
 	}
 
 	return req
@@ -230,11 +225,11 @@ func extractToolCalls(content []cif.CIFContentPart) []cif.CIFToolCallPart {
 }
 
 func extractTextContent(content []cif.CIFContentPart) string {
-	var text string
+	var sb strings.Builder
 	for _, part := range content {
 		if tp, ok := part.(cif.CIFTextPart); ok {
-			text += tp.Text
+			sb.WriteString(tp.Text)
 		}
 	}
-	return text
+	return sb.String()
 }

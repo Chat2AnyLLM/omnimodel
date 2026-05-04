@@ -233,6 +233,9 @@ func cifAssistantMsg(m cif.CIFAssistantMessage) Message {
 		msg.ReasoningContent = reasoningContent
 	}
 	if len(toolCalls) > 0 {
+		if msg.Content == nil {
+			msg.Content = ""
+		}
 		msg.ToolCalls = toolCalls
 	}
 	return msg

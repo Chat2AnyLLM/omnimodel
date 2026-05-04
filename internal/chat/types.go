@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"os"
 
-	agentpkg "omnillm/internal/agent"
+	toolspkg "omnillm/internal/tools"
 )
 
 type permissionRequestMsg struct {
-	req    agentpkg.PermissionRequest
+	req    toolspkg.PermissionRequest
 	respCh chan bool
 }
 

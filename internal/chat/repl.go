@@ -1,13 +1,17 @@
 package chat
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
+	toolspkg "omnillm/internal/tools"
 
 	"github.com/chzyer/readline"
 )
@@ -145,9 +149,9 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 	return nil
 }
 
-func makeStdioPermissionChecker(cmd CommandContext) agentpkg.PermissionChecker {
-	return func(ctx context.Context, req agentpkg.PermissionRequest) (bool, error) {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", agentpkg.EncodePermissionPrompt(req))
+func makeStdioPermissionChecker(cmd CommandContext) toolspkg.PermissionChecker {
+	return func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", agentpkg.EncodePermissionPrompt(req.ToolName, req.Arguments))
 		var ans string
 		if _, err := fmt.Fscan(cmd.InOrStdin(), &ans); err != nil {
 			return false, err
@@ -156,7 +160,23 @@ func makeStdioPermissionChecker(cmd CommandContext) agentpkg.PermissionChecker {
 	}
 }
 
-func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker agentpkg.PermissionChecker) (string, error) {
+func makeStdioAskUser(cmd CommandContext) func(context.Context, string, []string) (string, error) {
+	return func(ctx context.Context, question string, options []string) (string, error) {
+		if len(options) > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s (%s): ", question, strings.Join(options, "/"))
+		} else {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
+		}
+		reader := bufio.NewReader(cmd.InOrStdin())
+		answer, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+		return strings.TrimSpace(answer), nil
+	}
+}
+
+func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker) (string, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return "", fmt.Errorf("store message: %w", err)
 	}
@@ -171,7 +191,7 @@ func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, ba
 		history = append(history, agentpkg.HistoryMessage{Role: msg.Role, Content: msg.Content})
 	}
 
-	result, err := agentpkg.RunTurn(ctx, c, sessionID, model, backend, prompt, history, checker)
+	result, err := agentpkg.RunTurn(ctx, c, sessionID, model, backend, prompt, history, checker, nil)
 	if err != nil {
 		return "", err
 	}
@@ -193,7 +213,7 @@ func RunAgentTurn(c Client, sessionID, model, backend, prompt string, cmd Comman
 // call progress is delivered incrementally. Events are emitted on the returned
 // channel until it is closed.  The caller is responsible for saving the final
 // assistant message.
-func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker agentpkg.PermissionChecker) (<-chan agentpkg.Event, error) {
+func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker) (<-chan agentpkg.Event, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return nil, fmt.Errorf("store message: %w", err)
 	}
@@ -208,11 +228,11 @@ func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model,
 		history = append(history, agentpkg.HistoryMessage{Role: msg.Role, Content: msg.Content})
 	}
 
-	return agentpkg.StreamTurn(ctx, c, sessionID, model, backend, prompt, history, checker)
+	return agentpkg.StreamTurn(ctx, c, sessionID, model, backend, prompt, history, checker, nil)
 }
 
 func supportedAgentBackends() []string {
-	return []string{"agent-sdk-go", "google-adk"}
+	return []string{"agent-sdk-go", "google-adk", "anthropic-sdk"}
 }
 
 func supportedAgentBackendsText() string {
@@ -220,12 +240,7 @@ func supportedAgentBackendsText() string {
 }
 
 func isSupportedAgentBackend(backend string) bool {
-	for _, candidate := range supportedAgentBackends() {
-		if backend == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supportedAgentBackends(), backend)
 }
 
 func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, line string) (replCommandResult, error) {
@@ -237,6 +252,9 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 	switch fields[0] {
 	case "/quit", "/exit":
 		return replCommandResult{handled: true, exit: true}, nil
+	case "/clear", "/cls":
+		clearScreen(cmd.OutOrStdout())
+		return replCommandResult{handled: true}, nil
 	case "/help":
 		printHelp(cmd.OutOrStdout())
 		return replCommandResult{handled: true}, nil
@@ -357,8 +375,13 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /model             Show the current model")
 	_, _ = fmt.Fprintln(w, "  /model <id>        Switch to a different model")
 	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")
-	_, _ = fmt.Fprintln(w, "  /agent <backend>   Switch agent backend (agent-sdk-go or google-adk)")
+	_, _ = fmt.Fprintln(w, "  /agent <backend>   Switch agent backend (agent-sdk-go, google-adk, or anthropic-sdk)")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
+	_, _ = fmt.Fprintln(w, "  /clear, /cls       Clear the screen")
 	_, _ = fmt.Fprintln(w, "  /quit, /exit       Leave the chat shell")
+}
+
+func clearScreen(w io.Writer) {
+	_, _ = fmt.Fprint(w, "\033[2J\033[H")
 }

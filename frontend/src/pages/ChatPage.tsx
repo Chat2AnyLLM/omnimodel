@@ -251,8 +251,21 @@ export function ChatPage({ showToast }: ChatPageProps) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  const handleNewChat = useCallback(() => {
+    setCurrentSessionId(null)
+    setMessages([])
+    setInputValue("")
+  }, [])
+
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || !selectedModel || isLoading) return
+
+    // Handle slash commands
+    const trimmed = inputValue.trim()
+    if (trimmed === "/clear" || trimmed === "/cls") {
+      handleNewChat()
+      return
+    }
 
     const userMessage: MessageWithId = {
       id: generateUUID(),
@@ -341,6 +354,7 @@ export function ChatPage({ showToast }: ChatPageProps) {
     currentSessionId,
     apiShape,
     showToast,
+    handleNewChat,
   ])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -349,12 +363,6 @@ export function ChatPage({ showToast }: ChatPageProps) {
       void handleSendMessage()
     }
   }
-
-  const handleNewChat = useCallback(() => {
-    setCurrentSessionId(null)
-    setMessages([])
-    setInputValue("")
-  }, [])
 
   const handleDeleteSession = async (
     sessionId: string,
@@ -765,7 +773,7 @@ export function ChatPage({ showToast }: ChatPageProps) {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Chat with the model…"
+                placeholder="Chat with the model… (type /clear to reset)"
                 disabled={!selectedModel || isLoading}
                 aria-describedby={
                   !selectedModel ? "model-required-hint" : undefined
