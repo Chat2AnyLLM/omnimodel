@@ -105,7 +105,7 @@ func doChatCompletionsStreamPost(ctx context.Context, c Client, model string, re
 	}
 	resp, streamErr := c.PostStream("/v1/chat/completions", json.RawMessage(jsonBytes))
 	if streamErr != nil {
-		return nil, fmt.Errorf("failed to stream chat completion: %w", err)
+		return nil, fmt.Errorf("failed to stream chat completion: %w", streamErr)
 	}
 	defer resp.Body.Close()
 	streamCh := make(chan cif.CIFStreamEvent, 64)

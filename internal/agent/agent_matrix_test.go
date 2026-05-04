@@ -555,6 +555,198 @@ func TestAgentMatrixPermissionCheckerAllBackends(t *testing.T) {
 	}
 }
 
+// ─── multi-turn conversation simulation ──────────────────────────────────────
+
+// multiTurnExchange describes one step in a simulated conversation.
+type multiTurnExchange struct {
+	userPrompt   string
+	// assistantReply is the stub response the model returns for this turn.
+	// If toolCallOnTurn is non-zero, the first call to that turn number returns
+	// a tool_use block; the second call returns assistantReply.
+	assistantReply string
+	// toolCallOnFirstStep: when true, stub returns a tool_use then this reply.
+	toolCallOnFirstStep bool
+}
+
+// multiTurnStub is a stub Client that replays a scripted conversation.
+// It cycles through exchanges in order; each exchange may optionally trigger
+// one tool call on its first proxy call.
+type multiTurnStub struct {
+	t           *testing.T
+	model       string
+	exchanges   []multiTurnExchange
+	turnIdx     int // which exchange we are currently serving
+	callInTurn  int // call count within the current exchange (1-based)
+	totalCalls  int
+	allPaths    []string
+	allPayloads []map[string]any
+}
+
+func (s *multiTurnStub) Post(path string, body any) ([]byte, error) {
+	s.totalCalls++
+	s.callInTurn++
+	s.allPaths = append(s.allPaths, path)
+
+	data, _ := json.Marshal(body)
+	var p map[string]any
+	_ = json.Unmarshal(data, &p)
+	s.allPayloads = append(s.allPayloads, p)
+
+	if s.turnIdx >= len(s.exchanges) {
+		s.t.Fatalf("multiTurnStub: unexpected extra call at turn %d", s.turnIdx)
+	}
+	ex := s.exchanges[s.turnIdx]
+
+	var responseBytes []byte
+	if ex.toolCallOnFirstStep && s.callInTurn == 1 {
+		responseBytes = messagesToolResponse(s.model, 1) // tool_use
+	} else {
+		// final text reply for this turn
+		r := map[string]any{
+			"id":          fmt.Sprintf("msg_turn%d", s.turnIdx),
+			"type":        "message",
+			"role":        "assistant",
+			"model":       s.model,
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+			"content":     []map[string]any{{"type": "text", "text": ex.assistantReply}},
+		}
+		b, _ := json.Marshal(r)
+		responseBytes = b
+		// Advance to the next exchange for the next RunTurn call.
+		s.turnIdx++
+		s.callInTurn = 0
+	}
+	return responseBytes, nil
+}
+
+func (s *multiTurnStub) PostStream(_ string, _ any) (*http.Response, error) {
+	return nil, fmt.Errorf("streaming not used in multi-turn simulation")
+}
+
+// conversationScript is the scripted dialogue used for TestAgentMatrixMultiTurn.
+// The user sends four messages; the model answers two with plain text and two
+// after a tool call (simulating a realistic coding assistant session).
+var conversationScript = []multiTurnExchange{
+	{
+		userPrompt:          "List the files in the current directory.",
+		assistantReply:      "main.go  README.md  go.mod",
+		toolCallOnFirstStep: true, // model calls ls tool, then replies with file list
+	},
+	{
+		userPrompt:     "What does main.go do?",
+		assistantReply: "main.go is the entry point. It initialises the proxy server.",
+	},
+	{
+		userPrompt:          "Show me the first 20 lines of main.go.",
+		assistantReply:      "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"omnillm\") }",
+		toolCallOnFirstStep: true, // model calls read tool, then replies with content
+	},
+	{
+		userPrompt:     "Thanks, that's all.",
+		assistantReply: "You're welcome! Let me know if you need anything else.",
+	},
+}
+
+// alibabaModels are the Alibaba DashScope models under test.
+var alibabaModels = []string{"glm-5.1", "deepseek-v4-flash", "qwen3.6-flash"}
+
+// copilotModels are the GitHub Copilot models under test (Jian Zhu account).
+var copilotModels = []string{"gpt-5-mini", "claude-haiku-4.5", "gpt-5.4-mini"}
+
+// TestAgentMatrixMultiTurn simulates a realistic 4-turn coding-assistant
+// conversation across all 3 agent backends and all 6 targeted models
+// (3 Alibaba + 3 GitHub Copilot).  Each turn calls RunTurn with the
+// accumulated conversation history, matching how the omnicode agent REPL works.
+//
+// Assertions per turn:
+//   - No error
+//   - Correct assistant reply text
+//   - All proxy calls hit /v1/messages
+//   - Tool-call turns require exactly 2 proxy calls; plain turns require 1
+func TestAgentMatrixMultiTurn(t *testing.T) {
+	targetModels := append(alibabaModels, copilotModels...)
+
+	for _, backend := range allBackends {
+		for _, model := range targetModels {
+			backend, model := backend, model
+			tag := fmt.Sprintf("%s/%s", backend, model)
+			t.Run(tag, func(t *testing.T) {
+				stub := &multiTurnStub{
+					t:         t,
+					model:     model,
+					exchanges: conversationScript,
+				}
+
+				var history []HistoryMessage
+
+				for turnN, ex := range conversationScript {
+					wantCalls := 1
+					if ex.toolCallOnFirstStep {
+						wantCalls = 2
+					}
+					prevTotal := stub.totalCalls
+
+					result, err := RunTurn(
+						context.Background(), stub,
+						fmt.Sprintf("sess-multiturn-%s-%s", backend, model),
+						model, backend,
+						ex.userPrompt,
+						history, nil, nil,
+					)
+					if err != nil {
+						t.Fatalf("[%s] turn %d: RunTurn error: %v", tag, turnN+1, err)
+					}
+					if result == nil {
+						t.Fatalf("[%s] turn %d: nil result", tag, turnN+1)
+					}
+					if result.Output != ex.assistantReply {
+						t.Errorf("[%s] turn %d: output = %q, want %q", tag, turnN+1, result.Output, ex.assistantReply)
+					}
+
+					gotCalls := stub.totalCalls - prevTotal
+					if gotCalls != wantCalls {
+						t.Errorf("[%s] turn %d: proxy calls = %d, want %d", tag, turnN+1, gotCalls, wantCalls)
+					}
+
+					// Verify all proxy calls in this turn used /v1/messages.
+					for i := prevTotal; i < stub.totalCalls; i++ {
+						if stub.allPaths[i] != "/v1/messages" {
+							t.Errorf("[%s] turn %d call %d: path = %q, want /v1/messages",
+								tag, turnN+1, i-prevTotal+1, stub.allPaths[i])
+						}
+						if stub.allPayloads[i]["model"] != model {
+							t.Errorf("[%s] turn %d call %d: model = %#v, want %q",
+								tag, turnN+1, i-prevTotal+1, stub.allPayloads[i]["model"], model)
+						}
+					}
+
+					// Accumulate history for the next turn.
+					history = append(history, HistoryMessage{Role: "user", Content: ex.userPrompt})
+					history = append(history, HistoryMessage{Role: "assistant", Content: result.Output})
+				}
+
+				// Total proxy calls: turns without tool = 1 call; with tool = 2 calls.
+				// Script: turns 0,2 have tools (2 calls each); turns 1,3 don't (1 call each).
+				wantTotal := 0
+				for _, ex := range conversationScript {
+					if ex.toolCallOnFirstStep {
+						wantTotal += 2
+					} else {
+						wantTotal++
+					}
+				}
+				if stub.totalCalls != wantTotal {
+					t.Errorf("[%s] total proxy calls = %d, want %d", tag, stub.totalCalls, wantTotal)
+				}
+
+				t.Logf("[%s] completed %d-turn conversation in %d proxy calls",
+					tag, len(conversationScript), stub.totalCalls)
+			})
+		}
+	}
+}
+
 // ─── summary smoke: matrix dimensions ────────────────────────────────────────
 
 // TestAgentMatrixDimensions is a sanity check that we cover the expected
