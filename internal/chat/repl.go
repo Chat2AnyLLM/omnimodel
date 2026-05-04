@@ -238,6 +238,9 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 	switch fields[0] {
 	case "/quit", "/exit":
 		return replCommandResult{handled: true, exit: true}, nil
+	case "/clear", "/cls":
+		clearScreen(cmd.OutOrStdout())
+		return replCommandResult{handled: true}, nil
 	case "/help":
 		printHelp(cmd.OutOrStdout())
 		return replCommandResult{handled: true}, nil
@@ -361,5 +364,10 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /agent <backend>   Switch agent backend (agent-sdk-go or google-adk)")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
+	_, _ = fmt.Fprintln(w, "  /clear, /cls       Clear the screen")
 	_, _ = fmt.Fprintln(w, "  /quit, /exit       Leave the chat shell")
+}
+
+func clearScreen(w io.Writer) {
+	_, _ = fmt.Fprint(w, "\033[2J\033[H")
 }

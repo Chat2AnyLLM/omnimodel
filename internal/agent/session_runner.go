@@ -42,13 +42,11 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt
 }
 
 func registerDefaultTools(registry *tools.Registry) {
-	registry.Register(tools.Bash())
-	registry.Register(tools.Read())
-	registry.Register(tools.Write())
-	registry.Register(tools.Edit())
-	registry.Register(tools.Glob())
-	registry.Register(tools.Grep())
-	registry.Register(tools.LS())
+	manager := tools.NewManager()
+	tools.RegisterCoreTools(manager)
+	for _, tool := range manager.Registry().List() {
+		registry.Register(tool)
+	}
 }
 
 func seedHistory(memory Memory, history []HistoryMessage, currentPrompt string) {

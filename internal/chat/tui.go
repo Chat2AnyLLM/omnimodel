@@ -538,7 +538,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.agentTurnCancel()
 				m.agentTurnCancel = nil
 			}
-			return m, tea.Quit
+			return m, nil
 		case tea.KeyCtrlR:
 			if !m.textarea.Focused() || m.streamActive {
 				break
@@ -742,7 +742,7 @@ func (m chatTUIModel) View() string {
 		main.WriteString(status)
 	}
 	main.WriteString("\n")
-	main.WriteString(tuiHelpStyle.Render("Ctrl+C/Esc: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search history  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search history  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
@@ -1298,8 +1298,12 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 	switch fields[0] {
 	case "/quit", "/exit":
 		return m, tea.Quit
+	case "/clear", "/cls":
+		m.entries = nil
+		m.syncViewport()
+		return m, nil
 	case "/help":
-		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend\n- `/models` — open model picker\n- `/session` — show session info\n- `/quit` or `/exit` — quit\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend\n- `/models` — open model picker\n- `/session` — show session info\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, m.model)))

@@ -190,7 +190,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 	}
 
 	toolsPayload, ok := capturedPayload["tools"].([]any)
-	if !ok || len(toolsPayload) != 7 {
+	if !ok || len(toolsPayload) != 10 {
 		t.Fatalf("tools = %#v", capturedPayload["tools"])
 	}
 
@@ -228,7 +228,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	wantNames := []string{"bash", "edit", "glob", "grep", "ls", "read", "write"}
+	wantNames := []string{"bash", "calculator", "edit", "get_current_time", "glob", "grep", "ls", "read", "web_fetch", "write"}
 	if fmt.Sprint(names) != fmt.Sprint(wantNames) {
 		t.Fatalf("tool names = %#v, want %#v", names, wantNames)
 	}
