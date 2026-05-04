@@ -251,6 +251,12 @@ export function ChatPage({ showToast }: ChatPageProps) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  const handleNewChat = useCallback(() => {
+    setCurrentSessionId(null)
+    setMessages([])
+    setInputValue("")
+  }, [])
+
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || !selectedModel || isLoading) return
 
@@ -357,12 +363,6 @@ export function ChatPage({ showToast }: ChatPageProps) {
       void handleSendMessage()
     }
   }
-
-  const handleNewChat = useCallback(() => {
-    setCurrentSessionId(null)
-    setMessages([])
-    setInputValue("")
-  }, [])
 
   const handleDeleteSession = async (
     sessionId: string,

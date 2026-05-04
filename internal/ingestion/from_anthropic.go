@@ -343,6 +343,12 @@ func normalizeAnthropicToolResultContent(content interface{}) string {
 	return ""
 }
 
+// ConvertAnthropicContentBlockForAgent exposes the existing Anthropic content
+// block conversion logic for the agent runtime.
+func ConvertAnthropicContentBlockForAgent(block AnthropicContentBlock) (cif.CIFContentPart, error) {
+	return convertAnthropicContentBlock(block)
+}
+
 func normalizeSchema(schema interface{}) map[string]interface{} {
 	normalized, ok := normalizeSchemaValue(schema).(map[string]interface{})
 	if !ok {

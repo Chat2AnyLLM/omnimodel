@@ -132,7 +132,7 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 	if !strings.Contains(text, "Current agent backend: google-adk") {
 		t.Fatalf("unexpected output: %s", text)
 	}
-	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk") {
+	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
 		t.Fatalf("missing supported backends in output: %s", text)
 	}
 }
@@ -171,7 +171,7 @@ func TestHandleSlashCommandAgentSwitch(t *testing.T) {
 	if !strings.Contains(text, "Switched agent backend to google-adk") {
 		t.Fatalf("unexpected output: %s", text)
 	}
-	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk") {
+	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
 		t.Fatalf("missing supported backends in output: %s", text)
 	}
 }
@@ -179,13 +179,52 @@ func TestHandleSlashCommandAgentSwitch(t *testing.T) {
 func TestHandleSlashCommandAgentInvalid(t *testing.T) {
 	cmd := newTestCommandContext()
 	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "agent"}, "/agent nope")
-	if err == nil || !strings.Contains(err.Error(), "supported backends: agent-sdk-go, google-adk") {
+	if err == nil || !strings.Contains(err.Error(), "supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
 		t.Fatalf("expected supported backend error, got %v", err)
 	}
 }
 
+func TestHandleSlashCommandAgentSwitchToAnthropicSDK(t *testing.T) {
+	var updatedBackend string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			updatedBackend = body["agent_backend"]
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+
+	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "agent"}, "/agent anthropic-sdk")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.agentBackend != "anthropic-sdk" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if updatedBackend != "anthropic-sdk" {
+		t.Fatalf("updated backend = %q, want anthropic-sdk", updatedBackend)
+	}
+	text := cmd.out.String()
+	if !strings.Contains(text, "Switched agent backend to anthropic-sdk") {
+		t.Fatalf("unexpected output: %s", text)
+	}
+	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
+		t.Fatalf("missing supported backends in output: %s", text)
+	}
+}
+
 func TestSupportedAgentBackendsText(t *testing.T) {
-	if got := supportedAgentBackendsText(); got != "agent-sdk-go, google-adk" {
+	if got := supportedAgentBackendsText(); got != "agent-sdk-go, google-adk, anthropic-sdk" {
 		t.Fatalf("supportedAgentBackendsText() = %q", got)
 	}
 	if !isSupportedAgentBackend("agent-sdk-go") {
@@ -193,6 +232,9 @@ func TestSupportedAgentBackendsText(t *testing.T) {
 	}
 	if !isSupportedAgentBackend("google-adk") {
 		t.Fatal("expected google-adk to be supported")
+	}
+	if !isSupportedAgentBackend("anthropic-sdk") {
+		t.Fatal("expected anthropic-sdk to be supported")
 	}
 	if isSupportedAgentBackend("nope") {
 		t.Fatal("did not expect nope to be supported")
@@ -338,45 +380,39 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 				"agent_backend": "agent-sdk-go",
 				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
 			postBodies = append(postBodies, body)
 			if len(postBodies) == 1 {
+				// First turn: respond with a tool_use block
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"id":    "resp-1",
-					"model": "gpt-5.4",
-					"choices": []map[string]any{{
-						"index": 0,
-						"message": map[string]any{
-							"role": "assistant",
-							"tool_calls": []map[string]any{{
-								"id":   "call-1",
-								"type": "function",
-								"function": map[string]any{
-									"name":      "bash",
-									"arguments": `{"command":"Write-Output disk-ok"}`,
-								},
-							}},
-						},
-						"finish_reason": "tool_calls",
+					"id":          "msg-1",
+					"type":        "message",
+					"role":        "assistant",
+					"model":       "gpt-5.4",
+					"stop_reason": "tool_use",
+					"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "call-1",
+						"name":  "bash",
+						"input": map[string]any{"command": "Write-Output disk-ok"},
 					}},
 				})
 				return
 			}
+			// Second turn: respond with final text
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":    "resp-2",
-				"model": "gpt-5.4",
-				"choices": []map[string]any{{
-					"index": 0,
-					"message": map[string]any{
-						"role":    "assistant",
-						"content": "disk-ok",
-					},
-					"finish_reason": "stop",
-				}},
+				"id":          "msg-2",
+				"type":        "message",
+				"role":        "assistant",
+				"model":       "gpt-5.4",
+				"stop_reason": "end_turn",
+				"usage":       map[string]any{"input_tokens": 20, "output_tokens": 3},
+				"content":     []map[string]any{{"type": "text", "text": "disk-ok"}},
 			})
 		default:
 			http.NotFound(w, r)
@@ -420,7 +456,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 				"agent_backend": "agent-sdk-go",
 				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode request: %v", err)
@@ -428,37 +464,29 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 			postBodies = append(postBodies, body)
 			if len(postBodies) == 1 {
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"id":    "resp-1",
-					"model": "gpt-5.4",
-					"choices": []map[string]any{{
-						"index": 0,
-						"message": map[string]any{
-							"role": "assistant",
-							"tool_calls": []map[string]any{{
-								"id":   "call-1",
-								"type": "function",
-								"function": map[string]any{
-									"name":      "bash",
-									"arguments": `{"command":"Write-Output disk-ok"}`,
-								},
-							}},
-						},
-						"finish_reason": "tool_calls",
+					"id":          "msg-1",
+					"type":        "message",
+					"role":        "assistant",
+					"model":       "gpt-5.4",
+					"stop_reason": "tool_use",
+					"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "call-1",
+						"name":  "bash",
+						"input": map[string]any{"command": "Write-Output disk-ok"},
 					}},
 				})
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":    "resp-2",
-				"model": "gpt-5.4",
-				"choices": []map[string]any{{
-					"index": 0,
-					"message": map[string]any{
-						"role":    "assistant",
-						"content": "disk-ok",
-					},
-					"finish_reason": "stop",
-				}},
+				"id":          "msg-2",
+				"type":        "message",
+				"role":        "assistant",
+				"model":       "gpt-5.4",
+				"stop_reason": "end_turn",
+				"usage":       map[string]any{"input_tokens": 20, "output_tokens": 3},
+				"content":     []map[string]any{{"type": "text", "text": "disk-ok"}},
 			})
 		default:
 			http.NotFound(w, r)

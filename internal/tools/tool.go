@@ -42,6 +42,26 @@ type Context struct {
 	SessionID string
 	Abort     <-chan struct{}
 	Checker   PermissionChecker
+	// AskUser is an optional callback for tools that need to ask the user
+	// a question during execution (e.g. ask_user_question tool).
+	AskUser func(ctx context.Context, question string, options []string) (string, error)
+
+	// Shared session-scoped stores (all safe for concurrent access).
+
+	// TodoStore holds the persistent todo/task list for this agent session.
+	TodoStore *TodoStore
+	// TaskStore holds background sub-agent tasks spawned via task_create.
+	TaskStore *TaskStore
+	// PlanState tracks whether the agent is currently in plan mode.
+	PlanState *PlanState
+	// WorktreeState tracks any active git worktree for this session.
+	WorktreeState *WorktreeState
+	// Registry is a back-reference used by tool_search to list available tools.
+	Registry *Registry
+	// ConfigStore holds runtime agent config key-value pairs.
+	ConfigStore *ConfigStore
+	// SendMessageFn delivers a message to a named agent / sub-process (optional).
+	SendMessageFn func(ctx context.Context, to, message string) (string, error)
 }
 
 // ─── Tool ────────────────────────────────────────────────────────────────────
@@ -59,9 +79,18 @@ type Tool interface {
 // Registry holds registered tools and provides lookup, conversion, and batch
 // execution.
 type Registry struct {
-	mu        sync.RWMutex
-	tools     map[string]Tool
-	checker   PermissionChecker
+	mu      sync.RWMutex
+	tools   map[string]Tool
+	checker PermissionChecker
+	askUser func(ctx context.Context, question string, options []string) (string, error)
+
+	// Session-scoped stores — set once at construction via SetStores.
+	TodoStore     *TodoStore
+	TaskStore     *TaskStore
+	PlanState     *PlanState
+	WorktreeState *WorktreeState
+	ConfigStore   *ConfigStore
+	SendMessageFn func(ctx context.Context, to, message string) (string, error)
 }
 
 // NewRegistry creates an empty tool registry.
@@ -90,10 +119,24 @@ func (r *Registry) SetPermissionChecker(checker PermissionChecker) {
 	r.checker = checker
 }
 
+// SetAskUserCallback configures a callback for tools that need to ask the user
+// a question during execution.
+func (r *Registry) SetAskUserCallback(askUser func(ctx context.Context, question string, options []string) (string, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.askUser = askUser
+}
+
 func (r *Registry) permissionChecker() PermissionChecker {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.checker
+}
+
+func (r *Registry) askUserCallback() func(ctx context.Context, question string, options []string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.askUser
 }
 
 // List returns all registered tools.
@@ -145,6 +188,7 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 	results := make([]ToolCallResult, len(calls))
 	var wg sync.WaitGroup
 	checker := r.permissionChecker()
+	askUser := r.askUserCallback()
 
 	for i, call := range calls {
 		wg.Add(1)
@@ -172,7 +216,6 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 				return
 			}
 
-			// Permission check.
 			if checker != nil {
 				approved, err := checker(ctx, PermissionRequest{
 					SessionID: sessionID,
@@ -211,8 +254,17 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 			}
 
 			callCtx := Context{
-				SessionID: sessionID,
-				Abort:     ctx.Done(),
+				SessionID:     sessionID,
+				Abort:         ctx.Done(),
+				Checker:       checker,
+				AskUser:       askUser,
+				TodoStore:     r.TodoStore,
+				TaskStore:     r.TaskStore,
+				PlanState:     r.PlanState,
+				WorktreeState: r.WorktreeState,
+				ConfigStore:   r.ConfigStore,
+				Registry:      r,
+				SendMessageFn: r.SendMessageFn,
 			}
 			result := tool.Execute(ctx, callCtx, inputJSON)
 

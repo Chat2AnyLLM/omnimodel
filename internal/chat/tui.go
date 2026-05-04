@@ -44,7 +44,7 @@ var (
 
 const (
 	tuiSidebarWidth    = 30
-	tuiMinSidebarWidth = 96
+	tuiMinSidebarWidth = 60
 )
 
 type transcriptEntryType string
@@ -69,6 +69,20 @@ type appendLineMsg string
 type modelChangedMsg string
 type agentBackendChangedMsg string
 type openModelPickerMsg struct{ models []ModelInfo }
+type openSessionPickerMsg struct{ sessions []SessionSummary }
+type sessionPickerState struct {
+	sessions    []SessionSummary
+	selectedIdx int
+	scrollOffset int
+}
+type sessionSelectedMsg struct{ session SessionSummary }
+type sessionCreatedMsg struct{ sessionID string }
+type sessionLoadedMsg struct {
+	sessionID    string
+	model        string
+	agentBackend string
+	messages     []Message
+}
 type agentDoneMsg struct {
 	content string
 	err     error
@@ -342,6 +356,7 @@ type chatTUIModel struct {
 	streamActive       bool
 	streamBuf          string
 	picker             *modelPickerState
+	sessionPicker      *sessionPickerState
 	pendingPermission  *pendingPermissionState
 	agentTurnCancel    context.CancelFunc
 	normalPlaceholder  string
@@ -417,16 +432,24 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.sidebarWidth = 0
-		m.mainWidth = msg.Width - 2
+		// Always show the sidebar when the terminal is wide enough.
+		// Below the minimum width we collapse it to avoid squashing the main area.
 		if msg.Width >= tuiMinSidebarWidth {
 			m.sidebarWidth = tuiSidebarWidth
+		} else {
+			m.sidebarWidth = 0
+		}
+		if m.sidebarWidth > 0 {
 			m.mainWidth = msg.Width - m.sidebarWidth - 3
+		} else {
+			m.mainWidth = msg.Width - 2
 		}
 		if m.mainWidth < 24 {
 			m.mainWidth = 24
 		}
-		vpH := max(msg.Height-9, 3)
+		// Layout: title(1) + div(1) + viewport + div(1) + textarea(≥1) + status(1) + help(2) = 7 fixed rows
+		// Reserve an extra row for the conditional permission/search status line.
+		vpH := max(msg.Height-10, 3)
 		if !m.ready {
 			m.viewport = viewport.New(m.mainWidth, vpH)
 			m.ready = true
@@ -441,6 +464,39 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case tea.KeyMsg:
+		// Session picker overlay takes priority.
+		if m.sessionPicker != nil {
+			visibleItems := 15
+			switch msg.Type {
+			case tea.KeyEscape:
+				m.sessionPicker = nil
+				return m, nil
+			case tea.KeyUp:
+				if m.sessionPicker.selectedIdx > 0 {
+					m.sessionPicker.selectedIdx--
+					if m.sessionPicker.selectedIdx < m.sessionPicker.scrollOffset {
+						m.sessionPicker.scrollOffset = m.sessionPicker.selectedIdx
+					}
+				}
+				return m, nil
+			case tea.KeyDown:
+				if m.sessionPicker.selectedIdx < len(m.sessionPicker.sessions)-1 {
+					m.sessionPicker.selectedIdx++
+					if m.sessionPicker.selectedIdx >= m.sessionPicker.scrollOffset+visibleItems {
+						m.sessionPicker.scrollOffset = m.sessionPicker.selectedIdx - visibleItems + 1
+					}
+				}
+				return m, nil
+			case tea.KeyEnter:
+				if len(m.sessionPicker.sessions) > 0 {
+					selected := m.sessionPicker.sessions[m.sessionPicker.selectedIdx]
+					m.sessionPicker = nil
+					return m, func() tea.Msg { return sessionSelectedMsg{session: selected} }
+				}
+				return m, nil
+			}
+			return m, nil
+		}
 		if m.picker != nil {
 			visibleItems := 20
 			if len(msg.Runes) == 1 && msg.Runes[0] == ' ' {
@@ -666,6 +722,47 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openModelPickerMsg:
 		m.picker = newModelPickerState(msg.models)
 		return m, nil
+	case openSessionPickerMsg:
+		m.sessionPicker = &sessionPickerState{sessions: msg.sessions}
+		return m, nil
+	case sessionSelectedMsg:
+		// Load the selected session's history and switch to it.
+		sess := msg.session
+		return m, func() tea.Msg {
+			state, messages, err := LoadSessionMessages(m.client, sess.ID)
+			if err != nil {
+				return appendLineMsg(tuiErrorStyle.Render("Error loading session: " + err.Error()))
+			}
+			_ = state
+			// Rebuild transcript from the loaded messages.
+			return sessionLoadedMsg{sessionID: sess.ID, model: sess.Model, agentBackend: sess.AgentBackend, messages: messages}
+		}
+	case sessionLoadedMsg:
+		m.sessionID = msg.sessionID
+		if msg.model != "" {
+			m.model = msg.model
+		}
+		if msg.agentBackend != "" {
+			m.agentBackend = msg.agentBackend
+		}
+		m.entries = nil
+		for _, message := range msg.messages {
+			switch message.Role {
+			case "user":
+				m.appendEntry(transcriptUser, message.Content)
+			case "assistant":
+				m.appendEntry(transcriptAssistant, message.Content)
+			}
+		}
+		m.appendEntry(transcriptInfo, fmt.Sprintf("Resumed session `%s`", msg.sessionID))
+		m.syncViewport()
+		return m, nil
+	case sessionCreatedMsg:
+		m.sessionID = msg.sessionID
+		m.entries = nil
+		m.appendEntry(transcriptInfo, fmt.Sprintf("Started new session `%s`", msg.sessionID))
+		m.syncViewport()
+		return m, nil
 	case modelChangedMsg:
 		m.model = string(msg)
 		m.picker = nil
@@ -727,7 +824,17 @@ func (m chatTUIModel) View() string {
 	main.WriteString(div)
 	main.WriteString("\n")
 	main.WriteString(m.viewport.View())
-	main.WriteString("\n")
+	// Scroll position indicator shown when the user has scrolled up.
+	if !m.viewport.AtBottom() {
+		pct := 0
+		if total := m.viewport.TotalLineCount(); total > 0 {
+			pct = int(m.viewport.ScrollPercent() * 100)
+		}
+		main.WriteString("\n")
+		main.WriteString(tuiHelpStyle.Render(fmt.Sprintf("── scroll %d%% ── (PgUp/PgDn to scroll, End to jump to bottom) ──", pct)))
+	} else {
+		main.WriteString("\n")
+	}
 	main.WriteString(div)
 	main.WriteString("\n")
 	main.WriteString(m.textarea.View())
@@ -739,16 +846,72 @@ func (m chatTUIModel) View() string {
 		main.WriteString(status)
 	}
 	main.WriteString("\n")
-	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search history  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
 		base = lipgloss.JoinHorizontal(lipgloss.Top, base, m.renderSidebar())
 	}
-	if m.picker == nil {
+	if m.picker == nil && m.sessionPicker == nil {
 		return base
 	}
+	if m.sessionPicker != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSessionPickerModal())
+	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderPickerModal())
+}
+
+func (m chatTUIModel) renderSessionPickerModal() string {
+	sp := m.sessionPicker
+	if sp == nil {
+		return ""
+	}
+	modalWidth := minInt(90, tuiMax(60, m.width-8))
+	visibleItems := 15
+	start := minInt(tuiMax(0, sp.scrollOffset), len(sp.sessions))
+	end := minInt(len(sp.sessions), start+visibleItems)
+
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12")).Padding(0, 1).Width(modalWidth - 6)
+	normalStyle := lipgloss.NewStyle().Padding(0, 1).Width(modalWidth - 6)
+
+	var rows strings.Builder
+	if len(sp.sessions) == 0 {
+		rows.WriteString(muted.Render("No sessions found."))
+	} else {
+		for i := start; i < end; i++ {
+			sess := sp.sessions[i]
+			title := sess.Title
+			if title == "" {
+				title = sess.ID
+			}
+			meta := sess.Model
+			if meta == "" {
+				meta = "default model"
+			}
+			if !sess.UpdatedAt.IsZero() {
+				meta += "  •  " + sess.UpdatedAt.Format("2006-01-02 15:04")
+			}
+			if sess.MessageCount > 0 {
+				meta += fmt.Sprintf("  •  %d msgs", sess.MessageCount)
+			}
+			rowText := title + "\n" + muted.Render("  "+meta)
+			if i == sp.selectedIdx {
+				rows.WriteString(selectedStyle.Render(rowText))
+			} else {
+				rows.WriteString(normalStyle.Render(rowText))
+			}
+			if i < end-1 {
+				rows.WriteString("\n")
+			}
+		}
+	}
+
+	header := lipgloss.NewStyle().Bold(true).Render("Sessions")
+	subtitle := muted.Render("Enter: resume  Esc: close  ↑↓: navigate")
+	footer := muted.Render(fmt.Sprintf("%d sessions", len(sp.sessions)))
+	content := lipgloss.JoinVertical(lipgloss.Left, header, subtitle, "", rows.String(), "", footer)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("12")).Padding(1, 2).Width(modalWidth).Render(content)
 }
 
 func (m chatTUIModel) renderPickerModal() string {
@@ -832,8 +995,12 @@ func (m chatTUIModel) renderPickerModal() string {
 }
 
 func (m *chatTUIModel) syncViewport() {
+	atBottom := m.viewport.AtBottom()
 	m.viewport.SetContent(m.renderTranscript())
-	m.viewport.GotoBottom()
+	// Only auto-scroll to bottom if the user hasn't scrolled up.
+	if atBottom {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m *chatTUIModel) appendEntry(kind transcriptEntryType, content string) {
@@ -908,8 +1075,17 @@ func (m chatTUIModel) renderSidebar() string {
 	}
 	statusDot := lipgloss.NewStyle().Foreground(statusColor).Render("●")
 	valueWidth := tuiMax(8, m.sidebarWidth-11)
+
+	// Permission status — show pending tool or None; autopilot is shown separately below
+	permStatus := tuiSidebarLabelStyle.Render("None")
+	if m.pendingPermission != nil {
+		toolName := m.pendingPermission.req.ToolName
+		permStatus = tuiPermissionLabelStyle.Render("⚠ " + toolName)
+	}
+
 	sections := []string{
-		tuiSidebarHeaderStyle.Render("Disk usage check"),
+		tuiSidebarHeaderStyle.Render("Permissions"),
+		permStatus,
 		"",
 		tuiSidebarHeaderStyle.Render("Context"),
 		tuiSidebarLabelStyle.Render("Session") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(truncateString(m.sessionID, valueWidth)),
@@ -1281,7 +1457,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help":
-		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend\n- `/models` — open model picker\n- `/session` — show session info\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, m.model)))
@@ -1339,6 +1515,31 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 				return appendLineMsg("No models available.")
 			}
 			return openModelPickerMsg{models: models}
+		}
+	case "/sessions":
+		return m, func() tea.Msg {
+			sessions, err := ListSessions(m.client)
+			if err != nil {
+				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
+			}
+			if len(sessions) == 0 {
+				return appendLineMsg("No sessions found.")
+			}
+			return openSessionPickerMsg{sessions: sessions}
+		}
+	case "/new":
+		title := ""
+		if len(fields) > 1 {
+			title = strings.Join(fields[1:], " ")
+		}
+		currentModel := m.model
+		currentBackend := m.agentBackend
+		return m, func() tea.Msg {
+			sid, err := CreateSession(m.client, title, currentModel, currentBackend)
+			if err != nil {
+				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
+			}
+			return sessionCreatedMsg{sessionID: sid}
 		}
 	default:
 		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s — use /help", fields[0])))
