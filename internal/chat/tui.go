@@ -757,10 +757,7 @@ func (m chatTUIModel) renderPickerModal() string {
 	}
 	modalWidth := minInt(90, tuiMax(58, m.width-8))
 	visibleItems := max(1, min(20, len(m.picker.entries)))
-	start := max(0, m.picker.scrollOffset)
-	if start > len(m.picker.entries) {
-		start = len(m.picker.entries)
-	}
+	start := min(max(0, m.picker.scrollOffset), len(m.picker.entries))
 	end := minInt(len(m.picker.entries), start+visibleItems)
 
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
