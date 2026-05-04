@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
@@ -221,12 +222,7 @@ func supportedAgentBackendsText() string {
 }
 
 func isSupportedAgentBackend(backend string) bool {
-	for _, candidate := range supportedAgentBackends() {
-		if backend == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supportedAgentBackends(), backend)
 }
 
 func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, line string) (replCommandResult, error) {

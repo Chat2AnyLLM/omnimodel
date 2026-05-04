@@ -9,6 +9,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"omnillm/internal/cif"
@@ -149,6 +150,16 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 		wg.Add(1)
 		go func(idx int, tc cif.CIFToolCallPart) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					results[idx] = ToolCallResult{
+						ToolCallID: tc.ToolCallID,
+						ToolName:   tc.ToolName,
+						Content:    fmt.Sprintf("error: tool panicked: %v", r),
+						IsError:    true,
+					}
+				}
+			}()
 
 			tool := r.Get(tc.ToolName)
 			if tool == nil {

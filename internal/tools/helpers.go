@@ -14,7 +14,7 @@ func walkGlob(base, pattern string) ([]string, error) {
 	var matches []string
 	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil // skip inaccessible entries
 		}
 		if d.IsDir() {
 			name := d.Name()
@@ -51,12 +51,13 @@ func walkGrep(ctx context.Context, base, pattern, glob string, ci bool, max int)
 
 	var results []string
 	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if d != nil && d.IsDir() {
-				name := d.Name()
-				if name == ".git" || name == "node_modules" || name == "vendor" {
-					return filepath.SkipDir
-				}
+		if err != nil {
+			return nil // skip inaccessible entries
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == "node_modules" || name == "vendor" {
+				return filepath.SkipDir
 			}
 			return nil
 		}

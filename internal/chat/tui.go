@@ -426,10 +426,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mainWidth < 24 {
 			m.mainWidth = 24
 		}
-		vpH := msg.Height - 9
-		if vpH < 3 {
-			vpH = 3
-		}
+		vpH := max(msg.Height-9, 3)
 		if !m.ready {
 			m.viewport = viewport.New(m.mainWidth, vpH)
 			m.ready = true
@@ -759,17 +756,8 @@ func (m chatTUIModel) renderPickerModal() string {
 		return ""
 	}
 	modalWidth := minInt(90, tuiMax(58, m.width-8))
-	visibleItems := 20
-	if len(m.picker.entries) < visibleItems {
-		visibleItems = len(m.picker.entries)
-	}
-	if visibleItems < 1 {
-		visibleItems = 1
-	}
-	start := m.picker.scrollOffset
-	if start < 0 {
-		start = 0
-	}
+	visibleItems := max(1, min(20, len(m.picker.entries)))
+	start := max(0, m.picker.scrollOffset)
 	if start > len(m.picker.entries) {
 		start = len(m.picker.entries)
 	}
@@ -1059,13 +1047,6 @@ func (m chatTUIModel) renderMD(md string) string {
 	return trimCommonLeadingSpaces(strings.TrimRight(out, "\n"))
 }
 
-func (m chatTUIModel) renderMessageBody(body string) string {
-	if body == "" {
-		return body
-	}
-	return body
-}
-
 func trimCommonLeadingSpaces(s string) string {
 	lines := strings.Split(s, "\n")
 	minIndent := -1
@@ -1229,7 +1210,7 @@ func (m chatTUIModel) runStream(messages []Message) {
 	if reqModel == "" {
 		reqModel = "gpt-4"
 	}
-	body := map[string]interface{}{"model": reqModel, "messages": messages, "stream": true}
+	body := map[string]any{"model": reqModel, "messages": messages, "stream": true}
 	resp, err := m.client.PostStream("/v1/chat/completions", body)
 	if err != nil {
 		m.prog.Send(streamDoneMsg{err: fmt.Errorf("request: %w", err)})
@@ -1255,26 +1236,26 @@ func (m chatTUIModel) runStream(messages []Message) {
 			if len(trimmed) == 0 || string(trimmed) == "[DONE]" {
 				continue
 			}
-			var chunk map[string]interface{}
+			var chunk map[string]any
 			if err := json.Unmarshal(trimmed, &chunk); err != nil {
 				continue
 			}
-			choices, _ := chunk["choices"].([]interface{})
+			choices, _ := chunk["choices"].([]any)
 			if len(choices) == 0 {
 				continue
 			}
-			choice, _ := choices[0].(map[string]interface{})
-			delta, _ := choice["delta"].(map[string]interface{})
+			choice, _ := choices[0].(map[string]any)
+			delta, _ := choice["delta"].(map[string]any)
 			content, _ := delta["content"].(string)
 			if content != "" {
 				m.prog.Send(streamDeltaMsg(content))
 			}
 			continue
 		}
-		if bytes.HasPrefix(raw, []byte("data: ")) {
-			buf.Write(bytes.TrimPrefix(raw, []byte("data: ")))
-		} else if bytes.HasPrefix(raw, []byte("data:")) {
-			buf.Write(bytes.TrimPrefix(raw, []byte("data:")))
+		if after, ok := bytes.CutPrefix(raw, []byte("data: ")); ok {
+			buf.Write(after)
+		} else if after, ok := bytes.CutPrefix(raw, []byte("data:")); ok {
+			buf.Write(after)
 		}
 	}
 	if err := scanner.Err(); err != nil {

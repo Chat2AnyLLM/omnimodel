@@ -32,21 +32,6 @@ func TestRegistryExecuteToolCallsHonorsPermissionChecker(t *testing.T) {
 	}
 }
 
-func TestRunTurnExecutesRegisteredTool(t *testing.T) {
-	client := &stubAgentClient{
-		postFn: func(path string, body any) ([]byte, error) {
-			payload, _ := body.(map[string]any)
-			messages, _ := payload["messages"].([]map[string]any)
-			_ = messages
-			if stub, ok := body.(*struct{}); ok && stub == nil {
-				t.Fatal("unexpected stub")
-			}
-			return nil, nil
-		},
-	}
-	_ = client
-}
-
 func TestChatCompletionsDispatchPostsStandardOpenAIToolPayload(t *testing.T) {
 	var capturedPath string
 	var capturedPayload map[string]any

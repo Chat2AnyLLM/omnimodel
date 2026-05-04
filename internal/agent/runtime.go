@@ -97,7 +97,10 @@ func ReadStreamText(body io.Reader) (string, error) {
 
 // EncodePermissionPrompt formats a tool-call approval prompt for UI layers.
 func EncodePermissionPrompt(toolName string, args map[string]any) string {
-	encoded, _ := json.Marshal(args)
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		encoded = fmt.Appendf(nil, "<failed to serialize arguments: %v>", err)
+	}
 	var buf bytes.Buffer
 	buf.WriteString("Allow tool execution?\n")
 	buf.WriteString("Tool: ")

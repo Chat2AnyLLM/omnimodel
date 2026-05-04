@@ -35,7 +35,7 @@ func (t *currentTimeTool) Execute(ctx context.Context, call Context, input json.
 	var p struct {
 		Timezone string `json:"timezone"`
 	}
-	if err := json.Unmarshal(input, &p); err != nil && len(strings.TrimSpace(string(input))) > 0 && string(input) != "null" {
+	if err := decodeOptionalJSON(input, &p); err != nil {
 		return Result{Output: "error: " + err.Error(), IsError: true}
 	}
 
@@ -114,6 +114,9 @@ func (t *webFetchTool) Execute(ctx context.Context, call Context, input json.Raw
 	}
 
 	prefix := fmt.Sprintf("status: %s\n", resp.Status)
+	if resp.StatusCode >= 400 {
+		return Result{Output: prefix + string(body), IsError: true}
+	}
 	if len(body) == 0 {
 		return Result{Output: prefix + "(empty body)"}
 	}

@@ -42,9 +42,9 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt
 }
 
 func registerDefaultTools(registry *tools.Registry) {
-	manager := tools.NewManager()
-	tools.RegisterCoreTools(manager)
-	for _, tool := range manager.Registry().List() {
+	m := tools.NewManager()
+	tools.RegisterCoreTools(m)
+	for _, tool := range m.Registry().List() {
 		registry.Register(tool)
 	}
 }

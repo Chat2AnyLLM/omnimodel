@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,5 +39,3 @@ func decodeOptionalJSON[T any](input json.RawMessage, out *T) error {
 	}
 	return json.Unmarshal(input, out)
 }
-
-func noOpContext(_ context.Context) {}
