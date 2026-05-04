@@ -79,7 +79,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 
 		var assistantContent string
 		if session.Mode == "agent" {
-			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, line, makeStdioPermissionChecker(cmd))
+			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, line, makeStdioPermissionChecker(cmd, &session))
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error: completion: %v\n", err)
 				continue
@@ -149,8 +149,11 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 	return nil
 }
 
-func makeStdioPermissionChecker(cmd CommandContext) toolspkg.PermissionChecker {
+func makeStdioPermissionChecker(cmd CommandContext, session *SessionState) toolspkg.PermissionChecker {
 	return func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
+		if session != nil && session.Autopilot {
+			return true, nil
+		}
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", agentpkg.EncodePermissionPrompt(req.ToolName, req.Arguments))
 		var ans string
 		if _, err := fmt.Fscan(cmd.InOrStdin(), &ans); err != nil {
@@ -206,7 +209,7 @@ func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, ba
 }
 
 func RunAgentTurn(c Client, sessionID, model, backend, prompt string, cmd CommandContext) (string, error) {
-	return RunAgentTurnWithChecker(context.Background(), c, sessionID, model, backend, prompt, makeStdioPermissionChecker(cmd))
+	return RunAgentTurnWithChecker(context.Background(), c, sessionID, model, backend, prompt, makeStdioPermissionChecker(cmd, nil))
 }
 
 // StreamAgentTurnWithChecker runs one agent turn using streaming so that tool
@@ -264,6 +267,14 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 			session.Mode = *result.NewMode
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), result.Response)
+		return replCommandResult{handled: true}, nil
+	case "/permissions":
+		session.Autopilot = !session.Autopilot
+		status := "manual approval"
+		if session.Autopilot {
+			status = "autopilot (tools auto-approved)"
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Permissions: %s\n", status)
 		return replCommandResult{handled: true}, nil
 	case "/model":
 		if len(fields) == 1 {
@@ -372,6 +383,7 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /session           Show current session details")
 	_, _ = fmt.Fprintln(w, "  /mode              Show the current chat mode")
 	_, _ = fmt.Fprintln(w, "  /mode <chat|agent> Switch between chat and agent modes")
+	_, _ = fmt.Fprintln(w, "  /permissions       Toggle autopilot (auto-approve tool calls)")
 	_, _ = fmt.Fprintln(w, "  /model             Show the current model")
 	_, _ = fmt.Fprintln(w, "  /model <id>        Switch to a different model")
 	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")

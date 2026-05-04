@@ -850,7 +850,9 @@ func (m chatTUIModel) View() string {
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
-		base = lipgloss.JoinHorizontal(lipgloss.Top, base, m.renderSidebar())
+		sidebar := m.renderSidebar()
+		// Overlay sidebar at top-right corner so it stays fixed when main content scrolls.
+		base = placeOverlayTopRight(base, sidebar, m.width)
 	}
 	if m.picker == nil && m.sessionPicker == nil {
 		return base
@@ -1076,16 +1078,20 @@ func (m chatTUIModel) renderSidebar() string {
 	statusDot := lipgloss.NewStyle().Foreground(statusColor).Render("●")
 	valueWidth := tuiMax(8, m.sidebarWidth-11)
 
-	// Permission status — show pending tool or None; autopilot is shown separately below
-	permStatus := tuiSidebarLabelStyle.Render("None")
+	// Permission mode — shows current approval mode; also shows pending tool if any.
+	permMode := "Manual"
+	if m.autopilot {
+		permMode = "Autopilot"
+	}
+	permDisplay := tuiSidebarValueStyle.Render(permMode)
 	if m.pendingPermission != nil {
 		toolName := m.pendingPermission.req.ToolName
-		permStatus = tuiPermissionLabelStyle.Render("⚠ " + toolName)
+		permDisplay = tuiPermissionLabelStyle.Render("⚠ " + toolName)
 	}
 
 	sections := []string{
 		tuiSidebarHeaderStyle.Render("Permissions"),
-		permStatus,
+		permDisplay,
 		"",
 		tuiSidebarHeaderStyle.Render("Context"),
 		tuiSidebarLabelStyle.Render("Session") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(truncateString(m.sessionID, valueWidth)),
@@ -1099,9 +1105,6 @@ func (m chatTUIModel) renderSidebar() string {
 		tuiSidebarLabelStyle.Render("Status")+"\n"+statusDot+" "+status,
 		tuiSidebarLabelStyle.Render("Messages")+"\n"+tuiSidebarValueStyle.Render(fmt.Sprintf("%d total", len(m.entries))),
 	)
-	if m.autopilot {
-		sections = append(sections, tuiSidebarHeaderStyle.Render("AUTOPILOT")+"\n"+tuiSidebarValueStyle.Render("Tools auto-approved"))
-	}
 	sections = append(sections,
 		tuiSidebarHeaderStyle.Render("LSP"),
 		tuiSidebarLabelStyle.Render("LSPs will activate as files are read"),
@@ -1114,6 +1117,36 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// placeOverlayTopRight overlays the sidebar at the right edge of the terminal.
+// The sidebar stays fixed in position regardless of base content height.
+func placeOverlayTopRight(base, sidebar string, totalWidth int) string {
+	baseLines := strings.Split(base, "\n")
+	sideLines := strings.Split(sidebar, "\n")
+	sidebarWidth := lipgloss.Width(sidebar)
+
+	result := make([]string, 0, len(baseLines))
+	for i, baseLine := range baseLines {
+		if i < len(sideLines) {
+			sideLine := sideLines[i]
+			padding := totalWidth - lipgloss.Width(baseLine) - sidebarWidth
+			if padding < 0 {
+				padding = 0
+			}
+			result = append(result, baseLine + strings.Repeat(" ", padding) + sideLine)
+		} else {
+			result = append(result, baseLine)
+		}
+	}
+	for i := len(baseLines); i < len(sideLines); i++ {
+		padding := totalWidth - sidebarWidth
+		if padding < 0 {
+			padding = 0
+		}
+		result = append(result, strings.Repeat(" ", padding) + sideLines[i])
+	}
+	return strings.Join(result, "\n")
 }
 
 func (m *chatTUIModel) recordPromptHistory(text string) {
@@ -1457,7 +1490,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help":
-		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, m.model)))
@@ -1468,6 +1501,15 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			m.mode = *result.NewMode
 		}
 		add(m.renderMD(result.Response))
+		return m, nil
+	case "/permissions":
+		m.autopilot = !m.autopilot
+		status := "manual approval"
+		if m.autopilot {
+			status = "autopilot (tools auto-approved)"
+		}
+		add(m.renderMD(fmt.Sprintf("Permissions: **%s**", status)))
+		m.syncViewport()
 		return m, nil
 	case "/agent":
 		if len(fields) == 1 {
@@ -1549,7 +1591,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 
 func RunTUI(c Client, sessionID, model, mode, agentBackend string, history []Message) error {
 	m := newChatTUIModel(c, sessionID, model, mode, agentBackend, history)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	go func() { p.Send(progReadyMsg{p: p}) }()
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI: %w", err)
