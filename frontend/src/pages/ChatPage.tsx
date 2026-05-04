@@ -254,6 +254,13 @@ export function ChatPage({ showToast }: ChatPageProps) {
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || !selectedModel || isLoading) return
 
+    // Handle slash commands
+    const trimmed = inputValue.trim()
+    if (trimmed === "/clear" || trimmed === "/cls") {
+      handleNewChat()
+      return
+    }
+
     const userMessage: MessageWithId = {
       id: generateUUID(),
       role: "user",
@@ -341,6 +348,7 @@ export function ChatPage({ showToast }: ChatPageProps) {
     currentSessionId,
     apiShape,
     showToast,
+    handleNewChat,
   ])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -765,7 +773,7 @@ export function ChatPage({ showToast }: ChatPageProps) {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Chat with the model…"
+                placeholder="Chat with the model… (type /clear to reset)"
                 disabled={!selectedModel || isLoading}
                 aria-describedby={
                   !selectedModel ? "model-required-hint" : undefined

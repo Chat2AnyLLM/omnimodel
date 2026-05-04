@@ -20,6 +20,10 @@ type Client interface {
 }
 
 // NewChatCompletionsDispatch returns a DispatchFn backed by OmniLLM's existing /v1/chat/completions path.
+//
+// Per the OpenAI chat completions spec, tools and tool_choice are only included
+// when tools are registered, and stream_options is only included when stream:
+// true.
 func NewChatCompletionsDispatch(c Client, model string) DispatchFn {
 	return func(ctx context.Context, req *cif.CanonicalRequest) (<-chan *cif.CanonicalResponse, error) {
 		requestModel := strings.TrimSpace(model)
@@ -30,27 +34,47 @@ func NewChatCompletionsDispatch(c Client, model string) DispatchFn {
 			requestModel = "gpt-4"
 		}
 
-		chatReq, err := openaicompat.BuildChatRequest(requestModel, req, false, openaicompat.Config{})
+		response, err := doPost(c, requestModel, req)
 		if err != nil {
-			return nil, fmt.Errorf("build chat request: %w", err)
+			return nil, err
 		}
 
-		data, err := c.Post("/v1/chat/completions", chatReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create chat completion: %w", err)
-		}
-
-		var chatResp openaicompat.ChatResponse
-		if err := json.Unmarshal(data, &chatResp); err != nil {
-			return nil, fmt.Errorf("decode chat completion: %w", err)
-		}
-
-		response := openaicompat.ParseChatResponse(&chatResp)
 		ch := make(chan *cif.CanonicalResponse, 1)
 		ch <- response
 		close(ch)
 		return ch, nil
 	}
+}
+
+// doPost builds a spec-compliant OpenAI chat completions payload and posts it
+// to the local proxy.  It uses openaicompat.Marshal (not json.Marshal) so that
+// the request is properly serialised — in particular the Extras side-channel is
+// merged and the user field is sanitised, exactly as the proxy-side providers do.
+func doPost(c Client, model string, req *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
+	chatReq, err := openaicompat.BuildChatRequest(model, req, false, openaicompat.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("build chat request: %w", err)
+	}
+
+	// Marshal once via openaicompat.Marshal to produce correct JSON, then wrap
+	// as a rawPayload so that c.Post's internal json.Marshal encodes it as-is
+	// (json.Marshal(json.RawMessage) re-encodes the bytes verbatim).
+	jsonBytes, err := openaicompat.Marshal(chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal chat request: %w", err)
+	}
+
+	data, err := c.Post("/v1/chat/completions", json.RawMessage(jsonBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat completion: %w", err)
+	}
+
+	var chatResp openaicompat.ChatResponse
+	if err := json.Unmarshal(data, &chatResp); err != nil {
+		return nil, fmt.Errorf("decode chat completion: %w", err)
+	}
+
+	return openaicompat.ParseChatResponse(&chatResp), nil
 }
 
 // ReadStreamText parses OpenAI-compatible SSE output and collects assistant text content.
@@ -72,13 +96,13 @@ func ReadStreamText(body io.Reader) (string, error) {
 }
 
 // EncodePermissionPrompt formats a tool-call approval prompt for UI layers.
-func EncodePermissionPrompt(req PermissionRequest) string {
-	args, _ := json.Marshal(req.Arguments)
+func EncodePermissionPrompt(toolName string, args map[string]any) string {
+	encoded, _ := json.Marshal(args)
 	var buf bytes.Buffer
 	buf.WriteString("Allow tool execution?\n")
 	buf.WriteString("Tool: ")
-	buf.WriteString(req.ToolName)
+	buf.WriteString(toolName)
 	buf.WriteString("\nArguments: ")
-	buf.Write(args)
+	buf.Write(encoded)
 	return buf.String()
 }

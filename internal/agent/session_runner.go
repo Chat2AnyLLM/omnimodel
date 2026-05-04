@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"omnillm/internal/cif"
+	"omnillm/internal/tools"
 )
 
 // HistoryMessage is the minimal chat-session history shape needed by the native agent runtime.
@@ -14,10 +15,10 @@ type HistoryMessage struct {
 }
 
 // RunTurn runs one interactive agent turn using the native internal/agent runtime.
-func RunTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker PermissionChecker) (*RunResult, error) {
-	registry := NewRegistry()
+func RunTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker tools.PermissionChecker) (*RunResult, error) {
+	registry := tools.NewRegistry()
+	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
-	RegisterDefaultTools(registry)
 
 	memory := NewBufferMemory(64)
 	seedHistory(memory, history, prompt)
@@ -28,16 +29,26 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, prompt st
 
 // StreamTurn runs one interactive agent turn using streaming, emitting events on the returned channel.
 // The caller must drain the channel until it is closed.
-func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker PermissionChecker) (<-chan Event, error) {
-	registry := NewRegistry()
+func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker tools.PermissionChecker) (<-chan Event, error) {
+	registry := tools.NewRegistry()
+	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
-	RegisterDefaultTools(registry)
 
 	memory := NewBufferMemory(64)
 	seedHistory(memory, history, prompt)
 
 	ag := NewAgent(registry, memory, 10, NewChatCompletionsDispatch(c, model))
 	return ag.Stream(ctx, sessionID, prompt)
+}
+
+func registerDefaultTools(registry *tools.Registry) {
+	registry.Register(tools.Bash())
+	registry.Register(tools.Read())
+	registry.Register(tools.Write())
+	registry.Register(tools.Edit())
+	registry.Register(tools.Glob())
+	registry.Register(tools.Grep())
+	registry.Register(tools.LS())
 }
 
 func seedHistory(memory Memory, history []HistoryMessage, currentPrompt string) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"omnillm/internal/cif"
 	"omnillm/internal/database"
 	"omnillm/internal/providers/types"
 	"os"
@@ -323,6 +324,43 @@ func TestIsReasoningModel(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("IsReasoningModel(%q) = %v, want %v", tc.modelID, got, tc.want)
 		}
+	}
+}
+
+func TestAlibabaBuildRequestDeepSeekV4ToolsDisablesThinkingAndOmitsToolChoice(t *testing.T) {
+	p := NewProvider("alibaba-test-deepseek", "Alibaba Test")
+	adapter := &Adapter{provider: p}
+
+	req := &cif.CanonicalRequest{
+		Model: "deepseek-v4-flash",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{
+				Role: "user",
+				Content: []cif.CIFContentPart{
+					cif.CIFTextPart{Type: "text", Text: "List files"},
+				},
+			},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "ls",
+			ParametersSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		}},
+		ToolChoice: "auto",
+	}
+
+	chatReq, err := adapter.buildRequest(req, false)
+	if err != nil {
+		t.Fatalf("buildRequest returned error: %v", err)
+	}
+	if chatReq.ToolChoice != nil {
+		t.Fatalf("expected DeepSeek V4 upstream tool_choice to be omitted, got %#v", chatReq.ToolChoice)
+	}
+	thinking, ok := chatReq.Extras["thinking"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected thinking extra, got %#v", chatReq.Extras)
+	}
+	if thinking["type"] != "disabled" {
+		t.Fatalf("expected thinking.type=disabled, got %#v", thinking)
 	}
 }
 

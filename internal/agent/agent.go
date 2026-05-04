@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"omnillm/internal/cif"
+	"omnillm/internal/tools"
 )
 
 // DispatchFn wraps the existing provider dispatch. It sends a CIF request
@@ -20,7 +22,7 @@ type RunResult struct {
 
 // Agent orchestrates multi-step LLM interactions with tool calling.
 type Agent struct {
-	registry *Registry
+	registry *tools.Registry
 	memory   Memory
 	maxSteps int
 	dispatch DispatchFn
@@ -28,7 +30,7 @@ type Agent struct {
 
 // NewAgent creates a new Agent with the given configuration.
 // If maxSteps <= 0, defaults to 10.
-func NewAgent(registry *Registry, memory Memory, maxSteps int, dispatch DispatchFn) *Agent {
+func NewAgent(registry *tools.Registry, memory Memory, maxSteps int, dispatch DispatchFn) *Agent {
 	if maxSteps <= 0 {
 		maxSteps = 10
 	}
@@ -85,7 +87,11 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 		a.memory.Append(assistantMsg)
 
 		toolCalls := extractToolCalls(response.Content)
-		if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
+		// Continue the loop only when the model returned tool calls.
+		// Some providers return "stop" (StopReasonEndTurn) even when tool calls
+		// are present, so we check the tool calls directly rather than relying
+		// solely on StopReason.
+		if len(toolCalls) == 0 {
 			finalOutput = extractTextContent(response.Content)
 			return &RunResult{
 				Output:   finalOutput,
@@ -169,7 +175,11 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			a.memory.Append(assistantMsg)
 
 			toolCalls := extractToolCalls(response.Content)
-			if len(toolCalls) == 0 || response.StopReason != cif.StopReasonToolUse {
+			// Continue the loop only when the model returned tool calls.
+			// Some providers return "stop" (StopReasonEndTurn) even when tool calls
+			// are present, so we check the tool calls directly rather than relying
+			// solely on StopReason.
+			if len(toolCalls) == 0 {
 				events <- Event{Type: EventDone}
 				return
 			}
@@ -207,13 +217,16 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 
 func (a *Agent) buildRequest() *cif.CanonicalRequest {
 	messages := a.memory.Messages()
-	tools := a.registry.ToCIFTools()
+	cifTools := a.registry.ToCIFTools()
 
 	req := &cif.CanonicalRequest{
-		Messages:   messages,
-		Tools:      tools,
-		ToolChoice: "auto",
-		Stream:     false,
+		Messages: messages,
+		Tools:    cifTools,
+		Stream:   false,
+	}
+	// Per OpenAI spec: tool_choice must only be set when tools are present.
+	if len(cifTools) > 0 {
+		req.ToolChoice = "auto"
 	}
 
 	return req

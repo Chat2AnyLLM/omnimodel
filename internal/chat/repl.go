@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
+	toolspkg "omnillm/internal/tools"
 
 	"github.com/chzyer/readline"
 )
@@ -145,9 +146,9 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 	return nil
 }
 
-func makeStdioPermissionChecker(cmd CommandContext) agentpkg.PermissionChecker {
-	return func(ctx context.Context, req agentpkg.PermissionRequest) (bool, error) {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", agentpkg.EncodePermissionPrompt(req))
+func makeStdioPermissionChecker(cmd CommandContext) toolspkg.PermissionChecker {
+	return func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", agentpkg.EncodePermissionPrompt(req.ToolName, req.Arguments))
 		var ans string
 		if _, err := fmt.Fscan(cmd.InOrStdin(), &ans); err != nil {
 			return false, err
@@ -156,7 +157,7 @@ func makeStdioPermissionChecker(cmd CommandContext) agentpkg.PermissionChecker {
 	}
 }
 
-func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker agentpkg.PermissionChecker) (string, error) {
+func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker) (string, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return "", fmt.Errorf("store message: %w", err)
 	}
@@ -193,7 +194,7 @@ func RunAgentTurn(c Client, sessionID, model, backend, prompt string, cmd Comman
 // call progress is delivered incrementally. Events are emitted on the returned
 // channel until it is closed.  The caller is responsible for saving the final
 // assistant message.
-func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker agentpkg.PermissionChecker) (<-chan agentpkg.Event, error) {
+func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker) (<-chan agentpkg.Event, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return nil, fmt.Errorf("store message: %w", err)
 	}

@@ -524,6 +524,90 @@ func TestCopilotAdapterExecute_GPT5FamilyRoutesToResponsesEndpoint(t *testing.T)
 	}
 }
 
+func TestCopilotAdapterExecute_GPT5MiniWithToolsUsesChatCompletions(t *testing.T) {
+	var capturedPath string
+	var capturedPayload map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&capturedPayload); err != nil {
+			t.Fatalf("failed to decode request payload: %v", err)
+		}
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":    "chatcmpl_gpt5mini_tools",
+			"model": "gpt-5-mini",
+			"choices": []map[string]interface{}{{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewGitHubCopilotProvider("github-copilot-test", "")
+	provider.baseURL = server.URL
+	provider.token = "test-token"
+	adapter := provider.GetAdapter().(*CopilotAdapter)
+
+	_, err := adapter.Execute(context.Background(), &cif.CanonicalRequest{
+		Model: "gpt-5-mini",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{
+				Role: "user",
+				Content: []cif.CIFContentPart{
+					cif.CIFTextPart{Type: "text", Text: "Use the weather tool."},
+				},
+			},
+		},
+		Tools: []cif.CIFTool{
+			{
+				Name: "get_weather",
+				ParametersSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"location": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
+		},
+		ToolChoice: "auto",
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if capturedPath != "/chat/completions" {
+		t.Fatalf("expected /chat/completions for gpt-5-mini tools request, got %q", capturedPath)
+	}
+	if _, ok := capturedPayload["input"]; ok {
+		t.Fatalf("did not expect Responses input in chat payload: %#v", capturedPayload)
+	}
+	tools, ok := capturedPayload["tools"].([]interface{})
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected one OpenAI chat tool, got %#v", capturedPayload["tools"])
+	}
+	tool, ok := tools[0].(map[string]interface{})
+	if !ok || tool["type"] != "function" {
+		t.Fatalf("unexpected tool wrapper: %#v", tools[0])
+	}
+	function, ok := tool["function"].(map[string]interface{})
+	if !ok || function["name"] != "get_weather" {
+		t.Fatalf("unexpected function tool payload: %#v", tool["function"])
+	}
+	if capturedPayload["tool_choice"] != "auto" {
+		t.Fatalf("expected tool_choice auto, got %#v", capturedPayload["tool_choice"])
+	}
+}
+
 func TestCopilotAdapterExecute_RoutesResponsesUsingRemappedModel(t *testing.T) {
 	var capturedPath string
 

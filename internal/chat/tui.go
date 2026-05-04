@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	agentpkg "omnillm/internal/agent"
+	toolspkg "omnillm/internal/tools"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -66,6 +67,7 @@ type streamDeltaMsg string
 type streamDoneMsg struct{ err error }
 type appendLineMsg string
 type modelChangedMsg string
+type agentBackendChangedMsg string
 type openModelPickerMsg struct{ models []ModelInfo }
 type agentDoneMsg struct {
 	content string
@@ -77,7 +79,7 @@ type agentProgressMsg struct {
 }
 
 type pendingPermissionState struct {
-	req    agentpkg.PermissionRequest
+	req    toolspkg.PermissionRequest
 	respCh chan bool
 }
 
@@ -344,6 +346,7 @@ type chatTUIModel struct {
 	agentTurnCancel    context.CancelFunc
 	normalPlaceholder  string
 	approvalPromptText string
+	autopilot          bool
 
 	promptHistory       []string
 	historyIndex        int
@@ -368,7 +371,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, agentBackend string, hist
 	ta := textarea.New()
 	ta.Placeholder = "Type a message… (Enter to send, Shift+Enter for newline)"
 	ta.SetWidth(80)
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.Focus()
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
@@ -542,6 +545,10 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.enterHistorySearch()
 			return m, nil
+		case tea.KeyShiftTab:
+			m.autopilot = !m.autopilot
+			m.syncViewport()
+			return m, nil
 		case tea.KeyUp, tea.KeyCtrlP:
 			if !m.textarea.Focused() || m.streamActive {
 				break
@@ -602,7 +609,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case permissionRequestMsg:
 		m.pendingPermission = &pendingPermissionState{req: msg.req, respCh: msg.respCh}
-		m.appendEntry(transcriptPermission, agentpkg.EncodePermissionPrompt(msg.req))
+		m.appendEntry(transcriptPermission, agentpkg.EncodePermissionPrompt(msg.req.ToolName, msg.req.Arguments))
 		m.textarea.Reset()
 		m.textarea.Placeholder = "y/n (approve tool execution)"
 		m.syncViewport()
@@ -668,6 +675,11 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched model to `%s`", m.model))
 		m.syncViewport()
 		return m, nil
+	case agentBackendChangedMsg:
+		m.agentBackend = string(msg)
+		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched agent backend to `%s`", m.agentBackend))
+		m.syncViewport()
+		return m, nil
 	case spinner.TickMsg:
 		if m.spinning {
 			var cmd tea.Cmd
@@ -730,7 +742,7 @@ func (m chatTUIModel) View() string {
 		main.WriteString(status)
 	}
 	main.WriteString("\n")
-	main.WriteString(tuiHelpStyle.Render("Ctrl+C/Esc: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search history  /help: commands  /mode: switch mode"))
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C/Esc: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search history  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
@@ -925,7 +937,11 @@ func (m chatTUIModel) renderSidebar() string {
 	sections = append(sections,
 		tuiSidebarLabelStyle.Render("Status")+"\n"+statusDot+" "+status,
 		tuiSidebarLabelStyle.Render("Messages")+"\n"+tuiSidebarValueStyle.Render(fmt.Sprintf("%d total", len(m.entries))),
-		"",
+	)
+	if m.autopilot {
+		sections = append(sections, tuiSidebarHeaderStyle.Render("AUTOPILOT")+"\n"+tuiSidebarValueStyle.Render("Tools auto-approved"))
+	}
+	sections = append(sections,
 		tuiSidebarHeaderStyle.Render("LSP"),
 		tuiSidebarLabelStyle.Render("LSPs will activate as files are read"),
 	)
@@ -1161,11 +1177,15 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 	}
 }
 
-func (m *chatTUIModel) makeTUIPermissionChecker() agentpkg.PermissionChecker {
+func (m *chatTUIModel) makeTUIPermissionChecker() toolspkg.PermissionChecker {
 	var mu sync.Mutex
-	return func(ctx context.Context, req agentpkg.PermissionRequest) (bool, error) {
+	return func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
+
+		if m.autopilot {
+			return true, nil
+		}
 
 		if m.prog == nil {
 			return false, fmt.Errorf("tui program not ready")
@@ -1313,7 +1333,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			if err := UpdateSessionAgentBackend(m.client, m.sessionID, newBackend); err != nil {
 				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
 			}
-			return appendLineMsg(m.renderMD(fmt.Sprintf("Switched agent backend to `%s`\n\nSupported backends: `%s`", newBackend, supportedAgentBackendsText())))
+			return agentBackendChangedMsg(newBackend)
 		}
 	case "/model":
 		if len(fields) == 1 {

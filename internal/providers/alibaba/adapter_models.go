@@ -65,6 +65,9 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 	if IsReasoningModel(model) && len(request.Tools) == 0 {
 		extras["enable_thinking"] = true
 	}
+	if isDeepSeekV4Model(model) && len(request.Tools) > 0 {
+		extras["thinking"] = map[string]interface{}{"type": "disabled"}
+	}
 
 	cfg := openaicompat.Config{
 		DefaultTemperature:   &defTemp,
@@ -72,7 +75,19 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 		IncludeUsageInStream: stream,
 		Extras:               extras,
 	}
-	return openaicompat.BuildChatRequest(model, request, stream, cfg)
+	chatReq, err := openaicompat.BuildChatRequest(model, request, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if isDeepSeekV4Model(model) && len(request.Tools) > 0 {
+		chatReq.ToolChoice = nil
+	}
+	return chatReq, nil
+}
+
+func isDeepSeekV4Model(modelID string) bool {
+	lower := strings.ToLower(strings.TrimSpace(modelID))
+	return strings.Contains(lower, "deepseek-v4")
 }
 
 // ErrHardcodedFallback is returned alongside a hardcoded model list when the

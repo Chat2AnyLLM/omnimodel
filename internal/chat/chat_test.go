@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	agentpkg "omnillm/internal/agent"
+	toolspkg "omnillm/internal/tools"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -356,7 +356,7 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 								"id":   "call-1",
 								"type": "function",
 								"function": map[string]any{
-									"name":      "run_command",
+									"name":      "bash",
 									"arguments": `{"command":"Write-Output disk-ok"}`,
 								},
 							}},
@@ -386,9 +386,9 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 	checkerCalls := 0
-	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", func(ctx context.Context, req agentpkg.PermissionRequest) (bool, error) {
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
 		checkerCalls++
-		if req.ToolName != "run_command" {
+		if req.ToolName != "bash" {
 			t.Fatalf("tool name = %q", req.ToolName)
 		}
 		return true, nil
@@ -438,7 +438,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 								"id":   "call-1",
 								"type": "function",
 								"function": map[string]any{
-									"name":      "run_command",
+									"name":      "bash",
 									"arguments": `{"command":"Write-Output disk-ok"}`,
 								},
 							}},
@@ -507,7 +507,7 @@ func TestTUIHandlesPermissionRequestInTranscript(t *testing.T) {
 
 	respCh := make(chan bool, 1)
 	model, _ := m.Update(permissionRequestMsg{
-		req: agentpkg.PermissionRequest{
+		req: toolspkg.PermissionRequest{
 			SessionID: "session-1",
 			ToolName:  "run_command",
 			Arguments: map[string]any{"command": "Get-PSDrive"},
