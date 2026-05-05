@@ -23,6 +23,7 @@ import (
 	azurepkg "omnillm/internal/providers/azure"
 	codexpkg "omnillm/internal/providers/codex"
 	googlepkg "omnillm/internal/providers/google"
+	kimipkg "omnillm/internal/providers/kimi"
 	modelscopepkg "omnillm/internal/providers/modelscope"
 	openaicompatprovider "omnillm/internal/providers/openaicompatprovider"
 	"omnillm/internal/providers/types"
@@ -327,6 +328,12 @@ func registerDefaultProviders(reg *registry.ProviderRegistry, options StartOptio
 			case "codex":
 				p := codexpkg.NewCodexProvider(inst.InstanceID)
 				p.SetName(inst.Name)
+				if err := p.LoadFromDB(); err != nil {
+					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
+				}
+				provider = p
+			case "kimi":
+				p := kimipkg.NewProvider(inst.InstanceID, inst.Name)
 				if err := p.LoadFromDB(); err != nil {
 					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
 				}
