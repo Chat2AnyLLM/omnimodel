@@ -694,7 +694,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.textarea.SetHeight(1)
 				}
 				m.syncViewport()
-				return m, nil
+				return m, textarea.Blink
 			}
 		case tea.KeyEnter:
 			if m.historySearchMode {
