@@ -9,6 +9,48 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func runOneShot(cmd *cobra.Command, prompt string) error {
+	c := commands.NewClient(cmd)
+	requestedModel, _ := cmd.Flags().GetString("model")
+	existingSession, _ := cmd.Flags().GetString("session")
+
+	session, err := chat.EnsureSession(cmd, c, existingSession, requestedModel)
+	if err != nil {
+		return err
+	}
+
+	if session.Mode == "agent" {
+		result, err := chat.RunAgentTurn(c, session.ID, session.Model, session.AgentBackend, session.APIShape, prompt, cmd)
+		if err != nil {
+			return err
+		}
+		fmt.Println(result)
+		return nil
+	}
+
+	if err := chat.PostMessage(c, session.ID, "user", prompt); err != nil {
+		return fmt.Errorf("store message: %w", err)
+	}
+
+	_, messages, err := chat.LoadSessionMessages(c, session.ID)
+	if err != nil {
+		return fmt.Errorf("load messages: %w", err)
+	}
+
+	assistantContent, err := chat.StreamCompletion(c, session.Model, messages, cmd.OutOrStdout(), false)
+	if err != nil {
+		return fmt.Errorf("completion: %w", err)
+	}
+
+	if assistantContent != "" {
+		if err := chat.PostMessage(c, session.ID, "assistant", assistantContent); err != nil {
+			return fmt.Errorf("store assistant message: %w", err)
+		}
+	}
+	fmt.Println()
+	return nil
+}
+
 func NewRootCmd() *cobra.Command {
 	var cfg *Config
 
@@ -42,6 +84,11 @@ func NewRootCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			prompt, _ := cmd.Flags().GetString("prompt")
+			if prompt != "" {
+				return runOneShot(cmd, prompt)
+			}
+
 			saveCb := func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int) {
 				if cfg == nil {
 					return
@@ -64,6 +111,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
 	rootCmd.Flags().String("model", "", "Model to use for the chat session")
 	rootCmd.Flags().String("session", "", "Resume an existing session by ID")
+	rootCmd.Flags().StringP("prompt", "p", "", "Send a single prompt and print the response (non-interactive)")
 
 	rootCmd.AddCommand(commands.ChatCmd)
 

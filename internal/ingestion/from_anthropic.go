@@ -234,11 +234,15 @@ func convertAnthropicContentBlock(block AnthropicContentBlock) (cif.CIFContentPa
 		if toolCallID == "" {
 			toolCallID = block.ID
 		}
+		input := block.Input
+		if input == nil {
+			input = map[string]interface{}{}
+		}
 		return cif.CIFToolCallPart{
 			Type:          "tool_call",
 			ToolCallID:    toolCallID,
 			ToolName:      block.Name,
-			ToolArguments: block.Input,
+			ToolArguments: input,
 		}, nil
 
 	case "tool_result":
