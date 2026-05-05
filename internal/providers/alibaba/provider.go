@@ -353,7 +353,13 @@ func APIKeyProviderName(config map[string]interface{}) string {
 }
 
 // RemapModel trims Alibaba model IDs before sending them upstream.
-func RemapModel(modelID string) string { return strings.TrimSpace(modelID) }
+func RemapModel(modelID string) string {
+	trimmed := strings.TrimSpace(modelID)
+	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
+		return strings.TrimSpace(trimmed[idx+1:])
+	}
+	return trimmed
+}
 
 // IsChatCompletionsModel returns true if the model is not realtime-only.
 func IsChatCompletionsModel(modelID string) bool {
@@ -362,7 +368,7 @@ func IsChatCompletionsModel(modelID string) bool {
 
 // IsReasoningModel returns true for models that support extended thinking /
 // chain-of-thought via the enable_thinking parameter. This covers Qwen3 and
-// DeepSeek R1 families.
+// DeepSeek families.
 func IsReasoningModel(modelID string) bool {
 	lower := strings.ToLower(modelID)
 	return strings.Contains(lower, "qwen3") ||
@@ -370,7 +376,8 @@ func IsReasoningModel(modelID string) bool {
 		strings.Contains(lower, "qwen-plus") ||
 		strings.Contains(lower, "qwen3.5") ||
 		strings.Contains(lower, "qwen3.6") ||
-		strings.Contains(lower, "deepseek-r1")
+		strings.Contains(lower, "deepseek-r1") ||
+		strings.Contains(lower, "deepseek-v4")
 }
 
 // ModelMetadata returns hardcoded metadata for a known model ID.

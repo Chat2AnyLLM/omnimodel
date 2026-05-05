@@ -28,7 +28,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 	errOut := cmd.ErrOrStderr()
 
 	_, _ = fmt.Fprintln(out, "Type your message and press Enter. Use ↑↓ for history, Ctrl+R to search.")
-	_, _ = fmt.Fprintln(out, "Use /help for commands, /models to browse models, /mode to switch chat modes, /agent to manage backends.")
+	_, _ = fmt.Fprintln(out, "Use /help for commands, /models to browse models, /mode to switch chat modes, /apishape to switch agent API shape.")
 	_, _ = fmt.Fprintln(out)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -63,6 +63,9 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 			if result.model != "" {
 				session.Model = result.model
 			}
+			if result.apiShape != "" {
+				session.APIShape = result.apiShape
+			}
 			if result.agentBackend != "" {
 				session.AgentBackend = result.agentBackend
 			}
@@ -80,7 +83,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 		var assistantContent string
 		if session.Mode == "agent" {
 			sawToolActivity := false
-			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, line, makeStdioPermissionChecker(cmd, &session), 25)
+			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, session.APIShape, line, makeStdioPermissionChecker(cmd, &session), 25)
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error: completion: %v\n", err)
 				continue
@@ -186,7 +189,7 @@ func makeStdioAskUser(cmd CommandContext) func(context.Context, string, []string
 	}
 }
 
-func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker, maxTurns int) (string, error) {
+func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, checker toolspkg.PermissionChecker, maxTurns int) (string, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return "", fmt.Errorf("store message: %w", err)
 	}
@@ -201,7 +204,7 @@ func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, ba
 		history = append(history, agentpkg.HistoryMessage{Role: msg.Role, Content: msg.Content})
 	}
 
-	result, err := agentpkg.RunTurn(ctx, c, sessionID, model, backend, prompt, history, checker, nil, maxTurns)
+	result, err := agentpkg.RunTurn(ctx, c, sessionID, model, backend, apiShape, prompt, history, checker, nil, maxTurns)
 	if err != nil {
 		return "", err
 	}
@@ -215,15 +218,15 @@ func RunAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, ba
 	return result.Output, nil
 }
 
-func RunAgentTurn(c Client, sessionID, model, backend, prompt string, cmd CommandContext) (string, error) {
-	return RunAgentTurnWithChecker(context.Background(), c, sessionID, model, backend, prompt, makeStdioPermissionChecker(cmd, nil), 25)
+func RunAgentTurn(c Client, sessionID, model, backend, apiShape, prompt string, cmd CommandContext) (string, error) {
+	return RunAgentTurnWithChecker(context.Background(), c, sessionID, model, backend, apiShape, prompt, makeStdioPermissionChecker(cmd, nil), 25)
 }
 
 // StreamAgentTurnWithChecker runs one agent turn using streaming so that tool
 // call progress is delivered incrementally. Events are emitted on the returned
 // channel until it is closed.  The caller is responsible for saving the final
 // assistant message.
-func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, prompt string, checker toolspkg.PermissionChecker, maxTurns int) (<-chan agentpkg.Event, error) {
+func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, checker toolspkg.PermissionChecker, maxTurns int) (<-chan agentpkg.Event, error) {
 	if err := PostMessage(c, sessionID, "user", prompt); err != nil {
 		return nil, fmt.Errorf("store message: %w", err)
 	}
@@ -238,7 +241,7 @@ func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model,
 		history = append(history, agentpkg.HistoryMessage{Role: msg.Role, Content: msg.Content})
 	}
 
-	return agentpkg.StreamTurn(ctx, c, sessionID, model, backend, prompt, history, checker, nil, maxTurns)
+	return agentpkg.StreamTurn(ctx, c, sessionID, model, backend, apiShape, prompt, history, checker, nil, maxTurns)
 }
 
 func supportedAgentBackends() []string {
@@ -302,6 +305,25 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched model to %s\n", newModel)
 		return replCommandResult{handled: true, model: newModel}, nil
+	case "/apishape", "/api-shape":
+		if len(fields) == 1 {
+			currentShape, err := CurrentAPIShape(c, session.ID, session.APIShape)
+			if err != nil {
+				return replCommandResult{}, err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Current API shape: %s\n", formatAPIShape(currentShape))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Supported shapes: %s\n", supportedAPIShapesText())
+			return replCommandResult{handled: true, apiShape: currentShape}, nil
+		}
+		newShape, ok := normalizeAPIShape(fields[1])
+		if !ok {
+			return replCommandResult{}, fmt.Errorf("unknown API shape %q; supported shapes: %s", fields[1], supportedAPIShapesText())
+		}
+		if err := UpdateSessionAPIShape(c, session.ID, newShape); err != nil {
+			return replCommandResult{}, err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched API shape to %s\n", formatAPIShape(newShape))
+		return replCommandResult{handled: true, apiShape: newShape}, nil
 	case "/agent":
 		if len(fields) == 1 {
 			currentBackend, err := CurrentAgentBackend(c, session.ID, session.AgentBackend)
@@ -373,6 +395,7 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Session: %s\n", session.ID)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Mode:    %s\n", session.Mode)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Agent:   %s\n", currentBackend)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "API:     %s\n", formatAPIShape(session.APIShape))
 		if currentModel == "" {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Model:   (server default)")
 		} else {
@@ -390,6 +413,8 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /session           Show current session details")
 	_, _ = fmt.Fprintln(w, "  /mode              Show the current chat mode")
 	_, _ = fmt.Fprintln(w, "  /mode <chat|agent> Switch between chat and agent modes")
+	_, _ = fmt.Fprintln(w, "  /apishape          Show the agent API request shape")
+	_, _ = fmt.Fprintln(w, "  /apishape <shape>  Switch API shape (anthropic, openai, or responses)")
 	_, _ = fmt.Fprintln(w, "  /permissions       Toggle autopilot (auto-approve tool calls)")
 	_, _ = fmt.Fprintln(w, "  /model             Show the current model")
 	_, _ = fmt.Fprintln(w, "  /model <id>        Switch to a different model")

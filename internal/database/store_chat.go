@@ -2,7 +2,6 @@ package database
 
 import "database/sql"
 
-// Chat operations
 type ChatStore struct {
 	db *Database
 }
@@ -27,15 +26,16 @@ func (cs *ChatStore) UpdateSessionTitle(sessionID, title string) error {
 	return err
 }
 
-func (cs *ChatStore) UpdateSession(sessionID, title, modelID, agentBackend string) error {
+func (cs *ChatStore) UpdateSession(sessionID, title, modelID, apiShape, agentBackend string) error {
 	_, err := cs.db.db.Exec(`
 		UPDATE chat_sessions
 		SET title = COALESCE(NULLIF(?, ''), title),
 		    model_id = COALESCE(NULLIF(?, ''), model_id),
+		    api_shape = COALESCE(NULLIF(?, ''), api_shape),
 		    agent_backend = COALESCE(NULLIF(?, ''), agent_backend),
 		    updated_at = datetime('now')
 		WHERE session_id = ?
-	`, title, modelID, agentBackend, sessionID)
+	`, title, modelID, apiShape, agentBackend, sessionID)
 	return err
 }
 

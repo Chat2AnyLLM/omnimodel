@@ -309,7 +309,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 		},
 	}
 
-	result, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "agent-sdk-go", "List this directory", nil, nil, nil, 10)
+	result, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "agent-sdk-go", DefaultAPIShape, "List this directory", nil, nil, nil, 10)
 	if err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestSelectDispatchUsesProxyForAgentSDKGo(t *testing.T) {
 			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
 		},
 	}
-	dispatch := selectDispatch(client, "claude-opus-4-5", "agent-sdk-go")
+	dispatch := selectDispatch(client, "claude-opus-4-5", "agent-sdk-go", DefaultAPIShape)
 	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
 		Messages: []cif.CIFMessage{
 			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
@@ -410,7 +410,7 @@ func TestSelectDispatchUsesProxyForGoogleADK(t *testing.T) {
 			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"gemini-pro","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
 		},
 	}
-	dispatch := selectDispatch(client, "gemini-pro", "google-adk")
+	dispatch := selectDispatch(client, "gemini-pro", "google-adk", DefaultAPIShape)
 	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
 		Messages: []cif.CIFMessage{
 			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
@@ -434,7 +434,7 @@ func TestSelectDispatchUsesAnthropicSDKForAnthropicSDKBackend(t *testing.T) {
 			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
 		},
 	}
-	dispatch := selectDispatch(client, "claude-opus-4-5", "anthropic-sdk")
+	dispatch := selectDispatch(client, "claude-opus-4-5", "anthropic-sdk", DefaultAPIShape)
 	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
 		Messages: []cif.CIFMessage{
 			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},

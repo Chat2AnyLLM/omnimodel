@@ -61,12 +61,13 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 	defTemp := 0.55
 	defTopP := 1.0
 
-	extras := map[string]interface{}{}
+	extras := map[string]any{}
 	if IsReasoningModel(model) && len(request.Tools) == 0 {
 		extras["enable_thinking"] = true
 	}
 	if isDeepSeekV4Model(model) && len(request.Tools) > 0 {
-		extras["thinking"] = map[string]interface{}{"type": "disabled"}
+		delete(extras, "enable_thinking")
+		extras["thinking"] = map[string]any{"type": "disabled"}
 	}
 
 	cfg := openaicompat.Config{
@@ -99,7 +100,7 @@ var ErrHardcodedFallback = fmt.Errorf("alibaba: models fetch failed, using hardc
 // GetModels returns the available models for this Alibaba instance.
 // If the live API is unreachable it returns the hardcoded Qwen-only catalog
 // together with ErrHardcodedFallback so callers can decide whether to cache.
-func GetModels(instanceID, token, baseURL string, config map[string]interface{}) (*types.ModelsResponse, error) {
+func GetModels(instanceID, token, baseURL string, config map[string]any) (*types.ModelsResponse, error) {
 	if token == "" {
 		return nil, fmt.Errorf("alibaba: not authenticated")
 	}
@@ -129,7 +130,7 @@ func GetModelsHardcoded(instanceID string) *types.ModelsResponse {
 }
 
 // FetchModelsFromAPI fetches available models from the DashScope API.
-func FetchModelsFromAPI(instanceID, token, baseURL string, _ map[string]interface{}) (*types.ModelsResponse, error) {
+func FetchModelsFromAPI(instanceID, token, baseURL string, _ map[string]any) (*types.ModelsResponse, error) {
 	url := strings.TrimRight(baseURL, "/") + "/models"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

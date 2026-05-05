@@ -46,10 +46,10 @@ var (
 
 // ConfigSaveCallback is invoked when the TUI state changes so the hosting binary
 // (e.g. omnicode) can persist user preferences.
-var ConfigSaveCallback func(model, mode, agentBackend string, autopilot bool, maxTurns int)
+var ConfigSaveCallback func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
 
 // SetConfigSaveCallback sets the callback for persisting TUI preferences.
-func SetConfigSaveCallback(cb func(model, mode, agentBackend string, autopilot bool, maxTurns int)) {
+func SetConfigSaveCallback(cb func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) {
 	ConfigSaveCallback = cb
 }
 
@@ -57,6 +57,7 @@ func SetConfigSaveCallback(cb func(model, mode, agentBackend string, autopilot b
 // should apply on startup.
 var InitialConfig struct {
 	Mode      string
+	APIShape  string
 	Autopilot bool
 	MaxTurns  int
 }
@@ -87,18 +88,23 @@ type streamDoneMsg struct{ err error }
 type appendLineMsg string
 type modelChangedMsg string
 type agentBackendChangedMsg string
+type apiShapeChangedMsg string
 type openModelPickerMsg struct{ models []ModelInfo }
 type openSessionPickerMsg struct{ sessions []SessionSummary }
 type sessionPickerState struct {
-	sessions    []SessionSummary
-	selectedIdx int
+	sessions     []SessionSummary
+	selectedIdx  int
 	scrollOffset int
 }
 type sessionSelectedMsg struct{ session SessionSummary }
-type sessionCreatedMsg struct{ sessionID string }
+type sessionCreatedMsg struct {
+	sessionID string
+	apiShape  string
+}
 type sessionLoadedMsg struct {
 	sessionID    string
 	model        string
+	apiShape     string
 	agentBackend string
 	messages     []Message
 }
@@ -364,6 +370,7 @@ type chatTUIModel struct {
 	model        string
 	mode         string
 	agentBackend string
+	apiShape     string
 	prog         *tea.Program
 
 	viewport viewport.Model
@@ -390,7 +397,7 @@ type chatTUIModel struct {
 	historySearchQuery  string
 	historySearchCursor int
 
-	onConfigSave func(model, mode, agentBackend string, autopilot bool, maxTurns int)
+	onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
 
 	width        int
 	height       int
@@ -400,7 +407,7 @@ type chatTUIModel struct {
 	mdRenderer   *glamour.TermRenderer
 }
 
-func newChatTUIModel(c Client, sessionID, model, mode, agentBackend string, history []Message, onConfigSave func(model, mode, agentBackend string, autopilot bool, maxTurns int)) chatTUIModel {
+func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message, onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) chatTUIModel {
 	sp := spinner.New()
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7"))
 	sp.Spinner = spinner.Dot
@@ -421,6 +428,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, agentBackend string, hist
 		sessionID:           sessionID,
 		model:               model,
 		mode:                defaultMode(mode, InitialConfig.Mode),
+		apiShape:            defaultAPIShape(apiShape, InitialConfig.APIShape),
 		agentBackend:        agentBackend,
 		spinner:             sp,
 		textarea:            ta,
@@ -430,7 +438,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, agentBackend string, hist
 		normalPlaceholder:   ta.Placeholder,
 		approvalPromptText:  "y: approve  n: deny  Enter: confirm",
 		onConfigSave:        onConfigSave,
-		autopilot:            InitialConfig.Autopilot,
+		autopilot:           InitialConfig.Autopilot,
 		maxTurns:            max(InitialConfig.MaxTurns, 1),
 	}
 	for _, msg := range history {
@@ -765,14 +773,16 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return appendLineMsg(tuiErrorStyle.Render("Error loading session: " + err.Error()))
 			}
-			_ = state
 			// Rebuild transcript from the loaded messages.
-			return sessionLoadedMsg{sessionID: sess.ID, model: sess.Model, agentBackend: sess.AgentBackend, messages: messages}
+			return sessionLoadedMsg{sessionID: sess.ID, model: state.Model, apiShape: state.APIShape, agentBackend: state.AgentBackend, messages: messages}
 		}
 	case sessionLoadedMsg:
 		m.sessionID = msg.sessionID
 		if msg.model != "" {
 			m.model = msg.model
+		}
+		if msg.apiShape != "" {
+			m.apiShape = canonicalAPIShape(msg.apiShape)
 		}
 		if msg.agentBackend != "" {
 			m.agentBackend = msg.agentBackend
@@ -791,6 +801,9 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case sessionCreatedMsg:
 		m.sessionID = msg.sessionID
+		if msg.apiShape != "" {
+			m.apiShape = canonicalAPIShape(msg.apiShape)
+		}
 		m.entries = nil
 		m.appendEntry(transcriptInfo, fmt.Sprintf("Started new session `%s`", msg.sessionID))
 		m.syncViewport()
@@ -805,6 +818,12 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentBackendChangedMsg:
 		m.agentBackend = string(msg)
 		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched agent backend to `%s`", m.agentBackend))
+		m.saveConfig()
+		m.syncViewport()
+		return m, nil
+	case apiShapeChangedMsg:
+		m.apiShape = canonicalAPIShape(string(msg))
+		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched API shape to `%s`", formatAPIShape(m.apiShape)))
 		m.saveConfig()
 		m.syncViewport()
 		return m, nil
@@ -872,7 +891,7 @@ func (m chatTUIModel) View() string {
 		main.WriteString(status)
 	}
 	main.WriteString("\n")
-	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /mode: switch mode"))
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /apishape: API shape"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
@@ -1119,6 +1138,7 @@ func (m chatTUIModel) renderSidebar() string {
 		tuiSidebarLabelStyle.Render("Session") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.sessionID),
 		tuiSidebarLabelStyle.Render("Model") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.model),
 		tuiSidebarLabelStyle.Render("Mode") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.mode),
+		tuiSidebarLabelStyle.Render("API Shape") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(formatAPIShape(m.apiShape)),
 		tuiSidebarLabelStyle.Render("Max Turns") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(fmt.Sprintf("%d", m.maxTurns)),
 	}
 	if wd, err := os.Getwd(); err == nil {
@@ -1160,7 +1180,7 @@ func placeOverlayTopRight(base, sidebar string, totalWidth int) string {
 			if padding < 0 {
 				padding = 0
 			}
-			result = append(result, baseLine + strings.Repeat(" ", padding) + sideLine)
+			result = append(result, baseLine+strings.Repeat(" ", padding)+sideLine)
 		} else {
 			result = append(result, baseLine)
 		}
@@ -1170,14 +1190,14 @@ func placeOverlayTopRight(base, sidebar string, totalWidth int) string {
 		if padding < 0 {
 			padding = 0
 		}
-		result = append(result, strings.Repeat(" ", padding) + sideLines[i])
+		result = append(result, strings.Repeat(" ", padding)+sideLines[i])
 	}
 	return strings.Join(result, "\n")
 }
 
 func (m *chatTUIModel) saveConfig() {
 	if m.onConfigSave != nil {
-		m.onConfigSave(m.model, m.mode, m.agentBackend, m.autopilot, m.maxTurns)
+		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.autopilot, m.maxTurns)
 	}
 }
 
@@ -1340,6 +1360,13 @@ func defaultMode(current, saved string) string {
 	return current
 }
 
+func defaultAPIShape(current, saved string) string {
+	if saved != "" {
+		return canonicalAPIShape(saved)
+	}
+	return canonicalAPIShape(current)
+}
+
 func minInt(a, b int) int {
 	if a < b {
 		return a
@@ -1357,10 +1384,11 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 		sessionID := m.sessionID
 		model := m.model
 		backend := m.agentBackend
+		apiShape := m.apiShape
 		maxTurns := m.maxTurns
-			return func() tea.Msg {
-				defer cancel()
-				eventCh, err := StreamAgentTurnWithChecker(ctx, client, sessionID, model, backend, userText, checker, maxTurns)
+		return func() tea.Msg {
+			defer cancel()
+			eventCh, err := StreamAgentTurnWithChecker(ctx, client, sessionID, model, backend, apiShape, userText, checker, maxTurns)
 			if err != nil {
 				return agentDoneMsg{err: err}
 			}
@@ -1532,10 +1560,10 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help":
-		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/max-turns [1-100]` — show or set max agent turns (default 25)`r`n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show agent API request shape\n- `/apishape <anthropic|openai|responses>` — switch agent API request shape\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/max-turns [1-100]` — show or set max agent turns (default 25)`r`n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
-		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, m.model)))
+		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
 		return m, nil
 	case "/mode":
 		result := agentpkg.ParseCommand(text, m.mode)
@@ -1569,6 +1597,22 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 		}
 		return m, nil
+	case "/apishape", "/api-shape":
+		if len(fields) == 1 {
+			add(m.renderMD(fmt.Sprintf("Current API shape: `%s`\n\nSupported shapes: `%s`", formatAPIShape(m.apiShape), supportedAPIShapesText())))
+			return m, nil
+		}
+		newShape, ok := normalizeAPIShape(fields[1])
+		if !ok {
+			add(tuiErrorStyle.Render(fmt.Sprintf("Error: unknown API shape %q — supported shapes: %s", fields[1], supportedAPIShapesText())))
+			return m, nil
+		}
+		return m, func() tea.Msg {
+			if err := UpdateSessionAPIShape(m.client, m.sessionID, newShape); err != nil {
+				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
+			}
+			return apiShapeChangedMsg(newShape)
+		}
 	case "/agent":
 		if len(fields) == 1 {
 			currentBackend, err := CurrentAgentBackend(m.client, m.sessionID, "")
@@ -1633,13 +1677,14 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			title = strings.Join(fields[1:], " ")
 		}
 		currentModel := m.model
+		currentAPIShape := m.apiShape
 		currentBackend := m.agentBackend
 		return m, func() tea.Msg {
-			sid, err := CreateSession(m.client, title, currentModel, currentBackend)
+			sid, err := CreateSession(m.client, title, currentModel, currentAPIShape, currentBackend)
 			if err != nil {
 				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
 			}
-			return sessionCreatedMsg{sessionID: sid}
+			return sessionCreatedMsg{sessionID: sid, apiShape: currentAPIShape}
 		}
 	default:
 		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s — use /help", fields[0])))
@@ -1647,8 +1692,8 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 	}
 }
 
-func RunTUI(c Client, sessionID, model, mode, agentBackend string, history []Message) error {
-	m := newChatTUIModel(c, sessionID, model, mode, agentBackend, history, ConfigSaveCallback)
+func RunTUI(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message) error {
+	m := newChatTUIModel(c, sessionID, model, mode, apiShape, agentBackend, history, ConfigSaveCallback)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	go func() { p.Send(progReadyMsg{p: p}) }()
 	if _, err := p.Run(); err != nil {

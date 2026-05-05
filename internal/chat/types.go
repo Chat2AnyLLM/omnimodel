@@ -37,6 +37,7 @@ type SessionState struct {
 	ID           string
 	Model        string
 	Mode         string
+	APIShape     string
 	AgentBackend string
 	Autopilot    bool
 	IsTTY        bool
@@ -64,6 +65,7 @@ type replCommandResult struct {
 	handled      bool
 	exit         bool
 	model        string
+	apiShape     string
 	agentBackend string
 }
 

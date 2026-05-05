@@ -68,7 +68,7 @@ func handleGetChatSessions(c *gin.Context) {
 	var sessionList []map[string]any
 	for _, session := range sessions {
 		sessionInfo := map[string]any{
-			"id":            session.SessionID,
+			"session_id":    session.SessionID,
 			"title":         session.Title,
 			"model_id":      session.ModelID,
 			"api_shape":     session.APIShape,
@@ -115,7 +115,7 @@ func handleCreateChatSession(c *gin.Context) {
 	}
 
 	if req.APIShape == "" {
-		req.APIShape = "openai"
+		req.APIShape = "anthropic"
 	}
 
 	if req.AgentBackend == "" {
@@ -167,9 +167,9 @@ func handleGetChatSession(c *gin.Context) {
 		messages = nil
 	}
 
-	var messageList []map[string]interface{}
+	var messageList []map[string]any
 	for _, msg := range messages {
-		messageList = append(messageList, map[string]interface{}{
+		messageList = append(messageList, map[string]any{
 			"id":         msg.MessageID,
 			"role":       msg.Role,
 			"content":    msg.Content,
@@ -194,6 +194,7 @@ func handleUpdateChatSession(c *gin.Context) {
 	var req struct {
 		Title        string `json:"title"`
 		ModelID      string `json:"model_id"`
+		APIShape     string `json:"api_shape"`
 		AgentBackend string `json:"agent_backend"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -202,7 +203,7 @@ func handleUpdateChatSession(c *gin.Context) {
 	}
 
 	chatStore := database.NewChatStore()
-	if err := chatStore.UpdateSession(sessionID, req.Title, req.ModelID, req.AgentBackend); err != nil {
+	if err := chatStore.UpdateSession(sessionID, req.Title, req.ModelID, req.APIShape, req.AgentBackend); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
 		return
 	}

@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Model        string `json:"model,omitempty"`
 	Mode         string `json:"mode,omitempty"`
+	APIShape     string `json:"api_shape,omitempty"`
 	AgentBackend string `json:"agent_backend,omitempty"`
 	Autopilot    bool   `json:"autopilot"`
 	MaxTurns     int    `json:"max_turns,omitempty"`

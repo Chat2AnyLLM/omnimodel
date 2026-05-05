@@ -33,6 +33,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			chat.InitialConfig.Mode = cfg.Mode
+			chat.InitialConfig.APIShape = cfg.APIShape
 			chat.InitialConfig.Autopilot = cfg.Autopilot
 			if cfg.MaxTurns > 0 {
 				chat.InitialConfig.MaxTurns = cfg.MaxTurns
@@ -41,12 +42,13 @@ func NewRootCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			saveCb := func(model, mode, agentBackend string, autopilot bool, maxTurns int) {
+			saveCb := func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int) {
 				if cfg == nil {
 					return
 				}
 				cfg.Model = model
 				cfg.Mode = mode
+				cfg.APIShape = apiShape
 				cfg.AgentBackend = agentBackend
 				cfg.Autopilot = autopilot
 				cfg.MaxTurns = maxTurns

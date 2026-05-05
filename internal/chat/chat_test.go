@@ -422,7 +422,7 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 	checkerCalls := 0
-	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", DefaultAPIShape, "show me disk usage", func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
 		checkerCalls++
 		if req.ToolName != "bash" {
 			t.Fatalf("tool name = %q", req.ToolName)
@@ -498,7 +498,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 	cmd.in.WriteString("y\n")
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 
-	content, err := RunAgentTurn(client, "session-1", "gpt-5.4", "agent-sdk-go", "show me disk usage", cmd)
+	content, err := RunAgentTurn(client, "session-1", "gpt-5.4", "agent-sdk-go", DefaultAPIShape, "show me disk usage", cmd)
 	if err != nil {
 		t.Fatalf("RunAgentTurn returned error: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 }
 
 func TestTUIAgentDoneMsgShowsVisibleCompletionWhenContentEmpty(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", "anthropic-sdk", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "anthropic-sdk", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
 	m.viewport = viewport.New(80, 20)
@@ -603,7 +603,7 @@ func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(
 	defer server.Close()
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	eventCh, err := StreamAgentTurnWithChecker(context.Background(), client, "session-1", "claude-haiku-4.5", "anthropic-sdk", "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+	eventCh, err := StreamAgentTurnWithChecker(context.Background(), client, "session-1", "claude-haiku-4.5", "anthropic-sdk", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
 		return true, nil
 	}, 10)
 	if err != nil {
@@ -694,7 +694,7 @@ func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) 
 	defer server.Close()
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "claude-sonnet-4.5", "anthropic-sdk", "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "claude-sonnet-4.5", "anthropic-sdk", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
 		return true, nil
 	}, 10)
 	if err != nil {
@@ -709,7 +709,7 @@ func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) 
 }
 
 func TestTUIHandlesPermissionRequestInTranscript(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", "agent-sdk-go", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", DefaultAPIShape, "agent-sdk-go", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
 	m.viewport = viewport.New(80, 20)

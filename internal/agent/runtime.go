@@ -26,6 +26,10 @@ type Client interface {
 // All models are sent to /v1/messages (Anthropic Messages API shape) and OmniLLM
 // translates the request to the appropriate upstream format.
 func NewChatCompletionsDispatch(c Client, model string) DispatchFn {
+	return NewDispatch(c, model, "anthropic")
+}
+
+func NewDispatch(c Client, model, apiShape string) DispatchFn {
 	return func(ctx context.Context, req *cif.CanonicalRequest) (<-chan *cif.CanonicalResponse, error) {
 		requestModel := strings.TrimSpace(model)
 		if requestModel == "" {
@@ -40,9 +44,9 @@ func NewChatCompletionsDispatch(c Client, model string) DispatchFn {
 			err      error
 		)
 		if req != nil && req.Stream {
-			response, err = doStreamPost(ctx, c, requestModel, req)
+			response, err = doStreamPost(ctx, c, requestModel, req, apiShape)
 		} else {
-			response, err = doPost(c, requestModel, req)
+			response, err = doPost(c, requestModel, req, apiShape)
 		}
 		if err != nil {
 			return nil, err
@@ -55,14 +59,26 @@ func NewChatCompletionsDispatch(c Client, model string) DispatchFn {
 	}
 }
 
-// doPost always uses /v1/messages. OmniLLM translates to the upstream API shape.
-func doPost(c Client, model string, req *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
-	return doAnthropicPost(c, model, req)
+func doPost(c Client, model string, req *cif.CanonicalRequest, apiShape string) (*cif.CanonicalResponse, error) {
+	switch normalizeAPIShape(apiShape) {
+	case "openai":
+		return doChatCompletionsPost(c, model, req)
+	case "responses":
+		return doResponsesPost(c, model, req)
+	default:
+		return doAnthropicPost(c, model, req)
+	}
 }
 
-// doStreamPost always uses /v1/messages with stream=true. OmniLLM translates.
-func doStreamPost(ctx context.Context, c Client, model string, req *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
-	return doAnthropicStreamPost(ctx, c, model, req)
+func doStreamPost(ctx context.Context, c Client, model string, req *cif.CanonicalRequest, apiShape string) (*cif.CanonicalResponse, error) {
+	switch normalizeAPIShape(apiShape) {
+	case "openai":
+		return doChatCompletionsStreamPost(ctx, c, model, req)
+	case "responses":
+		return doResponsesStreamPost(ctx, c, model, req)
+	default:
+		return doAnthropicStreamPost(ctx, c, model, req)
+	}
 }
 
 func doChatCompletionsPost(c Client, model string, req *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
