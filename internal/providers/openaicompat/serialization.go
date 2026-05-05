@@ -253,6 +253,9 @@ func ParseChatResponse(resp *ChatResponse) *cif.CanonicalResponse {
 	if len(resp.Choices) > 0 {
 		ch := resp.Choices[0]
 		result.StopReason = StopReason(ch.FinishReason)
+		if ch.Message.ReasoningContent != "" {
+			result.Content = append(result.Content, cif.CIFThinkingPart{Type: "thinking", Thinking: ch.Message.ReasoningContent})
+		}
 		if text, ok := ch.Message.Content.(string); ok && text != "" {
 			result.Content = append(result.Content, cif.CIFTextPart{Type: "text", Text: text})
 		}

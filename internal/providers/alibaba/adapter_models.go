@@ -62,8 +62,14 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 	defTopP := 1.0
 
 	extras := map[string]any{}
-	if IsReasoningModel(model) && len(request.Tools) == 0 {
-		extras["enable_thinking"] = true
+	if IsReasoningModel(model) {
+		if len(request.Tools) == 0 {
+			extras["enable_thinking"] = true
+		} else {
+			// DashScope thinking models require explicit opt-out when tools are present;
+			// omitting the flag causes a 400 "Required body invalid" error.
+			extras["enable_thinking"] = false
+		}
 	}
 	if isDeepSeekV4Model(model) && len(request.Tools) > 0 {
 		delete(extras, "enable_thinking")
