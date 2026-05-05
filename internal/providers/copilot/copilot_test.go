@@ -821,6 +821,78 @@ data: [DONE]
 	}
 }
 
+func TestCopilotAdapterExecute_AnthropicClaudeHistoryWithToolCallsIncludesEmptyAssistantContent(t *testing.T) {
+	var payload map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":    "chatcmpl_ok",
+			"model": "claude-haiku-4.5",
+			"choices": []map[string]interface{}{{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": "done",
+				},
+				"finish_reason": "stop",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewGitHubCopilotProvider("github-copilot-test", "")
+	provider.baseURL = server.URL
+	provider.token = "test-token"
+	adapter := provider.GetAdapter().(*CopilotAdapter)
+
+	resp, err := adapter.Execute(context.Background(), &cif.CanonicalRequest{
+		Model: "claude-haiku-4.5",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "date today"}}},
+			cif.CIFAssistantMessage{Role: "assistant", Content: []cif.CIFContentPart{
+				cif.CIFToolCallPart{Type: "tool_call", ToolCallID: "call-1", ToolName: "get_current_time", ToolArguments: map[string]interface{}{}},
+			}},
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{
+				cif.CIFToolResultPart{Type: "tool_result", ToolCallID: "call-1", ToolName: "get_current_time", Content: "2026-05-04T22:14:30+08:00"},
+			}},
+		},
+		Tools: []cif.CIFTool{{Name: "get_current_time", ParametersSchema: map[string]interface{}{"type": "object"}}},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if resp == nil || resp.ID != "chatcmpl_ok" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+
+	messages, ok := payload["messages"].([]interface{})
+	if !ok || len(messages) < 3 {
+		t.Fatalf("unexpected messages payload: %#v", payload["messages"])
+	}
+	assistantMsg, ok := messages[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("assistant message has unexpected type: %#v", messages[1])
+	}
+	if assistantMsg["role"] != "assistant" {
+		t.Fatalf("assistant role = %#v", assistantMsg["role"])
+	}
+	if content, ok := assistantMsg["content"].(string); !ok || content != "" {
+		t.Fatalf("assistant content = %#v, want empty string", assistantMsg["content"])
+	}
+	toolCalls, ok := assistantMsg["tool_calls"].([]interface{})
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant tool_calls = %#v", assistantMsg["tool_calls"])
+	}
+}
+
 func TestCopilotAdapterExecute_FallsBackToResponsesOnUnsupportedAPIError(t *testing.T) {
 	var paths []string
 

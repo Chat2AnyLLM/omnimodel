@@ -71,7 +71,8 @@ func buildSystemPrompt() string {
 	}
 	return fmt.Sprintf(
 		"You are a helpful agent. The current operating system is %s. "+
-			"When writing shell commands for the bash tool, always use %s syntax.",
+			"When writing shell commands for the bash tool, always use %s syntax. "+
+			"IMPORTANT: Use the available tools to accomplish the task. Do not just describe what you will do — actually execute the tool calls.",
 		os, shell,
 	)
 }

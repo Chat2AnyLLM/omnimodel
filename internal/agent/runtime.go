@@ -105,7 +105,7 @@ func doChatCompletionsStreamPost(ctx context.Context, c Client, model string, re
 	}
 	resp, streamErr := c.PostStream("/v1/chat/completions", json.RawMessage(jsonBytes))
 	if streamErr != nil {
-		return nil, fmt.Errorf("failed to stream chat completion: %w", err)
+		return nil, fmt.Errorf("failed to stream chat completion: %w", streamErr)
 	}
 	defer resp.Body.Close()
 	streamCh := make(chan cif.CIFStreamEvent, 64)
@@ -225,9 +225,8 @@ func cifMessagesToAnthropic(req *cif.CanonicalRequest) ([]map[string]any, error)
 	for _, msg := range req.Messages {
 		switch m := msg.(type) {
 		case cif.CIFSystemMessage:
-			if strings.TrimSpace(m.Content) != "" {
-				messages = append(messages, map[string]any{"role": "user", "content": m.Content})
-			}
+			// System messages are sent via req.SystemPrompt, skip here.
+			continue
 		case cif.CIFUserMessage:
 			content := anthropicContentBlocksFromUser(m)
 			messages = append(messages, map[string]any{"role": "user", "content": content})

@@ -79,6 +79,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 
 		var assistantContent string
 		if session.Mode == "agent" {
+			sawToolActivity := false
 			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, line, makeStdioPermissionChecker(cmd, &session))
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error: completion: %v\n", err)
@@ -89,8 +90,11 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 				case agentpkg.EventToken:
 					assistantContent += event.Content
 				case agentpkg.EventToolCall:
+					sawToolActivity = true
+					assistantContent = ""
 					_, _ = fmt.Fprintf(out, "  [tool: %s]\n", event.Tool)
 				case agentpkg.EventToolResult:
+					sawToolActivity = true
 					result := event.Content
 					if len(result) > 200 {
 						result = result[:200] + "..."
@@ -110,7 +114,10 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 				}
 				_, _ = fmt.Fprintln(out, assistantContent)
 				_, _ = fmt.Fprintln(out)
+			} else if sawToolActivity {
+				_, _ = fmt.Fprintln(out, "(agent completed with no text response)")
 			}
+			continue
 		} else {
 			if err := PostMessage(c, session.ID, "user", line); err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error: store message: %v\n", err)

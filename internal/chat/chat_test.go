@@ -513,6 +513,201 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 	}
 }
 
+func TestTUIAgentDoneMsgShowsVisibleCompletionWhenContentEmpty(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", "anthropic-sdk", nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.textarea.Focus()
+	m.streamActive = true
+	m.spinning = true
+	m.agentTurnCancel = func() {}
+
+	toModel := func(model tea.Model) *chatTUIModel {
+		switch v := model.(type) {
+		case chatTUIModel:
+			copy := v
+			return &copy
+		case *chatTUIModel:
+			return v
+		default:
+			t.Fatalf("unexpected model type %T", model)
+			return nil
+		}
+	}
+
+	model, _ := m.Update(agentDoneMsg{})
+	updated := toModel(model)
+	if updated.streamActive {
+		t.Fatal("expected streamActive to be false")
+	}
+	if updated.spinning {
+		t.Fatal("expected spinning to be false")
+	}
+	if len(updated.entries) == 0 {
+		t.Fatal("expected a visible transcript entry")
+	}
+	last := updated.entries[len(updated.entries)-1]
+	if last.kind != transcriptInfo {
+		t.Fatalf("last entry kind = %v, want %v", last.kind, transcriptInfo)
+	}
+	if last.content != "(agent completed with no text response)" {
+		t.Fatalf("last entry content = %q", last.content)
+	}
+}
+
+func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(t *testing.T) {
+	var completionCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "session-1",
+				"model_id":      "claude-haiku-4.5",
+				"mode":          "agent",
+				"agent_backend": "anthropic-sdk",
+				"messages":      []map[string]any{{"role": "user", "content": "show disk info"}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
+			completionCalls++
+			if completionCalls == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":          "msg-1",
+					"type":        "message",
+					"role":        "assistant",
+					"model":       "claude-haiku-4.5",
+					"stop_reason": "tool_use",
+					"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+					"content": []map[string]any{
+						{"type": "text", "text": "I'll get that for you."},
+						{"type": "tool_use", "id": "call-1", "name": "bash", "input": map[string]any{"command": "Write-Output disk-ok"}},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "msg-2",
+				"type":        "message",
+				"role":        "assistant",
+				"model":       "claude-haiku-4.5",
+				"stop_reason": "end_turn",
+				"usage":       map[string]any{"input_tokens": 20, "output_tokens": 1},
+				"content":     []map[string]any{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	eventCh, err := StreamAgentTurnWithChecker(context.Background(), client, "session-1", "claude-haiku-4.5", "anthropic-sdk", "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("StreamAgentTurnWithChecker returned error: %v", err)
+	}
+
+	var finalContent string
+	var toolCalls, toolResults, doneCount int
+	for event := range eventCh {
+		switch event.Type {
+		case "token":
+			finalContent += event.Content
+		case "tool_call":
+			toolCalls++
+			finalContent = ""
+		case "tool_result":
+			toolResults++
+		case "done":
+			doneCount++
+		case "error":
+			t.Fatalf("unexpected error event: %s", event.Content)
+		}
+	}
+
+	if completionCalls != 2 {
+		t.Fatalf("completion calls = %d, want 2", completionCalls)
+	}
+	if toolCalls != 1 {
+		t.Fatalf("toolCalls = %d, want 1", toolCalls)
+	}
+	if toolResults != 1 {
+		t.Fatalf("toolResults = %d, want 1", toolResults)
+	}
+	if doneCount != 1 {
+		t.Fatalf("doneCount = %d, want 1", doneCount)
+	}
+	if finalContent != "" {
+		t.Fatalf("finalContent = %q, want empty final content", finalContent)
+	}
+}
+
+func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) {
+	var completionCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "session-1",
+				"model_id":      "claude-sonnet-4.5",
+				"mode":          "agent",
+				"agent_backend": "anthropic-sdk",
+				"messages":      []map[string]any{{"role": "user", "content": "show disk info"}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
+			completionCalls++
+			if completionCalls == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":          "msg-1",
+					"type":        "message",
+					"role":        "assistant",
+					"model":       "claude-sonnet-4.5",
+					"stop_reason": "tool_use",
+					"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "call-1",
+						"name":  "bash",
+						"input": map[string]any{"command": "Write-Output disk-ok"},
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "msg-2",
+				"type":        "message",
+				"role":        "assistant",
+				"model":       "claude-sonnet-4.5",
+				"stop_reason": "end_turn",
+				"usage":       map[string]any{"input_tokens": 20, "output_tokens": 1},
+				"content":     []map[string]any{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "claude-sonnet-4.5", "anthropic-sdk", "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("RunAgentTurnWithChecker returned error: %v", err)
+	}
+	if completionCalls != 2 {
+		t.Fatalf("completion calls = %d, want 2", completionCalls)
+	}
+	if content != "" {
+		t.Fatalf("content = %q, want empty string", content)
+	}
+}
+
 func TestTUIHandlesPermissionRequestInTranscript(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", "agent-sdk-go", nil)
 	m.ready = true

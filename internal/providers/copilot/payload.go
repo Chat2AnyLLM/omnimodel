@@ -190,6 +190,9 @@ func (a *CopilotAdapter) convertCIFMessagesToOpenAI(messages []cif.CIFMessage, t
 				openaiMsg["content"] = textBuf.String()
 			}
 			if len(toolCalls) > 0 {
+				if _, ok := openaiMsg["content"]; !ok {
+					openaiMsg["content"] = ""
+				}
 				openaiMsg["tool_calls"] = toolCalls
 			}
 
