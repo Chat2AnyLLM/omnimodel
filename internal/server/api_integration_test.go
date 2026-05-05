@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"omnillm/internal/cif"
 	"omnillm/internal/database"
-	generic "omnillm/internal/providers/generic"
+	alibabapkg "omnillm/internal/providers/alibaba"
 	"omnillm/internal/registry"
 	"strings"
 	"sync/atomic"
@@ -1040,7 +1040,7 @@ func TestRenameProviderEndpointValidatesAndPersistsMetadata(t *testing.T) {
 
 func TestRenameProviderEndpointPreservesCustomNameAfterReload(t *testing.T) {
 	instanceID := fmt.Sprintf("alibaba-reload-%d", time.Now().UnixNano())
-	provider := generic.NewGenericProvider("alibaba", instanceID, "Original Name")
+	provider := alibabapkg.NewProvider(instanceID, "Original Name")
 	provider.SetName("Original Name")
 
 	configStore := database.NewProviderConfigStore()
@@ -1097,7 +1097,7 @@ func TestRenameProviderEndpointPreservesCustomNameAfterReload(t *testing.T) {
 		t.Fatal("expected provider record to exist")
 	}
 
-	reloaded := generic.NewGenericProvider(record.ProviderID, record.InstanceID, record.Name)
+	reloaded := alibabapkg.NewProvider(record.InstanceID, record.Name)
 	if err := reloaded.LoadFromDB(); err != nil {
 		t.Fatalf("failed to reload provider from DB: %v", err)
 	}

@@ -9,7 +9,8 @@ import (
 	"omnillm/internal/cif"
 	"omnillm/internal/database"
 	alibabapkg "omnillm/internal/providers/alibaba"
-	"omnillm/internal/providers/generic"
+	azurepkg "omnillm/internal/providers/azure"
+	kimipkg "omnillm/internal/providers/kimi"
 	"omnillm/internal/providers/openaicompatprovider"
 	providertypes "omnillm/internal/providers/types"
 	"omnillm/internal/registry"
@@ -261,7 +262,7 @@ func setupAzureProviderMatrixHarness(t *testing.T) providerMatrixHarness {
 	t.Helper()
 
 	upstream := newFakeAzureResponsesUpstream(t, "gpt-5.4")
-	provider := generic.NewGenericProvider("azure-openai", "azure-openai-shape-matrix", "Azure Matrix Test")
+	provider := azurepkg.NewProvider("azure-openai-shape-matrix", "Azure Matrix Test")
 	if err := provider.SetupAuth(&providertypes.AuthOptions{
 		APIKey:   matrixAzureAPIKey,
 		Endpoint: upstream.baseURL(),
@@ -353,7 +354,7 @@ func setupKimiProviderMatrixHarness(t *testing.T) providerMatrixHarness {
 	t.Helper()
 
 	upstream := newFakeOpenAICompatUpstream(t, "kimi-k2.5")
-	provider := generic.NewGenericProvider("kimi", "kimi-shape-matrix", "Kimi Matrix Test")
+	provider := kimipkg.NewProvider("kimi-shape-matrix", "Kimi Matrix Test")
 	if err := provider.SetupAuth(&providertypes.AuthOptions{
 		Method:   "api-key",
 		APIKey:   matrixKimiAPIKey,

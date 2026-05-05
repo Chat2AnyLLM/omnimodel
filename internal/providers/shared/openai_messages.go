@@ -1,11 +1,116 @@
 package shared
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"omnillm/internal/cif"
 	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
 )
+
+var (
+	openAIHTTPClient = &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			MaxConnsPerHost:       50,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+	openAIStreamClient = &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			MaxConnsPerHost:       50,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+)
+
+// ExecuteOpenAIWithPayload performs a non-streaming OpenAI-compatible HTTP request.
+func ExecuteOpenAIWithPayload(ctx context.Context, url string, headers map[string]string, payload map[string]interface{}) (*cif.CanonicalResponse, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	log.Trace().Str("url", url).RawJSON("payload", body).Msg("outbound proxy request payload")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := openAIHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(b))
+	}
+
+	var openaiResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return OpenAIRespToCIF(openaiResp), nil
+}
+
+// StreamOpenAIWithPayload performs a streaming OpenAI-compatible HTTP request.
+func StreamOpenAIWithPayload(ctx context.Context, url string, headers map[string]string, payload map[string]interface{}) (<-chan cif.CIFStreamEvent, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	log.Trace().Str("url", url).RawJSON("payload", body).Msg("outbound proxy request payload")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := openAIStreamClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("streaming request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("streaming API request failed with status %d: %s", resp.StatusCode, string(b))
+	}
+
+	eventCh := make(chan cif.CIFStreamEvent, 64)
+	go ParseOpenAISSE(resp.Body, eventCh)
+	return eventCh, nil
+}
 
 // nonEmptyStringPtr returns a pointer to s if s contains non-whitespace text,
 // otherwise nil. This avoids repeating the "trim + take address" pattern
@@ -78,9 +183,6 @@ func CIFMessagesToOpenAI(messages []cif.CIFMessage) []map[string]interface{} {
 				case cif.CIFTextPart:
 					textBuf.WriteString(p.Text)
 				case cif.CIFThinkingPart:
-					// For OpenAI-compatible providers (DashScope Qwen), the thinking
-					// from a prior turn is forwarded as reasoning_content so the model
-					// can continue reasoning coherently in multi-turn conversations.
 					reasoningContent = p.Thinking
 					if p.Signature != nil {
 						reasoningSignature = nonEmptyStringPtr(*p.Signature)

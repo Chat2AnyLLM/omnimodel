@@ -31,9 +31,40 @@ var (
 var Models = []types.Model{
 	{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking", MaxTokens: 131072, Provider: "kimi"},
 	{ID: "kimi-k2.5", Name: "Kimi K2.5", MaxTokens: 131072, Provider: "kimi"},
+	{ID: "kimi-k2.6", Name: "Kimi K2.6", MaxTokens: 131072, Provider: "kimi"},
 	{ID: "moonshot-v1-8k", Name: "Moonshot v1 8K", MaxTokens: 8192, Provider: "kimi"},
 	{ID: "moonshot-v1-32k", Name: "Moonshot v1 32K", MaxTokens: 32768, Provider: "kimi"},
 	{ID: "moonshot-v1-128k", Name: "Moonshot v1 128K", MaxTokens: 131072, Provider: "kimi"},
+}
+
+// IsThinkingModel reports whether the given model ID has thinking always
+// enabled. These models require reasoning_content to be present in every
+// assistant message that contains tool_calls (even when empty), otherwise
+// the API returns a 400 error.
+// All kimi-k2* models (kimi-k2.5, kimi-k2.6, kimi-k2-thinking, …) are
+// thinking models.
+func IsThinkingModel(model string) bool {
+	return strings.HasPrefix(model, "kimi-k2")
+}
+
+// EnsureReasoningContentInMessages post-processes serialized OpenAI-compatible
+// messages for thinking models. Kimi's API requires that every assistant
+// message containing tool_calls also carries a reasoning_content field (even
+// an empty string). Without it the API rejects multi-turn tool-use requests.
+func EnsureReasoningContentInMessages(messages []map[string]interface{}) {
+	for _, msg := range messages {
+		role, _ := msg["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+		toolCalls, hasToolCalls := msg["tool_calls"]
+		if !hasToolCalls || toolCalls == nil {
+			continue
+		}
+		if _, ok := msg["reasoning_content"]; !ok {
+			msg["reasoning_content"] = ""
+		}
+	}
 }
 
 // OAuthSupportedModels lists model IDs available to OAuth-authenticated users.
@@ -476,7 +507,7 @@ func BuildOpenAIPayload(model string, messages []map[string]interface{}, request
 				"type": "function",
 				"function": map[string]interface{}{
 					"name":       tool.Name,
-					"parameters": tool.ParametersSchema,
+					"parameters": shared.NormalizeToolParameters(tool.ParametersSchema),
 				},
 			}
 			if tool.Description != nil {
@@ -489,7 +520,11 @@ func BuildOpenAIPayload(model string, messages []map[string]interface{}, request
 
 	if request.ToolChoice != nil {
 		if toolChoice := shared.ConvertCanonicalToolChoiceToOpenAI(request.ToolChoice); toolChoice != nil {
-			payload["tool_choice"] = toolChoice
+			if IsThinkingModel(model) && len(request.Tools) > 0 {
+				payload["thinking"] = false
+			} else {
+				payload["tool_choice"] = toolChoice
+			}
 		}
 	}
 

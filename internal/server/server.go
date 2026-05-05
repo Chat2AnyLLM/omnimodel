@@ -6,13 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"omnillm/internal/database"
-	"omnillm/internal/lib/ratelimit"
-	"omnillm/internal/providers/copilot"
-	"omnillm/internal/providers/generic"
-	"omnillm/internal/providers/types"
-	"omnillm/internal/registry"
-	"omnillm/internal/routes"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,13 +15,20 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"omnillm/internal/database"
+	"omnillm/internal/lib/ratelimit"
 	alibabapkg "omnillm/internal/providers/alibaba"
-
+	antigravitypkg "omnillm/internal/providers/antigravity"
+	"omnillm/internal/providers/copilot"
+	azurepkg "omnillm/internal/providers/azure"
+	codexpkg "omnillm/internal/providers/codex"
+	googlepkg "omnillm/internal/providers/google"
 	modelscopepkg "omnillm/internal/providers/modelscope"
-
 	openaicompatprovider "omnillm/internal/providers/openaicompatprovider"
+	"omnillm/internal/providers/types"
+	"omnillm/internal/registry"
+	"omnillm/internal/routes"
 )
-
 type StartOptions struct {
 	Port                int
 	Host                string
@@ -288,6 +288,12 @@ func registerDefaultProviders(reg *registry.ProviderRegistry, options StartOptio
 					p.SetupAuth(&types.AuthOptions{GithubToken: options.GithubToken})
 				}
 				provider = p
+			case "antigravity":
+				p := antigravitypkg.NewProvider(inst.InstanceID, inst.Name)
+				if err := p.LoadFromDB(); err != nil {
+					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
+				}
+				provider = p
 			case "alibaba":
 				p := alibabapkg.NewProvider(inst.InstanceID, inst.Name)
 				if err := p.LoadFromDB(); err != nil {
@@ -300,18 +306,34 @@ func registerDefaultProviders(reg *registry.ProviderRegistry, options StartOptio
 					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
 				}
 				provider = p
+			case "azure-openai":
+				p := azurepkg.NewProvider(inst.InstanceID, inst.Name)
+				if err := p.LoadFromDB(); err != nil {
+					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
+				}
+				provider = p
+			case "google":
+				p := googlepkg.NewProvider(inst.InstanceID, inst.Name)
+				if err := p.LoadFromDB(); err != nil {
+					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
+				}
+				provider = p
 			case "openai-compatible":
 				p := openaicompatprovider.NewProvider(inst.InstanceID, inst.Name)
 				if err := p.LoadFromDB(); err != nil {
 					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
 				}
 				provider = p
-			default:
-				p := generic.NewGenericProvider(inst.ProviderID, inst.InstanceID, inst.Name)
+			case "codex":
+				p := codexpkg.NewCodexProvider(inst.InstanceID)
+				p.SetName(inst.Name)
 				if err := p.LoadFromDB(); err != nil {
 					log.Warn().Err(err).Str("instance", inst.InstanceID).Msg("Failed to load provider token")
 				}
 				provider = p
+			default:
+				log.Warn().Str("provider_id", inst.ProviderID).Str("instance", inst.InstanceID).Msg("Skipping unknown provider type during load")
+				continue
 			}
 
 			if err := reg.Register(provider, false); err != nil {
