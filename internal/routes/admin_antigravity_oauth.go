@@ -14,7 +14,6 @@ import (
 
 	antigravitypkg "omnillm/internal/providers/antigravity"
 	"omnillm/internal/database"
-	"omnillm/internal/providers/generic"
 	"omnillm/internal/registry"
 )
 
@@ -199,16 +198,16 @@ func handleAntigravityOAuthCallback(c *gin.Context) {
 	// Register provider (or update existing).
 	reg := registry.GetProviderRegistry()
 	if state.IsNewProvider {
-		gen := generic.NewGenericProvider("antigravity", state.ProviderID, "")
-		gen.ApplyTokenFromDB()
-		if err := reg.Register(gen, true); err != nil {
+		prov := antigravitypkg.NewProvider(state.ProviderID, "")
+		prov.ApplyTokenFromDB()
+		if err := reg.Register(prov, true); err != nil {
 			log.Warn().Err(err).Str("provider", state.ProviderID).Msg("Antigravity: failed to register after OAuth")
 		}
 	} else {
 		// Update existing — reload token from DB so in-memory state is fresh.
 		if prov, provErr := reg.GetProvider(state.ProviderID); provErr == nil {
-			if gp, ok := prov.(*generic.GenericProvider); ok {
-				gp.ApplyTokenFromDB()
+			if ap, ok := prov.(*antigravitypkg.Provider); ok {
+				ap.ApplyTokenFromDB()
 			}
 		}
 	}

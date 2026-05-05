@@ -1,11 +1,10 @@
 $ErrorActionPreference = 'Stop'
 
 $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$OutDir = Join-Path $RootDir '.build\bin'
 $BinDir = Join-Path $HOME '.local\bin'
-$TmpDir = Join-Path $RootDir '.build\bin'
 
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
+New-Item -ItemType Directory -Force -Path $OutDir, $BinDir | Out-Null
 
 $results = [System.Collections.Generic.List[object]]::new()
 
@@ -15,7 +14,7 @@ function Build-One {
         [Parameter(Mandatory = $true)][string]$OutputName
     )
 
-    $OutputPath = Join-Path $TmpDir "$OutputName.exe"
+    $OutputPath = Join-Path $OutDir "$OutputName.exe"
     $InstallPath = Join-Path $BinDir "$OutputName.exe"
 
     Write-Host "Building $OutputName..."
@@ -27,7 +26,7 @@ function Build-One {
         Copy-Item -Force $OutputPath $InstallPath
         $results.Add([pscustomobject]@{
             Name = "$OutputName.exe"
-            Status = 'installed'
+            Status = 'built+installed'
             Path = $InstallPath
             Error = ''
         }) | Out-Null
@@ -36,10 +35,10 @@ function Build-One {
         $results.Add([pscustomobject]@{
             Name = "$OutputName.exe"
             Status = 'failed'
-            Path = $InstallPath
+            Path = $OutputPath
             Error = $_.Exception.Message
         }) | Out-Null
-        Write-Warning "Failed to build/install ${OutputName}: $($_.Exception.Message)"
+        Write-Warning "Failed to build ${OutputName}: $($_.Exception.Message)"
     }
 }
 
@@ -47,5 +46,5 @@ Build-One "$RootDir" 'omnillm'
 Build-One (Join-Path $RootDir 'cmd\omniproxy') 'omniproxy'
 Build-One (Join-Path $RootDir 'cmd\omnicode') 'omnicode'
 
-Write-Host "Results for ${BinDir}:"
+Write-Host "Results:"
 $results | Select-Object Name, Status, Path, Error | Format-Table -AutoSize

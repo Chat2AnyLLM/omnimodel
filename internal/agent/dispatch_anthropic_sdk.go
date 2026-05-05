@@ -1,20 +1,9 @@
 package agent
 
-// dispatch_anthropic_sdk.go — DispatchFn backed by the official Anthropic Go SDK
-// (github.com/anthropics/anthropic-sdk-go).
-//
-// Unlike NewChatCompletionsDispatch (which always routes through the local
-// OmniLLM proxy on /v1/messages), AnthropicSDKDispatch connects directly to
-// api.anthropic.com using the SDK's native client.  The base URL is
-// overridable via ANTHROPIC_BASE_URL so the call can still be proxied when
-// needed (e.g. in tests or when running behind OmniLLM as an upstream).
-//
-// Tool-use round-trip:
-//  1. Build an anthropic.MessageNewParams from the CIF request.
-//  2. Send the request; if the response contains tool_use blocks, convert them
-//     back to CIF tool-call parts.
-//  3. The caller (Agent.Run / Agent.Stream) executes the tools and appends
-//     results; the next iteration sends the full updated history.
+// dispatch_anthropic_sdk.go — DispatchFn backed by the official Anthropic Go SDK.
+// Unlike NewChatCompletionsDispatch (which routes through the local OmniLLM proxy),
+// AnthropicSDKDispatch connects directly to api.anthropic.com. The base URL is
+// overridable via ANTHROPIC_BASE_URL so the call can still be proxied when needed.
 
 import (
 	"context"

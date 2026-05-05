@@ -39,14 +39,14 @@ func SerializeToSSE(e Event, streamID string) []byte {
 	switch e.Type {
 	case EventToken:
 		content := e.Content
-		chunk := map[string]interface{}{
+		chunk := map[string]any{
 			"id":      streamID,
 			"object":  "chat.completion.chunk",
 			"created": time.Now().Unix(),
-			"choices": []map[string]interface{}{
+			"choices": []map[string]any{
 				{
 					"index": 0,
-					"delta": map[string]interface{}{
+					"delta": map[string]any{
 						"content": content,
 					},
 				},
@@ -60,14 +60,14 @@ func SerializeToSSE(e Event, streamID string) []byte {
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	case EventToolCall:
-		chunk := map[string]interface{}{
+		chunk := map[string]any{
 			"id":      streamID,
 			"object":  "chat.completion.chunk",
 			"created": time.Now().Unix(),
-			"choices": []map[string]interface{}{
+			"choices": []map[string]any{
 				{
 					"index": 0,
-					"delta": map[string]interface{}{
+					"delta": map[string]any{
 						"content": fmt.Sprintf("[tool_call: %s] %s", e.Tool, e.Content),
 					},
 				},
@@ -81,14 +81,14 @@ func SerializeToSSE(e Event, streamID string) []byte {
 		return []byte(fmt.Sprintf("data: %s\n\n", data))
 
 	case EventToolResult:
-		chunk := map[string]interface{}{
+		chunk := map[string]any{
 			"id":      streamID,
 			"object":  "chat.completion.chunk",
 			"created": time.Now().Unix(),
-			"choices": []map[string]interface{}{
+			"choices": []map[string]any{
 				{
 					"index": 0,
-					"delta": map[string]interface{}{
+					"delta": map[string]any{
 						"content": fmt.Sprintf("[tool_result: %s] %s", e.Tool, e.Content),
 					},
 				},
@@ -105,8 +105,8 @@ func SerializeToSSE(e Event, streamID string) []byte {
 		return []byte("data: [DONE]\n\n")
 
 	case EventError:
-		chunk := map[string]interface{}{
-			"error": map[string]interface{}{
+		chunk := map[string]any{
+			"error": map[string]any{
 				"message": e.Content,
 				"type":    "agent_error",
 			},

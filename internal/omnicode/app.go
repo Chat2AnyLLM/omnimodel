@@ -2,6 +2,7 @@ package omnicode
 
 import (
 	"fmt"
+	"omnillm/internal/chat"
 	"omnillm/internal/commands"
 	"os"
 
@@ -9,13 +10,51 @@ import (
 )
 
 func NewRootCmd() *cobra.Command {
+	var cfg *Config
+
 	rootCmd := &cobra.Command{
 		Use:           "omnicode",
 		Short:         "Coding-focused chat and agent CLI",
 		Long:          "OmniCode is a coding-focused interactive chat and agent CLI built on OmniLLM components.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+			cfg, err = LoadConfig()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			if cfg.Model != "" {
+				modelFlag := cmd.Flags().Lookup("model")
+				if modelFlag != nil && !modelFlag.Changed {
+					modelFlag.Value.Set(cfg.Model)
+				}
+			}
+
+			chat.InitialConfig.Mode = cfg.Mode
+			chat.InitialConfig.APIShape = cfg.APIShape
+			chat.InitialConfig.Autopilot = cfg.Autopilot
+			if cfg.MaxTurns > 0 {
+				chat.InitialConfig.MaxTurns = cfg.MaxTurns
+			}
+
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			saveCb := func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int) {
+				if cfg == nil {
+					return
+				}
+				cfg.Model = model
+				cfg.Mode = mode
+				cfg.APIShape = apiShape
+				cfg.AgentBackend = agentBackend
+				cfg.Autopilot = autopilot
+				cfg.MaxTurns = maxTurns
+				SaveConfig(cfg)
+			}
+			chat.SetConfigSaveCallback(saveCb)
 			return commands.ChatCmd.RunE(cmd, args)
 		},
 	}

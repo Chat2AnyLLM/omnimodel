@@ -20,12 +20,10 @@ pages/index.html
 pages/admin/
 
 # Go binaries
-omnillm
-omnillm.exe
-omniproxy
-omniproxy.exe
-omnicode
-omnicode.exe
+/omnillm
+/omnillm.exe
+/omniproxy
+/omniproxy.exe
 
 # build temp directory
 .build/

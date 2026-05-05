@@ -11,6 +11,7 @@ type SessionSummary struct {
 	ID           string    `json:"session_id"`
 	Title        string    `json:"title"`
 	Model        string    `json:"model_id"`
+	APIShape     string    `json:"api_shape"`
 	AgentBackend string    `json:"agent_backend"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -37,7 +38,7 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 	body := map[string]any{
 		"title":         "CLI session",
 		"model_id":      requestedModel,
-		"api_shape":     "openai",
+		"api_shape":     DefaultAPIShape,
 		"agent_backend": "agent-sdk-go",
 	}
 	data, err := c.Post("/api/admin/chat/sessions", body)
@@ -56,7 +57,7 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 	if requestedModel != "" {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Using model: %s\n", requestedModel)
 	}
-	return SessionState{ID: sid, Model: requestedModel, Mode: "chat", AgentBackend: "agent-sdk-go"}, nil
+	return SessionState{ID: sid, Model: requestedModel, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: "agent-sdk-go"}, nil
 }
 
 func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, error) {
@@ -69,9 +70,12 @@ func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, e
 		return SessionState{}, nil, fmt.Errorf("parse session: %w", err)
 	}
 
-	state := SessionState{ID: sessionID, Mode: "chat", AgentBackend: "agent-sdk-go"}
+	state := SessionState{ID: sessionID, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: "agent-sdk-go"}
 	if mid, ok := session["model_id"].(string); ok {
 		state.Model = mid
+	}
+	if apiShape, ok := session["api_shape"].(string); ok && apiShape != "" {
+		state.APIShape = canonicalAPIShape(apiShape)
 	}
 	if backend, ok := session["agent_backend"].(string); ok && backend != "" {
 		state.AgentBackend = backend
@@ -111,6 +115,13 @@ func UpdateSessionAgentBackend(c Client, sessionID string, agentBackend string) 
 	return err
 }
 
+func UpdateSessionAPIShape(c Client, sessionID string, apiShape string) error {
+	_, err := c.Put("/api/admin/chat/sessions/"+sessionID, map[string]string{
+		"api_shape": canonicalAPIShape(apiShape),
+	})
+	return err
+}
+
 func CurrentModel(c Client, sessionID string, fallback string) (string, error) {
 	session, _, err := LoadSessionMessages(c, sessionID)
 	if err != nil {
@@ -131,6 +142,17 @@ func CurrentAgentBackend(c Client, sessionID string, fallback string) (string, e
 		return session.AgentBackend, nil
 	}
 	return fallback, nil
+}
+
+func CurrentAPIShape(c Client, sessionID string, fallback string) (string, error) {
+	session, _, err := LoadSessionMessages(c, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if session.APIShape != "" {
+		return canonicalAPIShape(session.APIShape), nil
+	}
+	return canonicalAPIShape(fallback), nil
 }
 
 // ListSessions fetches the list of all chat sessions from the server.
@@ -154,17 +176,18 @@ func ListSessions(c Client) ([]SessionSummary, error) {
 }
 
 // CreateSession creates a new chat session and returns its ID.
-func CreateSession(c Client, title, model, agentBackend string) (string, error) {
+func CreateSession(c Client, title, model, apiShape, agentBackend string) (string, error) {
 	if title == "" {
 		title = "New session"
 	}
+	apiShape = canonicalAPIShape(apiShape)
 	if agentBackend == "" {
 		agentBackend = "agent-sdk-go"
 	}
 	body := map[string]any{
 		"title":         title,
 		"model_id":      model,
-		"api_shape":     "openai",
+		"api_shape":     apiShape,
 		"agent_backend": agentBackend,
 	}
 	data, err := c.Post("/api/admin/chat/sessions", body)

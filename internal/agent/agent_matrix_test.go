@@ -34,9 +34,9 @@ import (
 type apiShape string
 
 const (
-	shapeMessages    apiShape = "messages"    // /v1/messages  (Anthropic)
-	shapeChatCompl   apiShape = "chat"        // /v1/chat/completions (OpenAI)
-	shapeResponses   apiShape = "responses"   // /v1/responses (Responses API)
+	shapeMessages  apiShape = "messages"  // /v1/messages  (Anthropic)
+	shapeChatCompl apiShape = "chat"      // /v1/chat/completions (OpenAI)
+	shapeResponses apiShape = "responses" // /v1/responses (Responses API)
 )
 
 var allShapes = []apiShape{shapeMessages, shapeChatCompl, shapeResponses}
@@ -95,6 +95,43 @@ func messagesToolResponse(model string, callN int) []byte {
 	return messagesResponse(model)
 }
 
+func chatResponse(model string) []byte {
+	r := map[string]any{
+		"id":    "chatcmpl_matrix",
+		"model": model,
+		"choices": []map[string]any{{
+			"index":         0,
+			"finish_reason": "stop",
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "ok",
+			},
+		}},
+		"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+	}
+	b, _ := json.Marshal(r)
+	return b
+}
+
+func responsesResponse(model string) []byte {
+	r := map[string]any{
+		"id":     "resp_matrix",
+		"object": "response",
+		"model":  model,
+		"output": []map[string]any{{
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]any{{
+				"type": "output_text",
+				"text": "ok",
+			}},
+		}},
+		"usage": map[string]any{"input_tokens": 5, "output_tokens": 2, "total_tokens": 7},
+	}
+	b, _ := json.Marshal(r)
+	return b
+}
+
 // ─── stub proxy helpers ───────────────────────────────────────────────────────
 
 // proxyStub is a minimal stub Client that records calls and returns canned
@@ -103,9 +140,9 @@ func messagesToolResponse(model string, callN int) []byte {
 // or /v1/responses from within the agent runtime — those are upstream concerns
 // handled by OmniLLM's proxy layer.)
 type proxyStub struct {
-	t          *testing.T
-	model      string
-	calls      int
+	t               *testing.T
+	model           string
+	calls           int
 	capturedPath    []string
 	capturedPayload []map[string]any
 	// toolCall: when true, first call returns tool_use; second returns text.
@@ -126,6 +163,12 @@ func (s *proxyStub) Post(path string, body any) ([]byte, error) {
 	}
 	s.capturedPayload = append(s.capturedPayload, p)
 
+	if path == "/v1/chat/completions" {
+		return chatResponse(s.model), nil
+	}
+	if path == "/v1/responses" {
+		return responsesResponse(s.model), nil
+	}
 	if s.toolCall {
 		return messagesToolResponse(s.model, s.calls), nil
 	}
@@ -134,6 +177,17 @@ func (s *proxyStub) Post(path string, body any) ([]byte, error) {
 
 func (s *proxyStub) PostStream(_ string, _ any) (*http.Response, error) {
 	return nil, fmt.Errorf("streaming not exercised in matrix test")
+}
+
+func pathForShape(shape apiShape) string {
+	switch shape {
+	case shapeChatCompl:
+		return "/v1/chat/completions"
+	case shapeResponses:
+		return "/v1/responses"
+	default:
+		return "/v1/messages"
+	}
 }
 
 // ─── assertion helpers ────────────────────────────────────────────────────────
@@ -187,9 +241,9 @@ func TestAgentMatrixSimpleTurn(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				result, err := RunTurn(
 					context.Background(), stub,
-					"sess-matrix", model, backend,
+					"sess-matrix", model, backend, DefaultAPIShape,
 					"Hello from "+tag,
-					nil, nil, nil,
+					nil, nil, nil, 10,
 				)
 				if err != nil {
 					t.Fatalf("RunTurn error: %v", err)
@@ -217,9 +271,9 @@ func TestAgentMatrixToolCallTurn(t *testing.T) {
 				stub := &proxyStub{t: t, model: model, toolCall: true}
 				result, err := RunTurn(
 					context.Background(), stub,
-					"sess-tool", model, backend,
+					"sess-tool", model, backend, DefaultAPIShape,
 					"What time is it?",
-					nil, nil, nil,
+					nil, nil, nil, 10,
 				)
 				if err != nil {
 					t.Fatalf("RunTurn error: %v", err)
@@ -250,9 +304,9 @@ func TestAgentMatrixStreamTurn(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				eventCh, err := StreamTurn(
 					context.Background(), stub,
-					"sess-stream", model, backend,
+					"sess-stream", model, backend, DefaultAPIShape,
 					"Stream hello from "+tag,
-					nil, nil, nil,
+					nil, nil, nil, 10,
 				)
 				if err != nil {
 					t.Fatalf("StreamTurn error: %v", err)
@@ -301,7 +355,7 @@ func TestAgentMatrixAllAPIShapes(t *testing.T) {
 			tag := fmt.Sprintf("shape=%s/model=%s", shape, model)
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
-				dispatch := NewChatCompletionsDispatch(stub, model)
+				dispatch := NewDispatch(stub, model, string(shape))
 				respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
 					Model: model,
 					Messages: []cif.CIFMessage{
@@ -325,24 +379,25 @@ func TestAgentMatrixAllAPIShapes(t *testing.T) {
 				if stub.calls != 1 {
 					t.Fatalf("[%s] proxy calls = %d, want 1", tag, stub.calls)
 				}
-				if stub.capturedPath[0] != "/v1/messages" {
-					t.Fatalf("[%s] path = %q, want /v1/messages", tag, stub.capturedPath[0])
+				if stub.capturedPath[0] != pathForShape(shape) {
+					t.Fatalf("[%s] path = %q, want %s", tag, stub.capturedPath[0], pathForShape(shape))
 				}
 				payload := stub.capturedPayload[0]
 				if payload["model"] != model {
 					t.Fatalf("[%s] model = %#v, want %q", tag, payload["model"], model)
 				}
-				// Anthropic shape: tools have input_schema, NOT parameters
-				tools, _ := payload["tools"].([]any)
-				if len(tools) != 1 {
-					t.Fatalf("[%s] tools count = %d, want 1", tag, len(tools))
-				}
-				tool, _ := tools[0].(map[string]any)
-				if tool["input_schema"] == nil {
-					t.Fatalf("[%s] tool missing input_schema: %#v", tag, tool)
-				}
-				if tool["parameters"] != nil {
-					t.Fatalf("[%s] tool has 'parameters' (OpenAI shape leaked): %#v", tag, tool)
+				if shape == shapeMessages {
+					tools, _ := payload["tools"].([]any)
+					if len(tools) != 1 {
+						t.Fatalf("[%s] tools count = %d, want 1", tag, len(tools))
+					}
+					tool, _ := tools[0].(map[string]any)
+					if tool["input_schema"] == nil {
+						t.Fatalf("[%s] tool missing input_schema: %#v", tag, tool)
+					}
+					if tool["parameters"] != nil {
+						t.Fatalf("[%s] tool has 'parameters' (OpenAI shape leaked): %#v", tag, tool)
+					}
 				}
 			})
 		}
@@ -360,7 +415,7 @@ func TestAgentMatrixSelectDispatchAllBackends(t *testing.T) {
 			tag := fmt.Sprintf("backend=%s/model=%s", backend, model)
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
-				dispatch := selectDispatch(stub, model, backend)
+				dispatch := selectDispatch(stub, model, backend, DefaultAPIShape)
 				respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
 					Model: model,
 					Messages: []cif.CIFMessage{
@@ -488,9 +543,9 @@ func TestAgentMatrixCoreToolsRegistered(t *testing.T) {
 			stub := &proxyStub{t: t, model: model}
 			result, err := RunTurn(
 				context.Background(), stub,
-				"sess-tools", model, "agent-sdk-go",
+				"sess-tools", model, "agent-sdk-go", DefaultAPIShape,
 				"list the current directory",
-				nil, nil, nil,
+				nil, nil, nil, 10,
 			)
 			if err != nil {
 				t.Fatalf("[%s] RunTurn error: %v", model, err)
@@ -530,14 +585,14 @@ func TestAgentMatrixPermissionCheckerAllBackends(t *testing.T) {
 			checkerCalls := 0
 			result, err := RunTurn(
 				context.Background(), stub,
-				"sess-perm", model, backend,
+				"sess-perm", model, backend, DefaultAPIShape,
 				"what time is it?",
 				nil,
 				func(_ context.Context, _ toolspkg.PermissionRequest) (bool, error) {
 					checkerCalls++
 					return true, nil
 				},
-				nil,
+				nil, 10,
 			)
 			if err != nil {
 				t.Fatalf("[%s] RunTurn error: %v", tag, err)
@@ -559,7 +614,7 @@ func TestAgentMatrixPermissionCheckerAllBackends(t *testing.T) {
 
 // multiTurnExchange describes one step in a simulated conversation.
 type multiTurnExchange struct {
-	userPrompt   string
+	userPrompt string
 	// assistantReply is the stub response the model returns for this turn.
 	// If toolCallOnTurn is non-zero, the first call to that turn number returns
 	// a tool_use block; the second call returns assistantReply.
@@ -690,9 +745,9 @@ func TestAgentMatrixMultiTurn(t *testing.T) {
 					result, err := RunTurn(
 						context.Background(), stub,
 						fmt.Sprintf("sess-multiturn-%s-%s", backend, model),
-						model, backend,
+						model, backend, DefaultAPIShape,
 						ex.userPrompt,
-						history, nil, nil,
+						history, nil, nil, 10,
 					)
 					if err != nil {
 						t.Fatalf("[%s] turn %d: RunTurn error: %v", tag, turnN+1, err)

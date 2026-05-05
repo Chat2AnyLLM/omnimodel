@@ -136,11 +136,11 @@ type VirtualModelUpstreamRecord struct {
 type AccessTokenRecord struct {
 	ID             string     `json:"id"`
 	Name           string     `json:"name"`
-	TokenHash      string     `json:"-"`               // SHA-256 hash, never exposed via JSON
+	TokenHash      string     `json:"-"` // SHA-256 hash, never exposed via JSON
 	TokenPlaintext string     `json:"token_plaintext,omitempty"`
-	Prefix         string     `json:"prefix"`           // first 8 chars for display
+	Prefix         string     `json:"prefix"` // first 8 chars for display
 	CreatedAt      time.Time  `json:"created_at"`
-	ExpiresAt      *time.Time `json:"expires_at"`       // nil means no expiry
+	ExpiresAt      *time.Time `json:"expires_at"` // nil means no expiry
 	LastUsedAt     *time.Time `json:"last_used_at"`
 	Enabled        bool       `json:"enabled"`
 }
@@ -149,17 +149,17 @@ type AccessTokenRecord struct {
 type MeteringRecord struct {
 	ID           int64     `json:"id"`
 	RequestID    string    `json:"request_id"`
-	ModelID      string    `json:"model_id"`      // canonical model name as requested
-	ModelUsed    string    `json:"model_used"`    // actual model reported by provider
-	ProviderID   string    `json:"provider_id"`   // provider instance_id
+	ModelID      string    `json:"model_id"`    // canonical model name as requested
+	ModelUsed    string    `json:"model_used"`  // actual model reported by provider
+	ProviderID   string    `json:"provider_id"` // provider instance_id
 	Client       string    `json:"client"`
-	APIShape     string    `json:"api_shape"`     // "openai" | "anthropic"
+	APIShape     string    `json:"api_shape"` // "openai" | "anthropic" | "responses"
 	InputTokens  int       `json:"input_tokens"`
 	OutputTokens int       `json:"output_tokens"`
 	TotalTokens  int       `json:"total_tokens"`
 	LatencyMS    int64     `json:"latency_ms"`
 	IsStream     bool      `json:"is_stream"`
-	StatusCode   int       `json:"status_code"`  // 200 on success, 4xx/5xx on error
+	StatusCode   int       `json:"status_code"` // 200 on success, 4xx/5xx on error
 	ErrorMessage string    `json:"error_message"`
 	CreatedAt    time.Time `json:"created_at"`
 }

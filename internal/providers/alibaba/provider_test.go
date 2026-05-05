@@ -313,6 +313,8 @@ func TestIsReasoningModel(t *testing.T) {
 		{"qwen-plus", true},
 		{"qwen3.5-plus", true},
 		{"qwen3.6-plus", true},
+		{"deepseek-r1", true},
+		{"deepseek-v4-flash", true},
 		{"QWEN3-MAX", true},
 		{"qwen2-5-72b-instruct", false},
 		{"qwen-turbo", false},
@@ -331,36 +333,46 @@ func TestAlibabaBuildRequestDeepSeekV4ToolsDisablesThinkingAndOmitsToolChoice(t 
 	p := NewProvider("alibaba-test-deepseek", "Alibaba Test")
 	adapter := &Adapter{provider: p}
 
-	req := &cif.CanonicalRequest{
-		Model: "deepseek-v4-flash",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{
-				Role: "user",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: "List files"},
+	for _, model := range []string{"deepseek-v4-flash", "alibaba-sk-ab2c5/deepseek-v4-flash"} {
+		t.Run(model, func(t *testing.T) {
+			req := &cif.CanonicalRequest{
+				Model: model,
+				Messages: []cif.CIFMessage{
+					cif.CIFUserMessage{
+						Role: "user",
+						Content: []cif.CIFContentPart{
+							cif.CIFTextPart{Type: "text", Text: "List files"},
+						},
+					},
 				},
-			},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "ls",
-			ParametersSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
-		}},
-		ToolChoice: "auto",
-	}
+				Tools: []cif.CIFTool{{
+					Name:             "ls",
+					ParametersSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+				}},
+				ToolChoice: "auto",
+			}
 
-	chatReq, err := adapter.buildRequest(req, false)
-	if err != nil {
-		t.Fatalf("buildRequest returned error: %v", err)
-	}
-	if chatReq.ToolChoice != nil {
-		t.Fatalf("expected DeepSeek V4 upstream tool_choice to be omitted, got %#v", chatReq.ToolChoice)
-	}
-	thinking, ok := chatReq.Extras["thinking"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected thinking extra, got %#v", chatReq.Extras)
-	}
-	if thinking["type"] != "disabled" {
-		t.Fatalf("expected thinking.type=disabled, got %#v", thinking)
+			chatReq, err := adapter.buildRequest(req, false)
+			if err != nil {
+				t.Fatalf("buildRequest returned error: %v", err)
+			}
+			if chatReq.Model != "deepseek-v4-flash" {
+				t.Fatalf("model = %q, want deepseek-v4-flash", chatReq.Model)
+			}
+			if chatReq.ToolChoice != nil {
+				t.Fatalf("expected DeepSeek V4 upstream tool_choice to be omitted, got %#v", chatReq.ToolChoice)
+			}
+			if _, exists := chatReq.Extras["enable_thinking"]; exists {
+				t.Fatalf("enable_thinking must not be sent for DeepSeek V4 tools: %#v", chatReq.Extras)
+			}
+			thinking, ok := chatReq.Extras["thinking"].(map[string]interface{})
+			if !ok {
+				t.Fatalf("expected thinking extra, got %#v", chatReq.Extras)
+			}
+			if thinking["type"] != "disabled" {
+				t.Fatalf("expected thinking.type=disabled, got %#v", thinking)
+			}
+		})
 	}
 }
 
@@ -370,6 +382,8 @@ func TestRemapModel(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"qwen3-max", "qwen3-max"},
 		{"  qwen3-coder-plus  ", "qwen3-coder-plus"},
+		{"alibaba-sk-ab2c5/deepseek-v4-flash", "deepseek-v4-flash"},
+		{"  alibaba-sk-ab2c5/deepseek-v4-flash  ", "deepseek-v4-flash"},
 	}
 	for _, tc := range cases {
 		if got := RemapModel(tc.in); got != tc.want {

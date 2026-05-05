@@ -30,7 +30,7 @@ func init() {
 
 	chatSessionsCreateCmd.Flags().String("title", "", "Session title")
 	chatSessionsCreateCmd.Flags().String("model", "", "Model ID to use for the session")
-	chatSessionsCreateCmd.Flags().String("api-shape", "openai", "API shape (openai|anthropic)")
+	chatSessionsCreateCmd.Flags().String("api-shape", "anthropic", "API shape (anthropic|openai|responses)")
 	chatSessionsCmd.AddCommand(chatSessionsCreateCmd)
 
 	chatSessionsCmd.AddCommand(chatSessionsGetCmd)
@@ -69,7 +69,7 @@ func runInteractiveChat(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		return chatpkg.RunTUI(c, session.ID, session.Model, session.Mode, session.AgentBackend, history)
+		return chatpkg.RunTUI(c, session.ID, session.Model, session.Mode, session.APIShape, session.AgentBackend, history)
 	}
 
 	return chatpkg.RunREPL(cmd, c, requestedModel, existingSession, picker)

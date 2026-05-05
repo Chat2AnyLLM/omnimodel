@@ -1,4 +1,4 @@
-package generic
+package alibaba
 
 import (
 	"net/http"
@@ -7,14 +7,16 @@ import (
 	"testing"
 )
 
-func TestAlibabaGetModelsFetchesLiveModels(t *testing.T) {
-	if err := database.InitializeDatabase(t.TempDir()); err != nil {
-		t.Fatalf("failed to initialize database: %v", err)
+func TestProviderGetModelsFetchesLiveModels(t *testing.T) {
+	t.Helper()
+	if database.GetDatabase() == nil {
+		if err := database.InitializeDatabase(t.TempDir()); err != nil {
+			t.Fatalf("failed to initialize database: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = database.GetDatabase().Close()
+		})
 	}
-	t.Cleanup(func() {
-		_ = database.GetDatabase().Close()
-	})
-
 	var requestPath string
 	var authorization string
 
@@ -35,7 +37,7 @@ func TestAlibabaGetModelsFetchesLiveModels(t *testing.T) {
 		t.Fatalf("failed to save token: %v", err)
 	}
 
-	provider := NewGenericProvider("alibaba", "alibaba-live", "Alibaba")
+	provider := NewProvider("alibaba-live", "Alibaba")
 	if err := provider.LoadFromDB(); err != nil {
 		t.Fatalf("failed to load provider from database: %v", err)
 	}
@@ -84,8 +86,8 @@ func TestAlibabaGetModelsFetchesLiveModels(t *testing.T) {
 	}
 }
 
-func TestAlibabaApplyConfigUsesStandardAPIKeyDefaults(t *testing.T) {
-	provider := NewGenericProvider("alibaba", "alibaba-standard", "Alibaba")
+func TestProviderLoadFromDBUsesStandardAPIKeyDefaults(t *testing.T) {
+	provider := NewProvider("alibaba-standard", "Alibaba")
 	provider.applyConfig(map[string]interface{}{
 		"auth_type": "api-key",
 		"plan":      "standard",
@@ -97,8 +99,8 @@ func TestAlibabaApplyConfigUsesStandardAPIKeyDefaults(t *testing.T) {
 	}
 }
 
-func TestAlibabaApplyConfigUsesCodingPlanDefaults(t *testing.T) {
-	provider := NewGenericProvider("alibaba", "alibaba-coding", "Alibaba")
+func TestProviderLoadFromDBUsesCodingPlanDefaults(t *testing.T) {
+	provider := NewProvider("alibaba-coding", "Alibaba")
 	provider.applyConfig(map[string]interface{}{
 		"auth_type": "api-key",
 		"plan":      "coding-plan",

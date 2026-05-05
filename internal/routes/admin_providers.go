@@ -11,12 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	alibabapkg "omnillm/internal/providers/alibaba"
+	antigravitypkg "omnillm/internal/providers/antigravity"
 	azurepkg "omnillm/internal/providers/azure"
 	codexpkg "omnillm/internal/providers/codex"
 	copilot "omnillm/internal/providers/copilot"
+	googlepkg "omnillm/internal/providers/google"
 	modelscopepkg "omnillm/internal/providers/modelscope"
 	openaicompatprovider "omnillm/internal/providers/openaicompatprovider"
-	generic "omnillm/internal/providers/generic"
+	kimipkg "omnillm/internal/providers/kimi"
 	"omnillm/internal/database"
 	"omnillm/internal/registry"
 	"omnillm/internal/providers/types"
@@ -125,8 +127,18 @@ func handleAddProviderInstance(c *gin.Context) {
 	switch providerType {
 	case "github-copilot":
 		provider = copilot.NewGitHubCopilotProvider(instanceID, "")
-	case "antigravity", "alibaba", "alibaba-modelscope", "azure-openai", "google", "kimi":
-		provider = generic.NewGenericProvider(providerType, instanceID, "")
+	case "alibaba-modelscope":
+		provider = modelscopepkg.NewProvider(instanceID, "")
+	case "antigravity":
+		provider = antigravitypkg.NewProvider(instanceID, "")
+	case "alibaba":
+		provider = alibabapkg.NewProvider(instanceID, "")
+	case "azure-openai":
+		provider = azurepkg.NewProvider(instanceID, "")
+	case "google":
+		provider = googlepkg.NewProvider(instanceID, "")
+	case "kimi":
+		provider = kimipkg.NewProvider(instanceID, "")
 	case "openai-compatible":
 		provider = openaicompatprovider.NewProvider(instanceID, "")
 	default:
@@ -482,11 +494,11 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 		})
 
 	// ——————————————————————————————————————————————————————————————
-	case "azure-openai", "google", "kimi":
+	case "azure-openai":
 		instanceID := providerRegistry.NextInstanceID(providerType)
-		gen := generic.NewGenericProvider(providerType, instanceID, "")
+		prov := azurepkg.NewProvider(instanceID, "")
 
-		if err := gen.SetupAuth(&req); err != nil {
+		if err := prov.SetupAuth(&req); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
 				"message": fmt.Sprintf("Authentication failed: %v", err),
@@ -494,16 +506,14 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 			return
 		}
 
-		if providerType == "azure-openai" {
-			if rawCfg, cfgErr := loadProviderConfig(gen.GetInstanceID()); cfgErr == nil && rawCfg != nil {
-				normCfg := normalizeProviderConfigForStorage(providerType, rawCfg)
-				if len(normCfg) > 0 {
-					_ = database.NewProviderConfigStore().Save(gen.GetInstanceID(), normCfg)
-				}
+		if rawCfg, cfgErr := loadProviderConfig(prov.GetInstanceID()); cfgErr == nil && rawCfg != nil {
+			normCfg := normalizeProviderConfigForStorage(providerType, rawCfg)
+			if len(normCfg) > 0 {
+				_ = database.NewProviderConfigStore().Save(prov.GetInstanceID(), normCfg)
 			}
 		}
 
-		if err := providerRegistry.Register(gen, true); err != nil {
+		if err := providerRegistry.Register(prov, true); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
 				"message": fmt.Sprintf("Failed to register provider: %v", err),
@@ -511,8 +521,7 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 			return
 		}
 
-		// For Azure OpenAI: if the user specified deployments upfront, enable them immediately.
-		if providerType == "azure-openai" && req.Deployments != "" {
+		if req.Deployments != "" {
 			var rawDeployments []interface{}
 			if jsonErr := json.Unmarshal([]byte(req.Deployments), &rawDeployments); jsonErr == nil {
 				modelStateStore := database.NewModelStateStore()
@@ -521,7 +530,7 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 					case string:
 						deployment := strings.TrimSpace(typed)
 						if deployment != "" {
-							_ = modelStateStore.SetEnabled(gen.GetInstanceID(), deployment, true)
+							_ = modelStateStore.SetEnabled(prov.GetInstanceID(), deployment, true)
 						}
 					case map[string]interface{}:
 						model, _ := typed["model"].(string)
@@ -530,8 +539,8 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 						deployment = strings.TrimSpace(deployment)
 						if model == "" { model = deployment }
 						if deployment == "" { deployment = model }
-						if model != "" { _ = modelStateStore.SetEnabled(gen.GetInstanceID(), model, true) }
-						if deployment != "" && deployment != model { _ = modelStateStore.SetEnabled(gen.GetInstanceID(), deployment, true) }
+						if model != "" { _ = modelStateStore.SetEnabled(prov.GetInstanceID(), model, true) }
+						if deployment != "" && deployment != model { _ = modelStateStore.SetEnabled(prov.GetInstanceID(), deployment, true) }
 					}
 				}
 			}
@@ -540,9 +549,41 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"provider": gin.H{
-				"id":         gen.GetInstanceID(),
-				"type":       gen.GetID(),
-				"name":       gen.GetName(),
+				"id":         prov.GetInstanceID(),
+				"type":       prov.GetID(),
+				"name":       prov.GetName(),
+				"isActive":   false,
+				"authStatus": "authenticated",
+			},
+		})
+
+	// ——————————————————————————————————————————————————————————————
+	case "google":
+		instanceID := providerRegistry.NextInstanceID(providerType)
+		prov := kimipkg.NewProvider(instanceID, "")
+
+		if err := prov.SetupAuth(&req); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Authentication failed: %v", err),
+			})
+			return
+		}
+
+		if err := providerRegistry.Register(prov, true); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Failed to register provider: %v", err),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"provider": gin.H{
+				"id":         prov.GetInstanceID(),
+				"type":       prov.GetID(),
+				"name":       prov.GetName(),
 				"isActive":   false,
 				"authStatus": "authenticated",
 			},

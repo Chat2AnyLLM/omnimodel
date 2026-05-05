@@ -17,7 +17,7 @@ type HistoryMessage struct {
 }
 
 // RunTurn runs one interactive agent turn using the native internal/agent runtime.
-func RunTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error)) (*RunResult, error) {
+func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error), maxTurns int) (*RunResult, error) {
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
@@ -28,13 +28,13 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, prompt st
 	memory.Append(cif.CIFSystemMessage{Role: "system", Content: sysPrompt})
 	seedHistory(memory, history, prompt)
 
-	ag := NewAgent(registry, memory, 10, selectDispatch(c, model, backend))
+	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
 	return ag.Run(ctx, sessionID, prompt)
 }
 
 // StreamTurn runs one interactive agent turn using streaming, emitting events on the returned channel.
 // The caller must drain the channel until it is closed.
-func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error)) (<-chan Event, error) {
+func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error), maxTurns int) (<-chan Event, error) {
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
@@ -45,20 +45,13 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, prompt
 	memory.Append(cif.CIFSystemMessage{Role: "system", Content: sysPrompt})
 	seedHistory(memory, history, prompt)
 
-	ag := NewAgent(registry, memory, 10, selectDispatch(c, model, backend))
+	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
 	return ag.Stream(ctx, sessionID, prompt)
 }
 
-// selectDispatch picks the right DispatchFn based on the requested backend.
-//
-// All three backends — "agent-sdk-go", "google-adk", and "anthropic-sdk" —
-// route through OmniLLM's local /v1/messages proxy.  OmniLLM translates the
-// request to the appropriate upstream format for each provider.
-//
-// AnthropicSDKDispatch (direct SDK connection) is available as an explicit
-// opt-in via code; it is not activated by the backend selector.
-func selectDispatch(c Client, model, _ string) DispatchFn {
-	return NewChatCompletionsDispatch(c, model)
+// selectDispatch picks the request API shape for the local OmniLLM proxy.
+func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
+	return NewDispatch(c, model, apiShape)
 }
 
 // buildSystemPrompt returns an OS-aware system prompt so the LLM generates
