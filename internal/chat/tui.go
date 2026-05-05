@@ -381,6 +381,7 @@ type chatTUIModel struct {
 	entries            []transcriptEntry
 	streamActive       bool
 	streamBuf          string
+	queuedPrompt       string
 	picker             *modelPickerState
 	sessionPicker      *sessionPickerState
 	pendingPermission  *pendingPermissionState
@@ -621,6 +622,21 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.exitHistorySearch()
 				return m, nil
 			}
+			if m.streamActive {
+				m.streamActive = false
+				m.spinning = false
+				m.streamBuf = ""
+				if m.pendingPermission != nil {
+					select {
+					case m.pendingPermission.respCh <- false:
+					default:
+					}
+					m.pendingPermission = nil
+				}
+				m.textarea.Placeholder = m.normalPlaceholder
+				m.appendEntry(transcriptInfo, "(cancelled)")
+				m.syncViewport()
+			}
 			if m.agentTurnCancel != nil {
 				m.agentTurnCancel()
 				m.agentTurnCancel = nil
@@ -665,12 +681,28 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.cyclePromptHistory(1)
 			return m, nil
+		case tea.KeyCtrlJ:
+			if m.textarea.Focused() && !m.streamActive {
+				m.textarea.InsertString("\n")
+				return m, nil
+			}
 		case tea.KeyEnter:
 			if m.historySearchMode {
 				m.exitHistorySearch()
 				return m, nil
 			}
 			if !m.textarea.Focused() || m.streamActive && m.pendingPermission == nil {
+				if m.streamActive && m.pendingPermission == nil {
+					text := strings.TrimSpace(m.textarea.Value())
+					if text == "" {
+						break
+					}
+					m.queuedPrompt = text
+					m.textarea.Reset()
+					m.appendEntry(transcriptInfo, fmt.Sprintf("(queued: %s)", truncateString(text, 60)))
+					m.syncViewport()
+					return m, nil
+				}
 				break
 			}
 			text := strings.TrimSpace(m.textarea.Value())
@@ -684,8 +716,23 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.Reset()
 			m.resetHistoryNavigation()
 			m.exitHistorySearch()
+			if strings.HasPrefix(text, "?") && strings.TrimSpace(text) == "?" {
+				return m.handleSlash(text)
+			}
 			if strings.HasPrefix(text, "/") {
 				return m.handleSlash(text)
+			}
+			if strings.HasPrefix(text, "!") {
+				command, _ := strings.CutPrefix(text, "!")
+				command = strings.TrimSpace(command)
+				if command == "" {
+					return m, nil
+				}
+				m.appendEntry(transcriptUser, text)
+				result := toolspkg.RunShellCommand(context.Background(), command, 0)
+				m.appendEntry(transcriptAssistant, result.Output)
+				m.syncViewport()
+				return m, nil
 			}
 			m.appendEntry(transcriptUser, text)
 			m.syncViewport()
@@ -724,12 +771,22 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncViewport()
 		save := content
-		return m, func() tea.Msg {
+		cmds := []tea.Cmd{func() tea.Msg {
 			if err := PostMessage(m.client, m.sessionID, "assistant", save); err != nil {
 				return appendLineMsg("Warning: failed to save response: " + err.Error())
 			}
 			return appendLineMsg("")
+		}}
+		if m.queuedPrompt != "" {
+			queued := m.queuedPrompt
+			m.queuedPrompt = ""
+			m.appendEntry(transcriptUser, queued)
+			m.streamActive = true
+			m.spinning = true
+			m.streamBuf = ""
+			cmds = append(cmds, m.spinner.Tick, m.sendAndStream(queued))
 		}
+		return m, tea.Batch(cmds...)
 	case agentDoneMsg:
 		m.streamActive = false
 		m.spinning = false
@@ -748,6 +805,15 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appendEntry(transcriptAssistant, content)
 		}
 		m.syncViewport()
+		if m.queuedPrompt != "" {
+			queued := m.queuedPrompt
+			m.queuedPrompt = ""
+			m.appendEntry(transcriptUser, queued)
+			m.streamActive = true
+			m.spinning = true
+			m.streamBuf = ""
+			return m, tea.Batch(m.spinner.Tick, m.sendAndStream(queued))
+		}
 		return m, nil
 	case agentProgressMsg:
 		m.appendEntry(transcriptInfo, msg.text)
@@ -891,7 +957,7 @@ func (m chatTUIModel) View() string {
 		main.WriteString(status)
 	}
 	main.WriteString("\n")
-	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /apishape: API shape"))
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C: quit  Ctrl+J: newline  ↑↓: history  PgUp/PgDn: scroll  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /apishape: API shape"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
@@ -1559,8 +1625,8 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.entries = nil
 		m.syncViewport()
 		return m, nil
-	case "/help":
-		add(m.renderMD("**Commands:**\n\n- `/help` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show agent API request shape\n- `/apishape <anthropic|openai|responses>` — switch agent API request shape\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/max-turns [1-100]` — show or set max agent turns (default 25)`r`n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- The right-hand panel always shows permission and session status\n"))
+	case "/help", "?":
+		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show agent API request shape\n- `/apishape <anthropic|openai|responses>` — switch agent API request shape\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))

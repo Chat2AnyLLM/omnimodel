@@ -106,7 +106,7 @@ func TestMarshal_ReappliesUserTruncationAfterExtrasMerge(t *testing.T) {
 	}
 }
 
-func TestBuildChatRequest_AssistantToolCallsIncludeEmptyContent(t *testing.T) {
+func TestBuildChatRequest_AssistantToolCallsOmitEmptyContent(t *testing.T) {
 	request := &cif.CanonicalRequest{
 		Model: "deepseek-v4-flash",
 		Messages: []cif.CIFMessage{
@@ -131,8 +131,8 @@ func TestBuildChatRequest_AssistantToolCallsIncludeEmptyContent(t *testing.T) {
 	if len(out.Messages) != 1 {
 		t.Fatalf("unexpected messages: %#v", out.Messages)
 	}
-	if content, ok := out.Messages[0].Content.(string); !ok || content != "" {
-		t.Fatalf("expected assistant tool-call content to be empty string, got %#v", out.Messages[0].Content)
+	if out.Messages[0].Content != nil {
+		t.Fatalf("expected assistant tool-call content to be omitted, got %#v", out.Messages[0].Content)
 	}
 }
 
@@ -167,6 +167,22 @@ func TestExecute_ReturnsAPIErrorDetails(t *testing.T) {
 	_, err := Execute(context.Background(), srv.URL, nil, &ChatRequest{Model: "gpt-4o"})
 	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("expected wrapped API error, got %v", err)
+	}
+}
+
+func TestMarshalAssistantToolOnlyContentShowsEmptyString(t *testing.T) {
+	body, err := Marshal(&ChatRequest{
+		Model: "glm-5.1",
+		Messages: []Message{
+			{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "call_1", Type: "function", Function: FunctionCallSpec{Name: "ls", Arguments: "{}"}}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `"content":""`) {
+		t.Fatalf("expected content: \"\" in marshaled body: %s", text)
 	}
 }
 

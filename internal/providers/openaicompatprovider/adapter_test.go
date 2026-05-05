@@ -10,6 +10,8 @@ import (
 	"omnillm/internal/cif"
 	"omnillm/internal/providers/openaicompat"
 	"omnillm/internal/providers/shared"
+	"omnillm/internal/providers/types"
+	"strings"
 	"testing"
 )
 
@@ -56,50 +58,14 @@ func TestAdapterUpstreamAPISelection(t *testing.T) {
 	})
 }
 
-func TestDashScopeChatExtras(t *testing.T) {
-	t.Run("disables thinking for qwen tool turns on dashscope", func(t *testing.T) {
-		req := &cif.CanonicalRequest{
-			Model: "qwen3.6-plus",
-			Tools: []cif.CIFTool{{
-				Name:             "Read",
-				ParametersSchema: map[string]interface{}{"type": "object"},
-			}},
-		}
-
-		extras := dashScopeChatExtras("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.6-plus", req)
-		if len(extras) != 1 {
-			t.Fatalf("expected one DashScope extra, got %#v", extras)
-		}
-		if value, ok := extras["enable_thinking"].(bool); !ok || value {
-			t.Fatalf("expected enable_thinking=false, got %#v", extras["enable_thinking"])
-		}
+func TestSetupProviderAuthRejectsDashScopeEndpoints(t *testing.T) {
+	_, _, _, _, err := SetupProviderAuth("test-dashscope", &types.AuthOptions{
+		Endpoint: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+		APIKey:   "test-key",
 	})
-
-	t.Run("does not inject dashscope extras for non tool turns", func(t *testing.T) {
-		extras := dashScopeChatExtras(
-			"https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-			"qwen3.6-plus",
-			&cif.CanonicalRequest{Model: "qwen3.6-plus"},
-		)
-		if extras != nil {
-			t.Fatalf("expected no extras for non-tool request, got %#v", extras)
-		}
-	})
-
-	t.Run("does not inject dashscope extras for other hosts", func(t *testing.T) {
-		req := &cif.CanonicalRequest{
-			Model: "qwen3.6-plus",
-			Tools: []cif.CIFTool{{
-				Name:             "Read",
-				ParametersSchema: map[string]interface{}{"type": "object"},
-			}},
-		}
-
-		extras := dashScopeChatExtras("http://localhost:11434/v1", "qwen3.6-plus", req)
-		if extras != nil {
-			t.Fatalf("expected no extras for non-DashScope host, got %#v", extras)
-		}
-	})
+	if err == nil || !strings.Contains(err.Error(), "DashScope endpoints must use the Alibaba provider") {
+		t.Fatalf("expected DashScope rejection error, got %v", err)
+	}
 }
 
 func TestAdapterExecute_ChatCompletionsTranslatesAnthropicStyleCIF(t *testing.T) {

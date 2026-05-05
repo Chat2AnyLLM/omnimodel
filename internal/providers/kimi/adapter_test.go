@@ -22,8 +22,12 @@ func TestBuildOpenAIPayloadThinkingModelDisablesThinkingInsteadOfSendingToolChoi
 		}},
 		ToolChoice: "required",
 	}, false)
-	if val, ok := payload["thinking"]; !ok || val != false {
-		t.Fatalf("expected thinking=false for Kimi thinking tool turn, got %v (present=%v)", val, ok)
+	if val, ok := payload["thinking"]; !ok {
+		t.Fatalf("expected thinking to be present for Kimi thinking tool turn")
+	} else if thinkingMap, ok := val.(map[string]any); !ok {
+		t.Fatalf("expected thinking to be a map[string]any, got %T", val)
+	} else if thinkingMap["type"] != "disabled" {
+		t.Fatalf("expected thinking.type=disabled, got %v", thinkingMap["type"])
 	}
 	if _, ok := payload["tool_choice"]; ok {
 		t.Fatalf("expected tool_choice to be omitted for Kimi thinking tool turn, got %#v", payload["tool_choice"])

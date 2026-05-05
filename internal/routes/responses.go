@@ -8,6 +8,7 @@ import (
 	"omnillm/internal/cif"
 	"omnillm/internal/ingestion"
 	"omnillm/internal/lib/modelrouting"
+	"omnillm/internal/providerdispatch"
 	"omnillm/internal/providers/types"
 	"omnillm/internal/serialization"
 	"strings"
@@ -91,51 +92,71 @@ func handleResponses(c *gin.Context) {
 	}
 
 	// Try candidate providers
-	var lastErr error
-	for _, provider := range modelRoute.CandidateProviders {
-		adapter := provider.GetAdapter()
-		if adapter == nil {
-			continue
-		}
+	executor := providerdispatch.NewExecutor(providerdispatch.ApplyGitHubCopilotSingleUpstreamMode, providerdispatch.DefaultUpstreamAPI)
+	resolveFailed := false
+	lastErr := executor.TryAttempts(
+		[]providerdispatch.Attempt{{
+			RequestedModel:  canonicalRequest.Model,
+			NormalizedModel: normalizedModel,
+			ProviderID:      "",
+		}},
+		canonicalRequest,
+		modelCache,
+		modelrouting.ResolveProvidersForModel,
+		nil,
+		func(attempt providerdispatch.Attempt, err error) {
+			resolveFailed = true
+			log.Error().Err(err).Str("request_id", requestIDStr).Str("model", attempt.RequestedModel).Msg("Failed to resolve providers")
+		},
+		func(candidate *providerdispatch.Candidate, providerID string) error {
+			log.Debug().
+				Str("request_id", requestIDStr).
+				Str("model", candidate.CanonicalModel).
+				Str("provider", providerID).
+				Msg("Trying provider for Responses API request")
 
-		providerRequest := *canonicalRequest
-		applyGitHubCopilotSingleUpstreamMode(provider, &providerRequest)
+			log.Debug().
+				Str("request_id", requestIDStr).
+				Str("provider", providerID).
+				Str("api_shape", "responses").
+				Str("inbound_path", c.FullPath()).
+				Str("upstream_api", candidate.UpstreamAPI).
+				Str("canonical_model", candidate.CanonicalModel).
+				Str("upstream_model", candidate.UpstreamModel).
+				Msg("Converted CIF request to upstream model API")
 
-		log.Debug().
-			Str("request_id", requestIDStr).
-			Str("model", providerRequest.Model).
-			Str("provider", provider.GetInstanceID()).
-			Msg("Trying provider for Responses API request")
-
-		remappedModel := adapter.RemapModel(providerRequest.Model)
-		log.Debug().
-			Str("request_id", requestIDStr).
-			Str("provider", provider.GetInstanceID()).
-			Str("api_shape", "responses").
-			Str("inbound_path", c.FullPath()).
-			Str("upstream_api", detectUpstreamAPI(provider.GetID(), adapter, &providerRequest, remappedModel)).
-			Str("canonical_model", providerRequest.Model).
-			Str("upstream_model", remappedModel).
-			Msg("Converted CIF request to upstream model API")
-		providerRequest.Model = remappedModel
-
-		if providerRequest.Stream {
-			lastErr = handleResponsesStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
-		} else {
-			lastErr = handleResponsesNonStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
-		}
-
-		if lastErr == nil {
-			return
-		}
-
-		log.Warn().Err(lastErr).
-			Str("request_id", requestIDStr).
-			Str("provider", provider.GetInstanceID()).
-			Str("upstream_model", providerRequest.Model).
-			Msg("Provider failed for Responses API request, trying next")
+			var err error
+			if candidate.Request.Stream {
+				err = handleResponsesStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
+			} else {
+				err = handleResponsesNonStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
+			}
+			if err != nil {
+				log.Warn().Err(err).
+					Str("request_id", requestIDStr).
+					Str("provider", providerID).
+					Str("upstream_model", candidate.UpstreamModel).
+					Msg("Provider failed for Responses API request, trying next")
+			}
+			return err
+		},
+	)
+	if lastErr == nil {
+		return
 	}
-
+	if resolveFailed {
+		writeResolveProvidersError(c, lastErr, "server_error")
+		return
+	}
+	if strings.Contains(lastErr.Error(), "not found or no providers available") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"message": lastErr.Error(),
+				"type":    "invalid_request_error",
+			},
+		})
+		return
+	}
 	writeProviderFailure(c, "server_error", lastErr)
 }
 

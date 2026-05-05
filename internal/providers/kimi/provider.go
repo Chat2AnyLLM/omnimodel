@@ -521,7 +521,7 @@ func BuildOpenAIPayload(model string, messages []map[string]interface{}, request
 	if request.ToolChoice != nil {
 		if toolChoice := shared.ConvertCanonicalToolChoiceToOpenAI(request.ToolChoice); toolChoice != nil {
 			if IsThinkingModel(model) && len(request.Tools) > 0 {
-				payload["thinking"] = false
+				payload["thinking"] = map[string]any{"type": "disabled"}
 			} else {
 				payload["tool_choice"] = toolChoice
 			}

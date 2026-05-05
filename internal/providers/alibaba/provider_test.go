@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"omnillm/internal/cif"
 	"omnillm/internal/database"
+	"omnillm/internal/providers/openaicompat"
 	"omnillm/internal/providers/types"
 	"os"
 	"strings"
@@ -309,13 +310,13 @@ func TestIsReasoningModel(t *testing.T) {
 		{"qwen3-max", true},
 		{"qwen3-coder-plus", true},
 		{"qwen3-235b-a22b-instruct", true},
-		{"qwq-32b", true},
 		{"qwen-plus", true},
-		{"qwen3.5-plus", true},
 		{"qwen3.6-plus", true},
 		{"deepseek-r1", true},
+		{"deepseek-r1-0528", true},
 		{"deepseek-v4-flash", true},
 		{"QWEN3-MAX", true},
+		{"glm-5.1", false},
 		{"qwen2-5-72b-instruct", false},
 		{"qwen-turbo", false},
 		{"gpt-4o", false},
@@ -373,6 +374,209 @@ func TestAlibabaBuildRequestDeepSeekV4ToolsDisablesThinkingAndOmitsToolChoice(t 
 				t.Fatalf("expected thinking.type=disabled, got %#v", thinking)
 			}
 		})
+	}
+}
+
+func TestAlibabaBuildRequestGLMToolsOmitsToolChoiceAndSetsEmptyContent(t *testing.T) {
+	p := NewProvider("alibaba-test-glm", "Alibaba Test")
+	adapter := &Adapter{provider: p}
+
+	req := &cif.CanonicalRequest{
+		Model: "alibaba-sk-ab2c5/glm-5.1",
+		Messages: []cif.CIFMessage{
+			cif.CIFAssistantMessage{
+				Role: "assistant",
+				Content: []cif.CIFContentPart{
+					cif.CIFThinkingPart{Type: "thinking", Thinking: "hidden reasoning"},
+					cif.CIFToolCallPart{
+						Type:          "tool_call",
+						ToolCallID:    "call_ls",
+						ToolName:      "ls",
+						ToolArguments: map[string]interface{}{"path": "."},
+					},
+				},
+			},
+			cif.CIFUserMessage{
+				Role: "user",
+				Content: []cif.CIFContentPart{
+					cif.CIFTextPart{Type: "text", Text: "List files"},
+				},
+			},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "ls",
+			ParametersSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		}},
+		ToolChoice: "auto",
+	}
+
+	chatReq, err := adapter.buildRequest(req, false)
+	if err != nil {
+		t.Fatalf("buildRequest returned error: %v", err)
+	}
+	if chatReq.Model != "glm-5.1" {
+		t.Fatalf("model = %q, want glm-5.1", chatReq.Model)
+	}
+	if chatReq.ToolChoice != nil {
+		t.Fatalf("expected GLM upstream tool_choice to be omitted, got %#v", chatReq.ToolChoice)
+	}
+	if _, exists := chatReq.Extras["enable_thinking"]; exists {
+		t.Fatalf("enable_thinking must not be sent for GLM tools, got %#v", chatReq.Extras)
+	}
+	if len(chatReq.Messages) == 0 {
+		t.Fatalf("expected messages to be present")
+	}
+	if chatReq.Messages[0].ReasoningContent != "" {
+		t.Fatalf("expected reasoning_content to be stripped for GLM, got %q", chatReq.Messages[0].ReasoningContent)
+	}
+	content, ok := chatReq.Messages[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant tool-only content to be empty string, got %#v (type %T)", chatReq.Messages[0].Content, chatReq.Messages[0].Content)
+	}
+	if content != "" {
+		t.Fatalf("expected assistant tool-only content to be empty string, got %q", content)
+	}
+}
+
+// ─── Qwen3.5-Plus tools ─────────────────────────────────────────────────────
+
+func TestAlibabaBuildRequestQwen35PlusToolsHandling(t *testing.T) {
+	p := NewProvider("alibaba-test-qwen35", "Alibaba Test")
+	adapter := &Adapter{provider: p}
+
+	for _, model := range []string{"qwen3.5-plus", "alibaba-sk-ab2c5/qwen3.5-plus"} {
+		t.Run(model, func(t *testing.T) {
+			req := &cif.CanonicalRequest{
+				Model: model,
+				Messages: []cif.CIFMessage{
+					cif.CIFAssistantMessage{
+						Role: "assistant",
+						Content: []cif.CIFContentPart{
+							cif.CIFThinkingPart{Type: "thinking", Thinking: "hidden reasoning"},
+							cif.CIFToolCallPart{
+								Type:          "tool_call",
+								ToolCallID:    "call_ls",
+								ToolName:      "ls",
+								ToolArguments: map[string]interface{}{"path": "."},
+							},
+						},
+					},
+					cif.CIFUserMessage{
+						Role: "user",
+						Content: []cif.CIFContentPart{
+							cif.CIFTextPart{Type: "text", Text: "List files"},
+						},
+					},
+				},
+				Tools: []cif.CIFTool{{
+					Name:             "ls",
+					ParametersSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+				}},
+				ToolChoice: "auto",
+			}
+
+			chatReq, err := adapter.buildRequest(req, false)
+			if err != nil {
+				t.Fatalf("buildRequest returned error: %v", err)
+			}
+			if chatReq.Model != "qwen3.5-plus" {
+				t.Fatalf("model = %q, want qwen3.5-plus", chatReq.Model)
+			}
+			if chatReq.ToolChoice != nil {
+				t.Fatalf("expected qwen3.5-plus upstream tool_choice to be omitted, got %#v", chatReq.ToolChoice)
+			}
+			if _, exists := chatReq.Extras["enable_thinking"]; exists {
+				t.Fatalf("enable_thinking must not be sent for non-reasoning tool models, got %#v", chatReq.Extras)
+			}
+			if chatReq.Messages[0].ReasoningContent != "" {
+				t.Fatalf("expected reasoning_content to be stripped for qwen3.5-plus, got %q", chatReq.Messages[0].ReasoningContent)
+			}
+			content, ok := chatReq.Messages[0].Content.(string)
+			if !ok {
+				t.Fatalf("expected tool-only assistant content to be empty string, got %#v", chatReq.Messages[0].Content)
+			}
+			if content != "" {
+				t.Fatalf("expected tool-only assistant content to be empty string, got %q", content)
+			}
+		})
+	}
+}
+
+// ─── Non-reasoning model without tools ───────────────────────────────────────
+
+func TestAlibabaBuildRequestNonReasoningModelWithoutToolsStillWorks(t *testing.T) {
+	p := NewProvider("alibaba-test-glm", "Alibaba Test")
+	adapter := &Adapter{provider: p}
+
+	req := &cif.CanonicalRequest{
+		Model: "glm-5.1",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{
+				Role: "user",
+				Content: []cif.CIFContentPart{
+					cif.CIFTextPart{Type: "text", Text: "Hello"},
+				},
+			},
+		},
+	}
+
+	chatReq, err := adapter.buildRequest(req, false)
+	if err != nil {
+		t.Fatalf("buildRequest returned error: %v", err)
+	}
+	if _, exists := chatReq.Extras["enable_thinking"]; exists {
+		t.Fatalf("enable_thinking must not be set when no tools, got %#v", chatReq.Extras)
+	}
+	if chatReq.ToolChoice != nil {
+		t.Fatalf("tool_choice must be nil when not provided, got %#v", chatReq.ToolChoice)
+	}
+	if chatReq.Messages[0].Content != "Hello" {
+		t.Fatalf("content = %#v, want Hello", chatReq.Messages[0].Content)
+	}
+}
+
+// ─── isNonReasoningToolModel ─────────────────────────────────────────────────
+
+func TestIsNonReasoningToolModel(t *testing.T) {
+	cases := []struct {
+		modelID string
+		want    bool
+	}{
+		{"qwen3.5-plus", true},
+		{"glm-5.1", true},
+		{"QWEN3.5-PLUS", true},
+		{"alibaba-sk-ab2c5/qwen3.5-plus", true},
+		{"qwen3-max", false},
+		{"qwen-turbo", false},
+		{"deepseek-v4-flash", false},
+		{"gpt-4o", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		got := isNonReasoningToolModel(tc.modelID)
+		if got != tc.want {
+			t.Errorf("isNonReasoningToolModel(%q) = %v, want %v", tc.modelID, got, tc.want)
+		}
+	}
+}
+
+// ─── ensureToolAssistantContent ──────────────────────────────────────────────
+
+func TestEnsureToolAssistantContent(t *testing.T) {
+	messages := []openaicompat.Message{
+		{Role: "assistant", ToolCalls: []openaicompat.ToolCall{{ID: "call_1"}}},
+		{Role: "assistant", Content: "Hello"},
+		{Role: "user", Content: "Hi"},
+	}
+	ensureToolAssistantContent(messages)
+	if messages[0].Content != "" {
+		t.Fatalf("expected empty string content for tool-only assistant, got %#v", messages[0].Content)
+	}
+	if messages[1].Content != "Hello" {
+		t.Fatalf("expected 'Hello' unchanged, got %#v", messages[1].Content)
+	}
+	if messages[2].Content != "Hi" {
+		t.Fatalf("expected 'Hi' unchanged, got %#v", messages[2].Content)
 	}
 }
 

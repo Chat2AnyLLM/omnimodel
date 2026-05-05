@@ -310,7 +310,21 @@ func (a *CopilotAdapter) responsesURL() string {
 }
 
 func (a *CopilotAdapter) buildResponsesPayload(request *cif.CanonicalRequest, stream bool) map[string]interface{} {
-	return openaicompat.BuildResponsesPayload(a.RemapModel(request.Model), request, stream, openaicompat.ResponsesConfig{})
+	payload := openaicompat.BuildResponsesPayload(a.RemapModel(request.Model), request, stream, openaicompat.ResponsesConfig{})
+	model := a.RemapModel(request.Model)
+	if shared.IsReasoningModel(model) {
+		delete(payload, "temperature")
+		delete(payload, "top_p")
+	}
+	if request != nil && request.MaxTokens != nil && *request.MaxTokens > 0 {
+		if copilotModelUsesMaxCompletionTokens(model) {
+			delete(payload, "max_output_tokens")
+			payload["max_completion_tokens"] = *request.MaxTokens
+		} else if *request.MaxTokens < 16 {
+			payload["max_output_tokens"] = 16
+		}
+	}
+	return payload
 }
 
 func (a *CopilotAdapter) executeResponses(ctx context.Context, request *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {

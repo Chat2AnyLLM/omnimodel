@@ -19,6 +19,7 @@ const AlibabaAPIModeOpenAICompatible = "openai-compatible"
 
 var Models = []types.Model{
 	{ID: "qwen3.6-plus", Name: "Qwen3.6 Plus", MaxTokens: 131072, Provider: "alibaba"},
+	{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen3.5-omni-flash", Name: "Qwen3.5 Omni Flash", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen3-coder-next", Name: "Qwen3 Coder Next", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen3-coder-plus", Name: "Qwen3 Coder Plus", MaxTokens: 131072, Provider: "alibaba"},
@@ -29,6 +30,7 @@ var Models = []types.Model{
 	{ID: "qwen3-235b-a22b-instruct", Name: "Qwen3-235B-A22B Instruct", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen-plus", Name: "Qwen Plus", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen-turbo", Name: "Qwen Turbo", MaxTokens: 1000000, Provider: "alibaba"},
+	{ID: "glm-5.1", Name: "GLM 5.1", MaxTokens: 131072, Provider: "alibaba"},
 	// DeepSeek models available via DashScope — used as metadata enrichment when
 	// FetchModelsFromAPI returns them from the live /models endpoint.
 	{ID: "deepseek-v3", Name: "DeepSeek V3", MaxTokens: 65536, Provider: "alibaba"},
@@ -36,6 +38,47 @@ var Models = []types.Model{
 	{ID: "deepseek-r1", Name: "DeepSeek R1", MaxTokens: 65536, Provider: "alibaba"},
 	{ID: "deepseek-r1-0528", Name: "DeepSeek R1 0528", MaxTokens: 65536, Provider: "alibaba"},
 }
+
+var reasoningModelIDs = map[string]struct{}{
+	"qwen3.6-plus":               {},
+	"qwen3-coder-next":           {},
+	"qwen3-coder-plus":           {},
+	"qwen3-coder-flash":          {},
+	"qwen3-max":                  {},
+	"qwen3-max-preview":          {},
+	"qwen3-32b":                  {},
+	"qwen3-235b-a22b-instruct":   {},
+	"qwen-plus":                  {},
+	"deepseek-r1":                {},
+	"deepseek-r1-0528":           {},
+	"deepseek-v4-flash":          {},
+}
+
+var qwenReasoningModelIDs = map[string]struct{}{
+	"qwen3.6-plus":             {},
+	"qwen3-coder-next":         {},
+	"qwen3-coder-plus":         {},
+	"qwen3-coder-flash":        {},
+	"qwen3-max":                {},
+	"qwen3-max-preview":        {},
+	"qwen3-32b":                {},
+	"qwen3-235b-a22b-instruct": {},
+	"qwen-plus":                {},
+}
+
+var deepSeekV4ModelIDs = map[string]struct{}{
+	"deepseek-v4-flash": {},
+}
+
+// nonReasoningToolModelIDs are models that are NOT reasoning models but require
+// special tool handling when tools are present on DashScope. These are typically
+// third-party models (GLM, Qwen3.5-Plus) that reject tool_choice and require
+// explicit empty content for tool-only assistant messages.
+var nonReasoningToolModelIDs = map[string]struct{}{
+	"qwen3.5-plus": {},
+	"glm-5.1":      {},
+}
+
 
 // Provider implements types.Provider for Alibaba DashScope.
 type Provider struct {
@@ -367,23 +410,32 @@ func IsChatCompletionsModel(modelID string) bool {
 }
 
 // IsReasoningModel returns true for models that support extended thinking /
-// chain-of-thought via the enable_thinking parameter. This covers Qwen3 and
-// DeepSeek families.
+// chain-of-thought via the enable_thinking parameter.
 func IsReasoningModel(modelID string) bool {
-	lower := strings.ToLower(modelID)
-	return strings.Contains(lower, "qwen3") ||
-		strings.Contains(lower, "qwq") ||
-		strings.Contains(lower, "qwen-plus") ||
-		strings.Contains(lower, "qwen3.5") ||
-		strings.Contains(lower, "qwen3.6") ||
-		strings.Contains(lower, "deepseek-r1") ||
-		strings.Contains(lower, "deepseek-v4")
+	_, ok := reasoningModelIDs[strings.ToLower(RemapModel(modelID))]
+	return ok
+}
+
+func isQwenReasoningModel(modelID string) bool {
+	_, ok := qwenReasoningModelIDs[strings.ToLower(RemapModel(modelID))]
+	return ok
+}
+
+func isDeepSeekV4ModelID(modelID string) bool {
+	_, ok := deepSeekV4ModelIDs[strings.ToLower(RemapModel(modelID))]
+	return ok
+}
+
+func isNonReasoningToolModel(modelID string) bool {
+	_, ok := nonReasoningToolModelIDs[strings.ToLower(RemapModel(modelID))]
+	return ok
 }
 
 // ModelMetadata returns hardcoded metadata for a known model ID.
 func ModelMetadata(modelID string) (types.Model, bool) {
+	remapped := strings.ToLower(RemapModel(modelID))
 	for _, m := range Models {
-		if m.ID == modelID {
+		if m.ID == remapped {
 			return m, true
 		}
 	}

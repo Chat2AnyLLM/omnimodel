@@ -10,6 +10,10 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
+func RunShellCommand(ctx context.Context, command string, timeoutSeconds int) Result {
+	return runShellCommand(ctx, command, timeoutSeconds)
+}
+
 func runShellCommand(ctx context.Context, command string, timeoutSeconds int) Result {
 	timeout := defaultTimeout
 	if timeoutSeconds > 0 {

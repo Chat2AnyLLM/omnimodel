@@ -75,24 +75,18 @@ func BuildResponsesPayload(model string, request *cif.CanonicalRequest, stream b
 		payload["instructions"] = *request.SystemPrompt
 	}
 
-	if !shared.IsReasoningModel(model) {
-		if request.Temperature != nil {
-			payload["temperature"] = *request.Temperature
-		} else if cfg.DefaultTemperature != nil {
-			payload["temperature"] = *cfg.DefaultTemperature
-		}
-		if request.TopP != nil {
-			payload["top_p"] = *request.TopP
-		} else if cfg.DefaultTopP != nil {
-			payload["top_p"] = *cfg.DefaultTopP
-		}
+	if request.Temperature != nil {
+		payload["temperature"] = *request.Temperature
+	} else if cfg.DefaultTemperature != nil {
+		payload["temperature"] = *cfg.DefaultTemperature
+	}
+	if request.TopP != nil {
+		payload["top_p"] = *request.TopP
+	} else if cfg.DefaultTopP != nil {
+		payload["top_p"] = *cfg.DefaultTopP
 	}
 	if request.MaxTokens != nil && *request.MaxTokens > 0 {
-		maxOutputTokens := *request.MaxTokens
-		if maxOutputTokens < 16 {
-			maxOutputTokens = 16
-		}
-		payload["max_output_tokens"] = maxOutputTokens
+		payload["max_output_tokens"] = *request.MaxTokens
 	}
 	if request.UserID != nil {
 		payload["user"] = shared.TruncateOpenAIUserID(*request.UserID)

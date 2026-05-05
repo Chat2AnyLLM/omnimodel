@@ -8,6 +8,7 @@ import (
 	"omnillm/internal/cif"
 	"omnillm/internal/ingestion"
 	"omnillm/internal/lib/modelrouting"
+	"omnillm/internal/providerdispatch"
 	"omnillm/internal/providers/types"
 	"omnillm/internal/serialization"
 	"strings"
@@ -26,12 +27,7 @@ type alibabaModeProvider interface {
 	AlibabaAPIMode() string
 }
 
-func upstreamAPIForProvider(providerID, model string) string {
-	if providerID == "azure-openai" && strings.Contains(strings.ToLower(model), "gpt-5.4") {
-		return "responses"
-	}
-	return "chat.completions"
-}
+var upstreamAPIForProvider = providerdispatch.DefaultUpstreamAPI
 
 func handleMessages(c *gin.Context) {
 	// Type assertion is zero-allocation vs fmt.Sprintf("%v", requestID)
@@ -78,87 +74,58 @@ func handleMessages(c *gin.Context) {
 
 	// Resolve providers
 	attempts := resolveRequestedModels(requestIDStr, canonicalRequest.Model)
-	var lastErr error
-	for _, attempt := range attempts {
-		attemptRequest := *canonicalRequest
-		attemptRequest.Model = attempt.RequestedModel
-
-		modelRoute, err := modelrouting.ResolveProvidersForModel(
-			attempt.RequestedModel,
-			attempt.NormalizedModel,
-			attempt.ProviderID,
-			modelCache,
-		)
-		if err != nil {
+	executor := providerdispatch.NewExecutor(providerdispatch.ApplyGitHubCopilotSingleUpstreamMode, providerdispatch.DefaultUpstreamAPI)
+	resolveFailed := false
+	lastErr := executor.TryAttempts(
+		toDispatchAttempts(attempts),
+		canonicalRequest,
+		modelCache,
+		modelrouting.ResolveProvidersForModel,
+		nil,
+		func(attempt providerdispatch.Attempt, err error) {
+			resolveFailed = true
 			log.Error().Err(err).Str("request_id", requestIDStr).Str("model", attempt.RequestedModel).Msg("Failed to resolve providers")
-			writeResolveProvidersError(c, err, "api_error")
-			return
-		}
-
-		if len(modelRoute.CandidateProviders) == 0 {
-			lastErr = fmt.Errorf("model '%s' not found or no providers available", attempt.RequestedModel)
-			continue
-		}
-
-		// Only normalize the model name when the attempt is NOT pinned to a specific
-		// provider. When ProviderID is set (e.g. from a virtual-model upstream), the
-		// stored RequestedModel must be used verbatim — it may include a provider
-		// prefix or specific casing that the upstream requires (e.g. "alipay01/DeepSeek-V4-Flash").
-		if attempt.ProviderID == "" && attempt.NormalizedModel != attemptRequest.Model {
+		},
+		func(candidate *providerdispatch.Candidate, providerID string) error {
 			log.Debug().
 				Str("request_id", requestIDStr).
-				Str("from", attemptRequest.Model).
-				Str("to", attempt.NormalizedModel).
-				Msg("Normalized Anthropic request model")
-			attemptRequest.Model = attempt.NormalizedModel
-		}
-
-		// Try candidate providers in priority order
-		for _, provider := range modelRoute.CandidateProviders {
-			adapter := provider.GetAdapter()
-			if adapter == nil {
-				continue
-			}
-
-			providerRequest := attemptRequest
-			applyGitHubCopilotSingleUpstreamMode(provider, &providerRequest)
-
-			log.Debug().
-				Str("request_id", requestIDStr).
-				Str("model", providerRequest.Model).
-				Str("provider", provider.GetInstanceID()).
+				Str("model", candidate.CanonicalModel).
+				Str("provider", providerID).
 				Msg("Trying provider for Anthropic request")
 
-			remappedModel := adapter.RemapModel(providerRequest.Model)
 			log.Debug().
 				Str("request_id", requestIDStr).
-				Str("provider", provider.GetInstanceID()).
+				Str("provider", providerID).
 				Str("api_shape", "anthropic").
 				Str("inbound_path", c.FullPath()).
-				Str("upstream_api", detectUpstreamAPI(provider.GetID(), adapter, &providerRequest, remappedModel)).
-				Str("canonical_model", providerRequest.Model).
-				Str("upstream_model", remappedModel).
+				Str("upstream_api", candidate.UpstreamAPI).
+				Str("canonical_model", candidate.CanonicalModel).
+				Str("upstream_model", candidate.UpstreamModel).
 				Msg("Converted CIF request to upstream model API")
-			providerRequest.Model = remappedModel
 
-			if providerRequest.Stream {
-				lastErr = handleAnthropicStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
+			var err error
+			if candidate.Request.Stream {
+				err = handleAnthropicStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
 			} else {
-				lastErr = handleAnthropicNonStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
+				err = handleAnthropicNonStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
 			}
-
-			if lastErr == nil {
-				return
+			if err != nil {
+				log.Warn().Err(err).
+					Str("request_id", requestIDStr).
+					Str("provider", providerID).
+					Str("upstream_model", candidate.UpstreamModel).
+					Msg("Provider failed for Anthropic request, trying next")
 			}
-
-			log.Warn().Err(lastErr).
-				Str("request_id", requestIDStr).
-				Str("provider", provider.GetInstanceID()).
-				Str("upstream_model", providerRequest.Model).
-				Msg("Provider failed for Anthropic request, trying next")
-		}
+			return err
+		},
+	)
+	if lastErr == nil {
+		return
 	}
-
+	if resolveFailed {
+		writeResolveProvidersError(c, lastErr, "api_error")
+		return
+	}
 	writeProviderFailure(c, "api_error", lastErr)
 }
 

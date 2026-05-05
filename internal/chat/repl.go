@@ -54,6 +54,11 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 			continue
 		}
 
+		if strings.HasPrefix(line, "?") && strings.TrimSpace(line) == "?" {
+			printHelp(cmd.OutOrStdout())
+			continue
+		}
+
 		if strings.HasPrefix(line, "/") {
 			result, err := handleSlashCommand(cmd, c, &session, line)
 			if err != nil {
@@ -78,12 +83,29 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 			}
 		}
 
+		if strings.HasPrefix(line, "!") {
+			command, _ := strings.CutPrefix(line, "!")
+			command = strings.TrimSpace(command)
+			if command == "" {
+				continue
+			}
+			result := toolspkg.RunShellCommand(context.Background(), command, 0)
+			if result.IsError {
+				_, _ = fmt.Fprintf(errOut, "%s\n", result.Output)
+			} else {
+				_, _ = fmt.Fprintln(out, result.Output)
+			}
+			continue
+		}
+
 		_, _ = fmt.Fprintln(out, ChatHeader("Assistant", session.IsTTY))
 
 		var assistantContent string
 		if session.Mode == "agent" {
 			sawToolActivity := false
-			eventCh, err := StreamAgentTurnWithChecker(context.Background(), c, session.ID, session.Model, session.AgentBackend, session.APIShape, line, makeStdioPermissionChecker(cmd, &session), 25)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			eventCh, err := StreamAgentTurnWithChecker(ctx, c, session.ID, session.Model, session.AgentBackend, session.APIShape, line, makeStdioPermissionChecker(cmd, &session), 25)
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error: completion: %v\n", err)
 				continue
@@ -268,7 +290,7 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 	case "/clear", "/cls":
 		clearScreen(cmd.OutOrStdout())
 		return replCommandResult{handled: true}, nil
-	case "/help":
+	case "/help", "?":
 		printHelp(cmd.OutOrStdout())
 		return replCommandResult{handled: true}, nil
 	case "/mode":

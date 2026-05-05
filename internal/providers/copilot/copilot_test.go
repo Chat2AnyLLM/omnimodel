@@ -157,6 +157,37 @@ func TestCopilotAdapterExecute_StripsThinkingPartsFromPayload(t *testing.T) {
 	}
 }
 
+func TestCopilotBuildResponsesPayloadOwnsReasoningSamplingAndTokenFields(t *testing.T) {
+	provider := NewGitHubCopilotProvider("github-copilot-test", "")
+	adapter := provider.GetAdapter().(*CopilotAdapter)
+	temperature := 0.7
+	topP := 0.8
+	maxTokens := 8
+
+	payload := adapter.buildResponsesPayload(&cif.CanonicalRequest{
+		Model:       "gpt-5-mini",
+		Temperature: &temperature,
+		TopP:        &topP,
+		MaxTokens:   &maxTokens,
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "ping"}}},
+		},
+	}, false)
+
+	if _, ok := payload["temperature"]; ok {
+		t.Fatalf("expected temperature to be omitted for reasoning model, got %#v", payload["temperature"])
+	}
+	if _, ok := payload["top_p"]; ok {
+		t.Fatalf("expected top_p to be omitted for reasoning model, got %#v", payload["top_p"])
+	}
+	if _, ok := payload["max_output_tokens"]; ok {
+		t.Fatalf("expected max_output_tokens to be absent for gpt-5 responses payload, got %#v", payload["max_output_tokens"])
+	}
+	if got, ok := payload["max_completion_tokens"].(int); !ok || got != maxTokens {
+		t.Fatalf("expected max_completion_tokens=%d, got %#v", maxTokens, payload["max_completion_tokens"])
+	}
+}
+
 func TestCopilotAdapterExecuteStream_RefreshesTokenAndRetriesOnUnauthorized(t *testing.T) {
 	var requestCalls int
 

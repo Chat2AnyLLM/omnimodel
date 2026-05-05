@@ -277,22 +277,14 @@ func (a *Adapter) shouldBufferAnthropicStreaming(request *cif.CanonicalRequest) 
 	return a.inboundAPIShape(request) == "anthropic"
 }
 
-func (a *Adapter) responsesConfig(request *cif.CanonicalRequest) openaicompat.ResponsesConfig {
-	cfg := openaicompat.ResponsesConfig{}
-	if extras := dashScopeChatExtras(a.provider.baseURL, a.RemapModel(request.Model), request); len(extras) > 0 {
-		cfg.Extras = extras
-	}
-	return cfg
+func (a *Adapter) responsesConfig(_ *cif.CanonicalRequest) openaicompat.ResponsesConfig {
+	return openaicompat.ResponsesConfig{}
 }
 
-func (a *Adapter) chatCompletionsConfig(request *cif.CanonicalRequest, stream bool) openaicompat.Config {
-	cfg := openaicompat.Config{
+func (a *Adapter) chatCompletionsConfig(_ *cif.CanonicalRequest, stream bool) openaicompat.Config {
+	return openaicompat.Config{
 		IncludeUsageInStream: stream,
 	}
-	if extras := dashScopeChatExtras(a.provider.baseURL, a.RemapModel(request.Model), request); len(extras) > 0 {
-		cfg.Extras = extras
-	}
-	return cfg
 }
 
 func (a *Adapter) selectedUpstreamAPI(request *cif.CanonicalRequest) string {
@@ -349,18 +341,6 @@ func (a *Adapter) forceChatCompletions(request *cif.CanonicalRequest) bool {
 		*request.Extensions.ForceChatCompletions
 }
 
-func dashScopeChatExtras(baseURL, model string, request *cif.CanonicalRequest) map[string]any {
-	if !isDashScopeBaseURL(baseURL) || !isDashScopeReasoningModel(model) || request == nil {
-		return nil
-	}
-	if len(request.Tools) == 0 {
-		return nil
-	}
-	// DashScope rejects required/specific tool_choice while Qwen is left in its
-	// default reasoning mode. Tool turns must explicitly opt out.
-	return map[string]interface{}{"enable_thinking": false}
-}
-
 func isDashScopeBaseURL(rawURL string) bool {
 	u, err := url.Parse(normalizeBaseURL(rawURL))
 	if err != nil {
@@ -372,13 +352,6 @@ func isDashScopeBaseURL(rawURL string) bool {
 	default:
 		return false
 	}
-}
-
-func isDashScopeReasoningModel(model string) bool {
-	lower := strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(lower, "qwen3") ||
-		strings.Contains(lower, "qwen-plus") ||
-		strings.Contains(lower, "qwq")
 }
 
 // ─── LoadFromDB ───────────────────────────────────────────────────────────────
@@ -428,6 +401,9 @@ func SetupProviderAuth(instanceID string, options *types.AuthOptions) (token, ba
 	endpoint = normalizeBaseURL(endpoint)
 	if err := security.ValidateEndpoint(endpoint, options.AllowLocalEndpoints); err != nil {
 		return "", "", "", nil, fmt.Errorf("openai-compatible: invalid endpoint: %w", err)
+	}
+	if isDashScopeBaseURL(endpoint) {
+		return "", "", "", nil, fmt.Errorf("openai-compatible: DashScope endpoints must use the Alibaba provider")
 	}
 
 	apiKey := strings.TrimSpace(options.APIKey)

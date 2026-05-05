@@ -9,6 +9,7 @@ import (
 	"omnillm/internal/lib/approval"
 	"omnillm/internal/lib/modelrouting"
 	"omnillm/internal/lib/ratelimit"
+	"omnillm/internal/providerdispatch"
 	"omnillm/internal/providers/types"
 	"omnillm/internal/serialization"
 	"time"
@@ -107,80 +108,55 @@ func (h *chatCompletionHandler) handleChatCompletions(c *gin.Context) {
 
 	// Resolve providers for the requested model
 	attempts := resolveRequestedModels(requestIDStr, canonicalRequest.Model)
-
-	var lastErr error
-	for _, attempt := range attempts {
-		attemptRequest := *canonicalRequest
-		attemptRequest.Model = attempt.RequestedModel
-
-		modelRoute, err := modelrouting.ResolveProvidersForModel(
-			attempt.RequestedModel,
-			attempt.NormalizedModel,
-			attempt.ProviderID,
-			modelCache,
-		)
-		if err != nil {
-			log.Error().Err(err).Str("request_id", requestIDStr).Str("model", attempt.RequestedModel).Msg("Failed to resolve providers for model")
-			writeResolveProvidersError(c, err, "provider_error")
-			return
-		}
-
-		if len(modelRoute.CandidateProviders) == 0 {
-			lastErr = fmt.Errorf("model '%s' not found or no providers available", attempt.RequestedModel)
+	executor := providerdispatch.NewExecutor(providerdispatch.ApplyGitHubCopilotSingleUpstreamMode, providerdispatch.DefaultUpstreamAPI)
+	resolveFailed := false
+	lastErr := executor.TryAttempts(
+		toDispatchAttempts(attempts),
+		canonicalRequest,
+		modelCache,
+		modelrouting.ResolveProvidersForModel,
+		func(attempt providerdispatch.Attempt) {
 			log.Warn().Str("request_id", requestIDStr).Str("model", attempt.RequestedModel).Msg("No providers available for model attempt")
-			continue
-		}
-
-		// Only normalize the model name when the attempt is NOT pinned to a specific
-		// provider. When ProviderID is set (e.g. from a virtual-model upstream), the
-		// stored RequestedModel must be used verbatim — it may include a provider
-		// prefix or specific casing that the upstream requires (e.g. "alipay01/DeepSeek-V4-Flash").
-		if attempt.ProviderID == "" && attempt.NormalizedModel != attemptRequest.Model {
-			log.Debug().Str("request_id", requestIDStr).Str("from", attemptRequest.Model).Str("to", attempt.NormalizedModel).Msg("Normalized chat request model")
-			attemptRequest.Model = attempt.NormalizedModel
-		}
-
-		// Try candidate providers in priority order
-		for _, provider := range modelRoute.CandidateProviders {
-			adapter := provider.GetAdapter()
-			if adapter == nil {
-				continue
-			}
-
-			providerRequest := attemptRequest
-			applyGitHubCopilotSingleUpstreamMode(provider, &providerRequest)
-
+		},
+		func(attempt providerdispatch.Attempt, err error) {
+			resolveFailed = true
+			log.Error().Err(err).Str("request_id", requestIDStr).Str("model", attempt.RequestedModel).Msg("Failed to resolve providers for model")
+		},
+		func(candidate *providerdispatch.Candidate, providerID string) error {
 			log.Debug().
 				Str("request_id", requestIDStr).
-				Str("model", providerRequest.Model).
-				Str("provider", provider.GetInstanceID()).
+				Str("model", candidate.CanonicalModel).
+				Str("provider", providerID).
 				Msg("Trying provider for request")
 
-			// Remap model name for this provider
-			remappedModel := adapter.RemapModel(providerRequest.Model)
-			if remappedModel != providerRequest.Model {
-				log.Debug().Str("request_id", requestIDStr).Str("from", providerRequest.Model).Str("to", remappedModel).Msg("Remapped model name")
-				providerRequest.Model = remappedModel
+			if candidate.UpstreamModel != candidate.CanonicalModel {
+				log.Debug().Str("request_id", requestIDStr).Str("from", candidate.CanonicalModel).Str("to", candidate.UpstreamModel).Msg("Remapped model name")
 			}
 
-			if providerRequest.Stream {
-				lastErr = handleStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
+			var err error
+			if candidate.Request.Stream {
+				err = handleStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
 			} else {
-				lastErr = handleNonStreamingResponse(c, adapter, &providerRequest, requestIDStr, originalModel, provider.GetInstanceID(), startTime)
+				err = handleNonStreamingResponse(c, candidate.Adapter, candidate.Request, requestIDStr, originalModel, providerID, startTime)
 			}
-
-			if lastErr == nil {
-				return // success
+			if err != nil {
+				log.Warn().Err(err).
+					Str("request_id", requestIDStr).
+					Str("provider", providerID).
+					Str("upstream_model", candidate.UpstreamModel).
+					Msg("Provider failed, trying next")
 			}
-
-			log.Warn().Err(lastErr).
-				Str("request_id", requestIDStr).
-				Str("provider", provider.GetInstanceID()).
-				Str("upstream_model", providerRequest.Model).
-				Msg("Provider failed, trying next")
-		}
+			return err
+		},
+	)
+	if lastErr == nil {
+		return
 	}
 
+	if resolveFailed {
+		writeResolveProvidersError(c, lastErr, "provider_error")
+		return
+	}
 	writeProviderFailure(c, "provider_error", lastErr)
 }
 
