@@ -18,6 +18,7 @@ const UserAgent = "OmniLLM/1.0"
 const AlibabaAPIModeOpenAICompatible = "openai-compatible"
 
 var Models = []types.Model{
+	{ID: "qwen3.6-max-preview", Name: "Qwen3.6 Max Preview", MaxTokens: 32768, Provider: "alibaba"},
 	{ID: "qwen3.6-plus", Name: "Qwen3.6 Plus", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", MaxTokens: 131072, Provider: "alibaba"},
 	{ID: "qwen3.5-omni-flash", Name: "Qwen3.5 Omni Flash", MaxTokens: 131072, Provider: "alibaba"},
@@ -40,7 +41,8 @@ var Models = []types.Model{
 }
 
 var reasoningModelIDs = map[string]struct{}{
-	"qwen3.6-plus":               {},
+	"qwen3.6-max-preview":          {},
+		"qwen3.6-plus":               {},
 	"qwen3-coder-next":           {},
 	"qwen3-coder-plus":           {},
 	"qwen3-coder-flash":          {},
@@ -55,7 +57,8 @@ var reasoningModelIDs = map[string]struct{}{
 }
 
 var qwenReasoningModelIDs = map[string]struct{}{
-	"qwen3.6-plus":             {},
+	"qwen3.6-max-preview":          {},
+		"qwen3.6-plus":             {},
 	"qwen3-coder-next":         {},
 	"qwen3-coder-plus":         {},
 	"qwen3-coder-flash":        {},

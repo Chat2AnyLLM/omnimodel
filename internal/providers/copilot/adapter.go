@@ -87,7 +87,7 @@ func (a *CopilotAdapter) shouldUseResponsesAPI(model string, request *cif.Canoni
 	}
 
 	lower := strings.ToLower(strings.TrimSpace(model))
-	return shared.IsGPT5Family(lower) && !strings.HasPrefix(lower, "gpt-5-mini")
+	return shared.IsGPT5Family(lower) && !strings.Contains(lower, "-mini")
 }
 
 // isUnsupportedChatCompletionsModel detects Copilot's
