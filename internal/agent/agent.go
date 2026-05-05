@@ -58,7 +58,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			}, err
 		}
 
-		response, err := a.dispatchAndCollect(ctx, step)
+		response, err := a.dispatchAndCollect(ctx, step, prompt)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +108,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 				return
 			}
 
-			response, err := a.dispatchAndCollect(ctx, step)
+			response, err := a.dispatchAndCollect(ctx, step, prompt)
 			if err != nil {
 				events <- Event{Type: EventError, Content: err.Error()}
 				return
@@ -178,8 +178,8 @@ func toAssistantMessage(content []cif.CIFContentPart) cif.CIFAssistantMessage {
 	}
 }
 
-func (a *Agent) dispatchAndCollect(ctx context.Context, step int) (*cif.CanonicalResponse, error) {
-	req := a.buildRequest()
+func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string) (*cif.CanonicalResponse, error) {
+	req := a.buildRequest(step, prompt)
 
 	respCh, err := a.dispatch(ctx, req)
 	if err != nil {
@@ -197,12 +197,11 @@ func (a *Agent) dispatchAndCollect(ctx context.Context, step int) (*cif.Canonica
 	return response, nil
 }
 
-func (a *Agent) buildRequest() *cif.CanonicalRequest {
+func (a *Agent) buildRequest(step int, prompt string) *cif.CanonicalRequest {
 	messages := a.memory.Messages()
 	cifTools := a.registry.ToCIFTools()
 
-	// Extract system prompt from memory and set it on the request.
-	// This ensures it's sent as a proper system message, not buried in conversation history.
+	// Extract system prompt from memory; send as SystemPrompt, not buried in history.
 	var systemPrompt string
 	filtered := make([]cif.CIFMessage, 0, len(messages))
 	for _, msg := range messages {
@@ -227,10 +226,36 @@ func (a *Agent) buildRequest() *cif.CanonicalRequest {
 	}
 	// Per OpenAI spec: tool_choice must only be set when tools are present.
 	if len(cifTools) > 0 {
-		req.ToolChoice = "auto"
+		if step == 0 && shouldRequireInitialToolUse(prompt) {
+			req.ToolChoice = "required"
+		} else {
+			req.ToolChoice = "auto"
+		}
 	}
 
 	return req
+}
+
+func shouldRequireInitialToolUse(prompt string) bool {
+	p := strings.ToLower(prompt)
+	for _, phrase := range []string{
+		"environment variable", "env var", "os info", "system info",
+		"current directory", "list directory", "show directory", "working directory", "current time",
+	} {
+		if strings.Contains(p, phrase) {
+			return true
+		}
+	}
+
+	for _, term := range strings.FieldsFunc(p, func(r rune) bool {
+		return r < '0' || r > '9' && r < 'a' || r > 'z'
+	}) {
+		switch term {
+		case "cpu", "memory", "disk", "process":
+			return true
+		}
+	}
+	return false
 }
 
 func extractToolCalls(content []cif.CIFContentPart) []cif.CIFToolCallPart {

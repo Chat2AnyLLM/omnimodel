@@ -13,6 +13,41 @@ import (
 	"omnillm/internal/tools"
 )
 
+func TestBuildRequestRequiresInitialToolForLocalInfoPrompt(t *testing.T) {
+	ag := newTestAgent()
+	ag.appendUserMessage("show CPU info")
+
+	req := ag.buildRequest(0, "show CPU info")
+	if req.ToolChoice != "required" {
+		t.Fatalf("tool choice = %#v, want required", req.ToolChoice)
+	}
+
+	req = ag.buildRequest(1, "show CPU info")
+	if req.ToolChoice != "auto" {
+		t.Fatalf("follow-up tool choice = %#v, want auto", req.ToolChoice)
+	}
+}
+
+func TestBuildRequestUsesAutoForConversationalPrompt(t *testing.T) {
+	ag := newTestAgent()
+	ag.appendUserMessage("hello")
+
+	req := ag.buildRequest(0, "hello")
+	if req.ToolChoice != "auto" {
+		t.Fatalf("tool choice = %#v, want auto", req.ToolChoice)
+	}
+}
+
+func TestBuildRequestLeavesToolChoiceUnsetWithoutTools(t *testing.T) {
+	ag := NewAgent(tools.NewRegistry(), NewBufferMemory(8), 10, nil)
+	ag.appendUserMessage("show CPU info")
+
+	req := ag.buildRequest(0, "show CPU info")
+	if req.ToolChoice != nil {
+		t.Fatalf("tool choice = %#v, want nil", req.ToolChoice)
+	}
+}
+
 func TestRegistryExecuteToolCallsHonorsPermissionChecker(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Bash())
@@ -87,7 +122,7 @@ func TestChatCompletionsDispatchRoutesAllModelsToMessages(t *testing.T) {
 				Messages: []cif.CIFMessage{
 					cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Hello"}}},
 				},
-				Tools: []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
+				Tools:      []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
 				ToolChoice: "auto",
 			})
 			if err != nil {
@@ -135,7 +170,7 @@ func TestChatCompletionsDispatchRoutesGPTModelsToMessages(t *testing.T) {
 		Messages: []cif.CIFMessage{
 			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Hello"}}},
 		},
-		Tools: []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
+		Tools:      []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
 		ToolChoice: "auto",
 	})
 	if err != nil {
@@ -411,4 +446,11 @@ func TestSelectDispatchUsesAnthropicSDKForAnthropicSDKBackend(t *testing.T) {
 	if capturedPath != "/v1/messages" {
 		t.Fatalf("expected /v1/messages, got %q", capturedPath)
 	}
+}
+
+func newTestAgent() *Agent {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Bash())
+	memory := NewBufferMemory(8)
+	return NewAgent(registry, memory, 10, nil)
 }
