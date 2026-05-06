@@ -1772,7 +1772,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 
 func RunTUI(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message) error {
 	m := newChatTUIModel(c, sessionID, model, mode, apiShape, agentBackend, history, ConfigSaveCallback)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	go func() { p.Send(progReadyMsg{p: p}) }()
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI: %w", err)
