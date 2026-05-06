@@ -685,14 +685,11 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyCtrlJ:
 			if m.textarea.Focused() && !m.streamActive {
-				m.textareaExpanded = !m.textareaExpanded
-				if m.textareaExpanded {
-					lines := strings.Count(m.textarea.Value(), "\n") + 1
-					m.textarea.SetHeight(tuiMax(3, lines))
-					m.textarea.CursorEnd()
-				} else {
-					m.textarea.SetHeight(1)
-				}
+				m.textarea.InsertString("\n")
+				m.textareaExpanded = true
+				lines := strings.Count(m.textarea.Value(), "\n") + 1
+				m.textarea.SetHeight(tuiMax(3, lines))
+				m.textarea.CursorEnd()
 				m.syncViewport()
 				return m, textarea.Blink
 			}
