@@ -103,11 +103,13 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 	if strings.EqualFold(RemapModel(model), "glm-5.1") {
 		normalizeGLM51Messages(chatReq)
 	}
-	// Non-reasoning third-party models require explicit empty content for
-	// tool-only assistant messages; omitting content (nil) causes a 400 error.
-	if isNonReasoningToolModel(model) {
-		ensureToolAssistantContent(chatReq.Messages)
+	ensureToolAssistantContent(chatReq.Messages)
+	if needsDashScopeToolCallAlias(model) {
 		ensureDashScopeToolCallAlias(chatReq.Messages)
+	}
+	if omitToolsAfterToolResult(model, chatReq.Messages) {
+		chatReq.Tools = nil
+		chatReq.ToolChoice = nil
 	}
 	return chatReq, nil
 }
