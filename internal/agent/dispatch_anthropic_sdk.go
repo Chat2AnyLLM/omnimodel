@@ -104,9 +104,12 @@ func cifToAnthropicParams(req *cif.CanonicalRequest) (anthropic.MessageNewParams
 			})
 		}
 		params.Tools = tools
-		// Default to auto tool choice when tools are provided.
-		params.ToolChoice = anthropic.ToolChoiceUnionParam{
-			OfAuto: &anthropic.ToolChoiceAutoParam{},
+		if req.ToolChoice != nil {
+			params.ToolChoice = canonicalToolChoiceToAnthropicSDK(req.ToolChoice)
+		} else {
+			params.ToolChoice = anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{},
+			}
 		}
 	}
 
@@ -163,6 +166,29 @@ func cifAssistantPartsToAnthropicBlocks(parts []cif.CIFContentPart) []anthropic.
 		}
 	}
 	return blocks
+}
+
+func canonicalToolChoiceToAnthropicSDK(choice any) anthropic.ToolChoiceUnionParam {
+	switch v := choice.(type) {
+	case string:
+		switch v {
+		case "required":
+			return anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+		case "none":
+			return anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+		case "auto":
+			fallthrough
+		default:
+			return anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
+		}
+	case map[string]any:
+		if typ, _ := v["type"].(string); typ == "function" {
+			if name, _ := v["functionName"].(string); name != "" {
+				return anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: name}}
+			}
+		}
+	}
+	return anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
 }
 
 func anthropicMsgToCIF(msg *anthropic.Message) *cif.CanonicalResponse {

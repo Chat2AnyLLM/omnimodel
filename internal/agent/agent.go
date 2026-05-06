@@ -237,11 +237,30 @@ func (a *Agent) buildRequest(step int, prompt string) *cif.CanonicalRequest {
 }
 
 func shouldRequireInitialToolUse(prompt string) bool {
-	p := strings.ToLower(prompt)
-	for _, phrase := range []string{
-		"environment variable", "env var", "os info", "system info",
-		"current directory", "list directory", "show directory", "working directory", "current time",
-	} {
+	p := strings.ToLower(strings.TrimSpace(prompt))
+	if p == "" {
+		return false
+	}
+
+	conversationalPhrases := []string{
+		"hello", "hi", "thanks", "thank you", "what do you think", "how should we approach",
+		"explain the architecture", "explain this", "why does", "what is", "can you explain",
+	}
+	for _, phrase := range conversationalPhrases {
+		if p == phrase || strings.HasPrefix(p, phrase+" ") {
+			return false
+		}
+	}
+
+	actionPhrases := []string{
+		"list ", "show ", "find ", "search ", "grep ", "glob ", "read ", "open ",
+		"check ", "verify ", "inspect ", "look at ", "look for ", "run ", "test ",
+		"trace ", "locate ", "browse ", "scan ", "print ", "cat ",
+		"current directory", "working directory", "current time", "git status", "git diff",
+		"environment variable", "env var", "os info", "system info", "list directory", "show directory",
+		"references to", "where is", "does this exist", "is this wired", "is x wired",
+	}
+	for _, phrase := range actionPhrases {
 		if strings.Contains(p, phrase) {
 			return true
 		}
@@ -251,10 +270,18 @@ func shouldRequireInitialToolUse(prompt string) bool {
 		return r < '0' || r > '9' && r < 'a' || r > 'z'
 	}) {
 		switch term {
-		case "cpu", "memory", "disk", "process":
+		case "cpu", "memory", "disk", "process", "file", "files", "directory", "repo", "repository", "branch", "commit", "test", "tests", "log", "logs", "config", "code", "symbol", "symbols":
 			return true
 		}
 	}
+
+	questionMarkers := []string{"does ", "is ", "are ", "which ", "where ", "what files", "what changed"}
+	for _, prefix := range questionMarkers {
+		if strings.HasPrefix(p, prefix) && (strings.Contains(p, "repo") || strings.Contains(p, "file") || strings.Contains(p, "directory") || strings.Contains(p, "branch") || strings.Contains(p, "config") || strings.Contains(p, "code")) {
+			return true
+		}
+	}
+
 	return false
 }
 

@@ -38,6 +38,26 @@ func TestBuildRequestUsesAutoForConversationalPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildRequestRequiresInitialToolForRepoLookupPrompt(t *testing.T) {
+	ag := newTestAgent()
+	ag.appendUserMessage("find all references to buildSystemPrompt")
+
+	req := ag.buildRequest(0, "find all references to buildSystemPrompt")
+	if req.ToolChoice != "required" {
+		t.Fatalf("tool choice = %#v, want required", req.ToolChoice)
+	}
+}
+
+func TestBuildRequestUsesAutoForConceptualArchitecturePrompt(t *testing.T) {
+	ag := newTestAgent()
+	ag.appendUserMessage("explain the architecture of this repo")
+
+	req := ag.buildRequest(0, "explain the architecture of this repo")
+	if req.ToolChoice != "auto" {
+		t.Fatalf("tool choice = %#v, want auto", req.ToolChoice)
+	}
+}
+
 func TestBuildRequestLeavesToolChoiceUnsetWithoutTools(t *testing.T) {
 	ag := NewAgent(tools.NewRegistry(), NewBufferMemory(8), 10, nil)
 	ag.appendUserMessage("show CPU info")

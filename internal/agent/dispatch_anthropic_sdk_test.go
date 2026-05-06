@@ -239,3 +239,90 @@ func TestCifToAnthropicParamsMaxTokensOverride(t *testing.T) {
 		t.Fatalf("max_tokens = %d, want 1234", params.MaxTokens)
 	}
 }
+
+func TestCifToAnthropicParamsRespectsToolChoiceRequired(t *testing.T) {
+	req := &cif.CanonicalRequest{
+		Model: "claude-opus-4-5",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "list files"}}},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "bash",
+			Description:      stringPtr("Execute shell commands"),
+			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
+		}},
+		ToolChoice: "required",
+	}
+	params, err := cifToAnthropicParams(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.ToolChoice.OfAny == nil {
+		t.Fatalf("expected required tool choice to map to OfAny, got %#v", params.ToolChoice)
+	}
+}
+
+func TestCifToAnthropicParamsRespectsToolChoiceNone(t *testing.T) {
+	req := &cif.CanonicalRequest{
+		Model: "claude-opus-4-5",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "answer directly"}}},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "bash",
+			Description:      stringPtr("Execute shell commands"),
+			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
+		}},
+		ToolChoice: "none",
+	}
+	params, err := cifToAnthropicParams(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.ToolChoice.OfNone == nil {
+		t.Fatalf("expected none tool choice to map to OfNone, got %#v", params.ToolChoice)
+	}
+}
+
+func TestCifToAnthropicParamsDefaultsToolChoiceToAutoWhenUnset(t *testing.T) {
+	req := &cif.CanonicalRequest{
+		Model: "claude-opus-4-5",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "list files"}}},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "bash",
+			Description:      stringPtr("Execute shell commands"),
+			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
+		}},
+	}
+	params, err := cifToAnthropicParams(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.ToolChoice.OfAuto == nil {
+		t.Fatalf("expected unset tool choice to default to OfAuto, got %#v", params.ToolChoice)
+	}
+}
+
+func TestCifToAnthropicParamsSupportsSpecificToolChoice(t *testing.T) {
+	req := &cif.CanonicalRequest{
+		Model: "claude-opus-4-5",
+		Messages: []cif.CIFMessage{
+			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "use bash"}}},
+		},
+		Tools: []cif.CIFTool{{
+			Name:             "bash",
+			Description:      stringPtr("Execute shell commands"),
+			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
+		}},
+		ToolChoice: map[string]any{"type": "function", "functionName": "bash"},
+	}
+	params, err := cifToAnthropicParams(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.ToolChoice.OfTool == nil || params.ToolChoice.OfTool.Name != "bash" {
+		t.Fatalf("expected specific tool choice to map to bash, got %#v", params.ToolChoice)
+	}
+}
