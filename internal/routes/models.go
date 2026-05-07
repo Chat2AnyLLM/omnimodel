@@ -1,16 +1,42 @@
 package routes
 
 import (
+	"net/http"
 	"omnillm/internal/database"
 	"omnillm/internal/registry"
+	"omnillm/internal/services/modelsmeta"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
 
+var modelMetadataService = modelsmeta.DefaultService
+
 func SetupModelRoutes(router *gin.RouterGroup) {
 	router.GET("/models", handleModels)
+	router.GET("/models/metadata", handleModelMetadata)
+}
+
+func handleModelMetadata(c *gin.Context) {
+	refresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
+
+	result, err := modelMetadataService.Get(c.Request.Context(), refresh)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"object":     "list",
+		"source":     "models.dev",
+		"fetched_at": result.FetchedAt,
+		"count":      len(result.Models),
+		"data":       result.Models,
+		"has_more":   false,
+	})
 }
 
 func handleModels(c *gin.Context) {

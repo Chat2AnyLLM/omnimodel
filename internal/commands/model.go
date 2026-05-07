@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -15,6 +16,8 @@ var ModelCmd = &cobra.Command{
 func init() {
 	ModelCmd.AddCommand(modelListCmd)
 	ModelCmd.AddCommand(modelRefreshCmd)
+	ModelCmd.AddCommand(modelMetadataCmd)
+	modelMetadataCmd.Flags().Bool("refresh", false, "Refresh metadata from models.dev instead of using cache")
 
 	modelToggleCmd.Flags().Bool("enable", false, "Enable the model")
 	modelToggleCmd.Flags().Bool("disable", false, "Disable the model")
@@ -27,6 +30,102 @@ func init() {
 	modelVersionCmd.AddCommand(modelVersionGetCmd)
 	modelVersionCmd.AddCommand(modelVersionSetCmd)
 	ModelCmd.AddCommand(modelVersionCmd)
+}
+
+func formatFloat(v *float64) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.4g", *v)
+}
+
+func formatInt(v *int) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *v)
+}
+
+type modelMetadataEntry struct {
+	ID                        string   `json:"id"`
+	Name                      string   `json:"name"`
+	ProviderID                string   `json:"provider_id"`
+	InputPriceUSDPer1MTokens  *float64 `json:"input_price_usd_per_1m_tokens"`
+	OutputPriceUSDPer1MTokens *float64 `json:"output_price_usd_per_1m_tokens"`
+	ContextLimitTokens        *int     `json:"context_limit_tokens"`
+	InputLimitTokens          *int     `json:"input_limit_tokens"`
+	OutputLimitTokens         *int     `json:"output_limit_tokens"`
+}
+
+type modelMetadataResponse struct {
+	Data []modelMetadataEntry `json:"data"`
+	// Count exists on server response but is not required for rendering.
+	Count int `json:"count"`
+}
+
+var modelMetadataCmd = &cobra.Command{
+	Use:   "metadata [filter]",
+	Short: "Show normalized model pricing and token limits from backend metadata cache",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c := NewClient(cmd)
+		path := "/models/metadata"
+		if refresh, _ := cmd.Flags().GetBool("refresh"); refresh {
+			path += "?refresh=1"
+		}
+
+		data, err := c.Get(path)
+		if err != nil {
+			return err
+		}
+
+		if c.IsJSON() {
+			c.PrintJSON(data)
+			return nil
+		}
+
+		var resp modelMetadataResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return err
+		}
+
+		filter := ""
+		if len(args) > 0 {
+			filter = strings.ToLower(strings.TrimSpace(args[0]))
+		}
+
+		table := NewTable("MODEL", "PROVIDER", "INPUT $/1M", "OUTPUT $/1M", "CTX", "IN", "OUT")
+		count := 0
+		for _, item := range resp.Data {
+			if filter != "" {
+				candidate := strings.ToLower(item.ID + " " + item.Name + " " + item.ProviderID)
+				if !strings.Contains(candidate, filter) {
+					continue
+				}
+			}
+
+			table.AddRow(
+				item.ID,
+				item.ProviderID,
+				formatFloat(item.InputPriceUSDPer1MTokens),
+				formatFloat(item.OutputPriceUSDPer1MTokens),
+				formatInt(item.ContextLimitTokens),
+				formatInt(item.InputLimitTokens),
+				formatInt(item.OutputLimitTokens),
+			)
+			count++
+		}
+
+		if count == 0 {
+			return PrintEmpty(cmd.OutOrStdout(), "model metadata")
+		}
+
+		if err := table.Render(cmd.OutOrStdout()); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\n%d model metadata row(s)\n", count)
+		return err
+	},
 }
 
 // ─── list ─────────────────────────────────────────────────────────────────────
@@ -95,7 +194,7 @@ var modelRefreshCmd = &cobra.Command{
 		var resp map[string]interface{}
 		_ = json.Unmarshal(data, &resp)
 		total, _ := resp["total"].(float64)
-		SuccessMsg(cmd,"Model list refreshed. %d model(s) available.", int(total))
+		SuccessMsg(cmd, "Model list refreshed. %d model(s) available.", int(total))
 		return nil
 	},
 }
@@ -131,7 +230,7 @@ var modelToggleCmd = &cobra.Command{
 		if !enabled {
 			state = "disabled"
 		}
-		SuccessMsg(cmd,"Model '%s' %s.", args[1], state)
+		SuccessMsg(cmd, "Model '%s' %s.", args[1], state)
 		return nil
 	},
 }
@@ -185,7 +284,7 @@ var modelVersionSetCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Model '%s' pinned to version '%s'.", args[1], args[2])
+		SuccessMsg(cmd, "Model '%s' pinned to version '%s'.", args[1], args[2])
 		return nil
 	},
 }

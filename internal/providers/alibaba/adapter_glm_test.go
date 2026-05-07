@@ -1,6 +1,7 @@
 package alibaba
 
 import (
+	"context"
 	"omnillm/internal/cif"
 	"omnillm/internal/providers/openaicompat"
 	"testing"
@@ -16,7 +17,7 @@ func TestBuildRequestGLMMergesLeadingSystemIntoFirstUser(t *testing.T) {
 		},
 	}
 
-	chatReq, err := adapter.buildRequest(request, false)
+	chatReq, err := adapter.buildRequest(context.Background(), request, false)
 	if err != nil {
 		t.Fatalf("buildRequest() error = %v", err)
 	}
@@ -52,7 +53,7 @@ func TestBuildRequestGLMWithToolsKeepsToolQuirksAndRemovesSystemRole(t *testing.
 		},
 	}
 
-	chatReq, err := adapter.buildRequest(request, false)
+	chatReq, err := adapter.buildRequest(context.Background(), request, false)
 	if err != nil {
 		t.Fatalf("buildRequest() error = %v", err)
 	}
@@ -99,7 +100,7 @@ func TestBuildRequestGLMSynthesizesUserMessageWhenNoUserTurnExists(t *testing.T)
 		},
 	}
 
-	chatReq, err := adapter.buildRequest(request, false)
+	chatReq, err := adapter.buildRequest(context.Background(), request, false)
 	if err != nil {
 		t.Fatalf("buildRequest() error = %v", err)
 	}
@@ -141,7 +142,7 @@ func TestBuildRequestGLMNormalizesToolHistoryWithoutCurrentTools(t *testing.T) {
 		},
 	}
 
-	chatReq, err := adapter.buildRequest(request, false)
+	chatReq, err := adapter.buildRequest(context.Background(), request, false)
 	if err != nil {
 		t.Fatalf("buildRequest() error = %v", err)
 	}

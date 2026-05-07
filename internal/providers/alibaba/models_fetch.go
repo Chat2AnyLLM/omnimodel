@@ -2,11 +2,13 @@ package alibaba
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"omnillm/internal/providers/types"
+	"omnillm/internal/services/modelsmeta"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -19,8 +21,9 @@ import (
 var ErrHardcodedFallback = fmt.Errorf("alibaba: models fetch failed, using hardcoded fallback")
 
 // GetModels returns the available models for this Alibaba instance.
-// If the live API is unreachable it returns the hardcoded Qwen-only catalog
-// together with ErrHardcodedFallback so callers can decide whether to cache.
+// If the live API is unreachable it returns the Qwen-only catalog from
+// models.dev together with ErrHardcodedFallback so callers can decide whether
+// to cache.
 func GetModels(instanceID, token, baseURL string, config map[string]any) (*types.ModelsResponse, error) {
 	if token == "" {
 		return nil, fmt.Errorf("alibaba: not authenticated")
@@ -29,25 +32,40 @@ func GetModels(instanceID, token, baseURL string, config map[string]any) (*types
 	if err == nil && len(resp.Data) > 0 {
 		return resp, nil
 	}
-	log.Warn().Err(err).Str("provider", instanceID).Msg("alibaba: falling back to hardcoded model list")
+	log.Warn().Err(err).Str("provider", instanceID).Msg("alibaba: falling back to models.dev catalog")
 	return GetModelsHardcoded(instanceID), ErrHardcodedFallback
 }
 
-// GetModelsHardcoded returns the fallback model catalog (Qwen models only).
-// DeepSeek and other third-party models available on DashScope are only
-// surfaced when FetchModelsFromAPI succeeds, because DashScope account plans
-// vary and not every key has access to every model.
+// GetModelsHardcoded returns a fallback catalog of Qwen models sourced from
+// models.dev. DeepSeek and other third-party models hosted on DashScope are
+// intentionally excluded; they are only surfaced when FetchModelsFromAPI
+// succeeds, because DashScope account plans vary.
 func GetModelsHardcoded(instanceID string) *types.ModelsResponse {
-	var result []types.Model
-	for _, m := range Models {
-		if strings.Contains(strings.ToLower(m.ID), "deepseek") {
+	result, err := modelsmeta.DefaultService.Get(context.Background(), false)
+	if err != nil || len(result.Models) == 0 {
+		return &types.ModelsResponse{Data: nil, Object: "list"}
+	}
+	var models []types.Model
+	for _, m := range result.Models {
+		if !strings.HasPrefix(strings.ToLower(m.ID), "qwen") {
 			continue
 		}
-		entry := m
-		entry.Provider = instanceID
-		result = append(result, entry)
+		model := types.Model{
+			ID:       m.ID,
+			Name:     m.ID,
+			Provider: instanceID,
+		}
+		if m.Name != "" {
+			model.Name = m.Name
+		}
+		if m.OutputLimitTokens != nil {
+			model.MaxTokens = *m.OutputLimitTokens
+		} else if m.ContextLimitTokens != nil {
+			model.MaxTokens = *m.ContextLimitTokens
+		}
+		models = append(models, model)
 	}
-	return &types.ModelsResponse{Data: result, Object: "list"}
+	return &types.ModelsResponse{Data: models, Object: "list"}
 }
 
 // FetchModelsFromAPI fetches available models from the DashScope API.
@@ -91,13 +109,15 @@ func FetchModelsFromAPI(instanceID, token, baseURL string, _ map[string]any) (*t
 			continue
 		}
 		m := types.Model{ID: item.ID, Name: item.ID, Provider: instanceID}
-		if meta, ok := ModelMetadata(item.ID); ok {
+		if meta := modelsmeta.DefaultService.LookupModel(context.Background(), item.ID); meta != nil {
 			if meta.Name != "" {
 				m.Name = meta.Name
 			}
-			m.Description = meta.Description
-			m.Capabilities = meta.Capabilities
-			m.MaxTokens = meta.MaxTokens
+			if meta.OutputLimitTokens != nil {
+				m.MaxTokens = *meta.OutputLimitTokens
+			} else if meta.ContextLimitTokens != nil {
+				m.MaxTokens = *meta.ContextLimitTokens
+			}
 		}
 		models = append(models, m)
 	}

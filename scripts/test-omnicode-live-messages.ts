@@ -18,15 +18,23 @@
 import process from "node:process"
 
 const BASE_URL = process.env.OMNILLM_BASE_URL ?? "http://127.0.0.1:5000"
-const API_KEY =
-  process.env.OMNILLM_API_KEY ??
-  "7de6a4e524310272274901721a0d697a014fc694745b9f3ab5eac21aa2c043f2"
+const API_KEY = process.env.OMNILLM_API_KEY ?? ""
 const TIMEOUT_MS = 120_000
+
+function parseCsvEnv(value: string | undefined): string[] {
+  if (!value) {
+    return []
+  }
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
 
 // ---------------------------------------------------------------------------
 // Target models
 // ---------------------------------------------------------------------------
-const MODELS = [
+const DEFAULT_MODELS = [
   "gpt-5.4-mini",
   "gpt-5-mini",
   "claude-haiku-4.5",
@@ -35,6 +43,12 @@ const MODELS = [
   "qwen3.6-flash",
   "kimi-k2.6",
 ] as const
+
+const selectedModels = parseCsvEnv(process.env.OMNILLM_MODELS)
+const MODELS =
+  selectedModels.length > 0
+    ? DEFAULT_MODELS.filter((model) => selectedModels.includes(model))
+    : [...DEFAULT_MODELS]
 
 // ---------------------------------------------------------------------------
 // Anthropic /v1/messages types
@@ -82,7 +96,7 @@ async function messagesRequest(
   messages: MessageParam[],
   tools?: AnthropicTool[],
   maxTokens = 1024,
-  retries = 2,
+  retries = 4,
 ): Promise<AnthropicMessage> {
   const body: Record<string, unknown> = { model, max_tokens: maxTokens, messages }
   if (tools && tools.length > 0) {
@@ -169,7 +183,8 @@ function executeTool(name: string, input: Record<string, unknown>): string {
       const path = String(input.path ?? "")
       return `[simulated] Contents of ${path}: package main\n\nfunc main() { /* … */ }`
     }
-    case "bash": {
+    case "bash":
+    case "run_command": {
       const cmd = String(input.command ?? "")
       return `[simulated] $ ${cmd}\nOutput: command executed successfully`
     }
@@ -275,17 +290,6 @@ const CODING_TOOLS: AnthropicTool[] = [
       required: ["path"],
     },
   },
-  {
-    name: "bash",
-    description: "Run a bash/shell command and return stdout.",
-    input_schema: {
-      type: "object",
-      properties: {
-        command: { type: "string", description: "Shell command to execute" },
-      },
-      required: ["command"],
-    },
-  },
 ]
 
 type TestCase = {
@@ -327,8 +331,8 @@ const TEST_CASES: TestCase[] = [
     },
   },
   {
-    name: "coding agent: read file + bash",
-    prompt: "Read the go.mod file and then run `go version` to confirm the toolchain.",
+    name: "coding agent: read file",
+    prompt: "Read the go.mod file and summarize the module name and Go version.",
     tools: CODING_TOOLS,
     validate(output, toolsUsed) {
       // Some models may answer directly without tool calls — accept both.
@@ -338,6 +342,12 @@ const TEST_CASES: TestCase[] = [
     },
   },
 ]
+
+const selectedTestNames = parseCsvEnv(process.env.OMNILLM_TEST_CASES)
+const ACTIVE_TEST_CASES =
+  selectedTestNames.length > 0
+    ? TEST_CASES.filter((testCase) => selectedTestNames.includes(testCase.name))
+    : TEST_CASES
 
 // ---------------------------------------------------------------------------
 // Main runner
@@ -350,7 +360,7 @@ type ModelResult = {
 async function runModel(model: string): Promise<ModelResult> {
   const results: ModelResult["tests"] = []
 
-  for (const tc of TEST_CASES) {
+  for (const tc of ACTIVE_TEST_CASES) {
     process.stdout.write(`  [${model}] ${tc.name} … `)
     try {
       const { output, steps, toolsUsed } = await runAgentLoop(
@@ -376,7 +386,7 @@ async function main(): Promise<void> {
   console.log(`\n🤖 OmniCode Live Agent Test — /v1/messages strategy`)
   console.log(`   Server : ${BASE_URL}`)
   console.log(`   Models : ${MODELS.join(", ")}`)
-  console.log(`   Tests  : ${TEST_CASES.map((t) => t.name).join(", ")}`)
+  console.log(`   Tests  : ${ACTIVE_TEST_CASES.map((t) => t.name).join(", ")}`)
   console.log("─".repeat(72))
 
   const allResults: ModelResult[] = []

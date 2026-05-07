@@ -556,6 +556,370 @@ func TestTUIAgentDoneMsgShowsVisibleCompletionWhenContentEmpty(t *testing.T) {
 	}
 }
 
+type stubClipboard struct {
+	text     string
+	readText string
+	err      error
+}
+
+func (s *stubClipboard) ReadAll() (string, error) {
+	return s.readText, s.err
+}
+
+func (s *stubClipboard) WriteAll(text string) error {
+	s.text = text
+	return s.err
+}
+
+func TestTUIMiddleMouseDragScrollsViewport(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.autoFollow = true
+	m.viewport = viewport.New(80, 4)
+	m.viewport.SetContent(strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}, "\n"))
+	m.viewport.SetYOffset(4)
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonMiddle})
+	updated := model.(chatTUIModel)
+	if !updated.middleDragging {
+		t.Fatal("expected middle dragging to start")
+	}
+	if updated.autoFollow {
+		t.Fatal("expected autoFollow to be disabled on middle drag start")
+	}
+
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: 1, Action: tea.MouseActionMotion, Button: tea.MouseButtonMiddle})
+	updated = model.(chatTUIModel)
+	if updated.viewport.YOffset >= 4 {
+		t.Fatalf("expected viewport to scroll up, offset=%d", updated.viewport.YOffset)
+	}
+
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: 1, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+	if updated.middleDragging {
+		t.Fatal("expected middle dragging to stop on release")
+	}
+}
+
+func TestTUILeftMouseCopiesVisibleTranscriptTextOnRelease(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.appendEntry(transcriptAssistant, "Hello world")
+	m.syncViewport()
+	clip := &stubClipboard{}
+	m.clipboard = clip
+	entryCount := len(m.entries)
+
+	model, _ := m.Update(tea.MouseMsg{X: 0, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 4, Y: 2, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 4, Y: 2, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if clip.text != "Assis" {
+		t.Fatalf("clipboard text = %q, want %q", clip.text, "Assis")
+	}
+	if !updated.selection.active {
+		t.Fatal("expected selection to remain active after auto-copy")
+	}
+	if got := updated.selectedTranscriptText(); got != "Assis" {
+		t.Fatalf("selectedTranscriptText() = %q, want %q", got, "Assis")
+	}
+	if len(updated.entries) != entryCount {
+		t.Fatalf("entry count = %d, want %d", len(updated.entries), entryCount)
+	}
+}
+
+func TestTUISelectionHighlightStripsNestedANSICodes(t *testing.T) {
+	line := "prefix \x1b[31mred\x1b[0m suffix"
+	highlighted := highlightVisibleRange(line, 7, 10)
+
+	if strings.Contains(highlighted, "\x1b[31mred\x1b[0m") {
+		t.Fatalf("highlighted selection retained nested ANSI style: %q", highlighted)
+	}
+	if !strings.Contains(highlighted, "red") {
+		t.Fatalf("highlighted selection lost text: %q", highlighted)
+	}
+}
+
+func TestTUINormalEnterSubmitsAfterDeferredTick(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("hello")
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(updated.entries))
+	}
+	if got := updated.entries[0].content; got != "hello" {
+		t.Fatalf("submitted content = %q, want hello", got)
+	}
+	if !updated.streamActive {
+		t.Fatal("expected deferred submit to start sending")
+	}
+}
+
+func TestTUIMultilinePasteWaitsForEnterBeforeSubmitting(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("first line")
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := model.(chatTUIModel)
+	firstSeq := updated.submitSeq
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second line"), Paste: true})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(firstSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count before explicit Enter = %d, want 0", len(updated.entries))
+	}
+	if got := updated.textarea.Value(); got != "first line\nsecond line" {
+		t.Fatalf("textarea after paste = %q, want %q", got, "first line\nsecond line")
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(updated.entries))
+	}
+	if got := updated.entries[0].content; got != "first line\nsecond line" {
+		t.Fatalf("submitted content = %q, want %q", got, "first line\nsecond line")
+	}
+	if got := updated.textarea.Value(); got != "" {
+		t.Fatalf("textarea after submit = %q, want empty", got)
+	}
+	if !updated.streamActive {
+		t.Fatal("expected deferred submit to start sending")
+	}
+}
+
+func TestTUIPastedEnterKeepsContentInTextareaUntilUserSubmits(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("first line")
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := model.(chatTUIModel)
+	firstSeq := updated.submitSeq
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter, Paste: true})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(firstSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count after first deferred submit = %d, want 0", len(updated.entries))
+	}
+	if got := updated.textarea.Value(); got != "first line\n" {
+		t.Fatalf("textarea after pasted enter = %q, want %q", got, "first line\n")
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second line"), Paste: true})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count before explicit Enter = %d, want 0", len(updated.entries))
+	}
+	if got := updated.textarea.Value(); got != "first line\nsecond line" {
+		t.Fatalf("textarea after paste = %q, want %q", got, "first line\nsecond line")
+	}
+}
+
+func TestTUIStaleDeferredSubmitDoesNotSendPartialPaste(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("first line")
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := model.(chatTUIModel)
+	staleSeq := updated.submitSeq
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(submitInputMsg(staleSeq))
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count after stale submit = %d, want 0", len(updated.entries))
+	}
+	if updated.streamActive {
+		t.Fatal("expected stale submit not to start sending")
+	}
+	if got := updated.textarea.Value(); got != "first line" {
+		t.Fatalf("textarea after stale submit = %q, want %q", got, "first line")
+	}
+}
+
+func TestTUICtrlVPastesMultilineClipboardWithoutSubmitting(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("prefix: ")
+	m.clipboard = &stubClipboard{readText: "IPv4 Address. . . . . . . . . . . : 10.131.185.246\nSubnet Mask . . . . . . . . . . . : 255.255.255.0\nDefault Gateway . . . . . . . . . : 10.131.185.1"}
+	entryCount := len(m.entries)
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+	updated := model.(chatTUIModel)
+
+	want := "prefix: IPv4 Address. . . . . . . . . . . : 10.131.185.246\nSubnet Mask . . . . . . . . . . . : 255.255.255.0\nDefault Gateway . . . . . . . . . : 10.131.185.1"
+	if got := updated.textarea.Value(); got != want {
+		t.Fatalf("textarea after Ctrl+V = %q, want %q", got, want)
+	}
+	if !updated.textareaExpanded {
+		t.Fatal("expected Ctrl+V multiline paste to expand textarea")
+	}
+	if updated.textarea.Height() < 3 {
+		t.Fatalf("textarea height = %d, want at least 3", updated.textarea.Height())
+	}
+	if len(updated.entries) != entryCount {
+		t.Fatalf("entry count = %d, want %d", len(updated.entries), entryCount)
+	}
+	if updated.streamActive {
+		t.Fatal("expected Ctrl+V paste not to start sending")
+	}
+}
+
+func TestTUICtrlCClearsInputBeforeQuitting(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("draft message")
+	m.promptHistory = []string{"older prompt"}
+	m.historyIndex = 0
+	m.historyDraft = "saved draft"
+	m.historySearchMode = true
+	m.historySearchQuery = "draft"
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := model.(chatTUIModel)
+
+	if got := updated.textarea.Value(); got != "" {
+		t.Fatalf("textarea after first Ctrl+C = %q", got)
+	}
+	if updated.historyIndex != -1 {
+		t.Fatalf("historyIndex = %d, want -1", updated.historyIndex)
+	}
+	if updated.historyDraft != "" {
+		t.Fatalf("historyDraft = %q, want empty", updated.historyDraft)
+	}
+	if updated.historySearchMode {
+		t.Fatal("expected history search to exit after clearing input")
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command when first Ctrl+C clears input")
+	}
+}
+
+func TestTUICtrlCQuitsWhenInputAlreadyEmpty(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if cmd == nil {
+		t.Fatal("expected quit command when Ctrl+C pressed with empty input")
+	}
+}
+
+func TestTUIUpDownStillNavigatePromptHistory(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.promptHistory = []string{"first prompt", "second prompt"}
+	m.textarea.Focus()
+	m.textarea.SetValue("draft")
+	m.autoFollow = true
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated := model.(chatTUIModel)
+	if got := updated.textarea.Value(); got != "second prompt" {
+		t.Fatalf("textarea after KeyUp = %q", got)
+	}
+	if updated.historyDraft != "draft" {
+		t.Fatalf("historyDraft = %q", updated.historyDraft)
+	}
+	if updated.autoFollow {
+		t.Fatal("expected autoFollow to be disabled after manual upward navigation")
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = model.(chatTUIModel)
+	if got := updated.textarea.Value(); got != "draft" {
+		t.Fatalf("textarea after KeyDown = %q", got)
+	}
+}
+
+func TestTUISyncViewportDoesNotJumpWhenAutoFollowDisabled(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 4)
+	m.appendEntry(transcriptAssistant, strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"}, "\n"))
+	m.syncViewport()
+	m.setAutoFollow(false)
+	m.viewport.SetYOffset(1)
+
+	m.appendEntry(transcriptAssistant, "next")
+	m.syncViewport()
+
+	if m.viewport.AtBottom() {
+		t.Fatal("expected viewport to stay off the bottom when autoFollow is disabled")
+	}
+}
+
+func TestTUIEndKeyResumesAutoFollow(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 4)
+	m.appendEntry(transcriptAssistant, strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"}, "\n"))
+	m.syncViewport()
+	m.viewport.SetYOffset(2)
+	m.autoFollow = false
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	updated := model.(chatTUIModel)
+	if !updated.autoFollow {
+		t.Fatal("expected autoFollow to be enabled by End key")
+	}
+	if !updated.viewport.AtBottom() {
+		t.Fatal("expected viewport to jump to bottom on End key")
+	}
+}
+
 func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(t *testing.T) {
 	var completionCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
