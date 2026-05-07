@@ -140,8 +140,8 @@ func (db *Database) createTables() error {
 			session_id    TEXT PRIMARY KEY,
 			title         TEXT NOT NULL,
 			model_id      TEXT NOT NULL,
-			api_shape     TEXT NOT NULL DEFAULT 'openai',
-			agent_backend TEXT NOT NULL DEFAULT 'agent-sdk-go',
+			api_shape     TEXT NOT NULL DEFAULT 'anthropic',
+			agent_backend TEXT NOT NULL DEFAULT 'google-adk',
 			created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
 			updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 		)`,
@@ -360,7 +360,12 @@ var migrations = []migration{
 	}},
 	// v12: persist selected chat agent backend per session.
 	{12, []string{
-		`ALTER TABLE chat_sessions ADD COLUMN agent_backend TEXT NOT NULL DEFAULT 'agent-sdk-go'`,
+		`ALTER TABLE chat_sessions ADD COLUMN agent_backend TEXT NOT NULL DEFAULT 'google-adk'`,
+	}},
+	// v13: normalize OmniCode agent sessions onto google-adk and anthropic /v1/messages.
+	{13, []string{
+		`UPDATE chat_sessions SET api_shape = 'anthropic' WHERE api_shape IS NULL OR api_shape = '' OR api_shape != 'anthropic'`,
+		`UPDATE chat_sessions SET agent_backend = 'google-adk' WHERE agent_backend IS NULL OR agent_backend = '' OR agent_backend != 'google-adk'`,
 	}},
 }
 

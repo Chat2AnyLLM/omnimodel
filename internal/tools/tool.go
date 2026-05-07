@@ -11,8 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-
-	"omnillm/internal/cif"
 )
 
 // ─── Result ──────────────────────────────────────────────────────────────────
@@ -72,6 +70,18 @@ type Tool interface {
 	Description() string
 	InputSchema() map[string]any
 	Execute(ctx context.Context, call Context, input json.RawMessage) Result
+}
+
+type ToolDefinition struct {
+	Name        string         `json:"name"`
+	Description *string        `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments map[string]any
 }
 
 // ─── Registry ────────────────────────────────────────────────────────────────
@@ -150,11 +160,11 @@ func (r *Registry) List() []Tool {
 	return out
 }
 
-// ToCIFTools converts the registry's tools to the CIF tool format.
-func (r *Registry) ToCIFTools() []cif.CIFTool {
+// Definitions converts the registry's tools to Anthropic /v1/messages tool definitions.
+func (r *Registry) Definitions() []ToolDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]cif.CIFTool, 0, len(r.tools))
+	out := make([]ToolDefinition, 0, len(r.tools))
 	for _, t := range r.tools {
 		desc := t.Description()
 		var descPtr *string
@@ -165,10 +175,10 @@ func (r *Registry) ToCIFTools() []cif.CIFTool {
 		if schema == nil {
 			schema = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
-		out = append(out, cif.CIFTool{
-			Name:             t.Name(),
-			Description:      descPtr,
-			ParametersSchema: schema,
+		out = append(out, ToolDefinition{
+			Name:        t.Name(),
+			Description: descPtr,
+			InputSchema: schema,
 		})
 	}
 	return out
@@ -182,9 +192,9 @@ type ToolCallResult struct {
 	IsError    bool
 }
 
-// ExecuteToolCalls runs multiple tool calls concurrently and returns results.
+// ExecuteCalls runs multiple tool calls concurrently and returns results.
 // Errors in individual tool calls become error result messages, not fatal errors.
-func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls []cif.CIFToolCallPart) []ToolCallResult {
+func (r *Registry) ExecuteCalls(ctx context.Context, sessionID string, calls []ToolCall) []ToolCallResult {
 	results := make([]ToolCallResult, len(calls))
 	var wg sync.WaitGroup
 	checker := r.permissionChecker()
@@ -192,25 +202,25 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 
 	for i, call := range calls {
 		wg.Add(1)
-		go func(idx int, tc cif.CIFToolCallPart) {
+		go func(idx int, tc ToolCall) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					results[idx] = ToolCallResult{
-						ToolCallID: tc.ToolCallID,
-						ToolName:   tc.ToolName,
+						ToolCallID: tc.ID,
+						ToolName:   tc.Name,
 						Content:    fmt.Sprintf("error: tool panicked: %v", r),
 						IsError:    true,
 					}
 				}
 			}()
 
-			tool := r.Get(tc.ToolName)
+			tool := r.Get(tc.Name)
 			if tool == nil {
 				results[idx] = ToolCallResult{
-					ToolCallID: tc.ToolCallID,
-					ToolName:   tc.ToolName,
-					Content:    "error: unknown tool " + tc.ToolName,
+					ToolCallID: tc.ID,
+					ToolName:   tc.Name,
+					Content:    "error: unknown tool " + tc.Name,
 					IsError:    true,
 				}
 				return
@@ -219,13 +229,13 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 			if checker != nil {
 				approved, err := checker(ctx, PermissionRequest{
 					SessionID: sessionID,
-					ToolName:  tc.ToolName,
-					Arguments: tc.ToolArguments,
+					ToolName:  tc.Name,
+					Arguments: tc.Arguments,
 				})
 				if err != nil {
 					results[idx] = ToolCallResult{
-						ToolCallID: tc.ToolCallID,
-						ToolName:   tc.ToolName,
+						ToolCallID: tc.ID,
+						ToolName:   tc.Name,
 						Content:    "error: permission check failed: " + err.Error(),
 						IsError:    true,
 					}
@@ -233,8 +243,8 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 				}
 				if !approved {
 					results[idx] = ToolCallResult{
-						ToolCallID: tc.ToolCallID,
-						ToolName:   tc.ToolName,
+						ToolCallID: tc.ID,
+						ToolName:   tc.Name,
 						Content:    "error: tool execution denied by user",
 						IsError:    true,
 					}
@@ -242,11 +252,11 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 				}
 			}
 
-			inputJSON, err := json.Marshal(tc.ToolArguments)
+			inputJSON, err := json.Marshal(tc.Arguments)
 			if err != nil {
 				results[idx] = ToolCallResult{
-					ToolCallID: tc.ToolCallID,
-					ToolName:   tc.ToolName,
+					ToolCallID: tc.ID,
+					ToolName:   tc.Name,
 					Content:    "error: failed to marshal tool arguments: " + err.Error(),
 					IsError:    true,
 				}
@@ -269,8 +279,8 @@ func (r *Registry) ExecuteToolCalls(ctx context.Context, sessionID string, calls
 			result := tool.Execute(ctx, callCtx, inputJSON)
 
 			results[idx] = ToolCallResult{
-				ToolCallID: tc.ToolCallID,
-				ToolName:   tc.ToolName,
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
 				Content:    result.Output,
 				IsError:    result.IsError,
 			}

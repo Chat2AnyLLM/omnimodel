@@ -28,6 +28,7 @@ var dashScopeToolCallAliasModels = map[string]struct{}{
 var omitToolsAfterToolResultModels = map[string]struct{}{
 	"deepseek-v3":       {},
 	"deepseek-v4-flash": {},
+	"glm-5.1":           {},
 }
 
 func needsDashScopeToolCallAlias(modelID string) bool {

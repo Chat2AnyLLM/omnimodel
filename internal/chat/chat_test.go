@@ -119,7 +119,7 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 
 	cmd := newTestCommandContext()
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: "agent-sdk-go"}
+	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: DefaultAgentBackend}
 
 	result, err := handleSlashCommand(cmd, client, session, "/agent")
 	if err != nil {
@@ -132,7 +132,7 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 	if !strings.Contains(text, "Current agent backend: google-adk") {
 		t.Fatalf("unexpected output: %s", text)
 	}
-	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
+	if !strings.Contains(text, "Supported backends: google-adk") {
 		t.Fatalf("missing supported backends in output: %s", text)
 	}
 }
@@ -171,7 +171,7 @@ func TestHandleSlashCommandAgentSwitch(t *testing.T) {
 	if !strings.Contains(text, "Switched agent backend to google-adk") {
 		t.Fatalf("unexpected output: %s", text)
 	}
-	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
+	if !strings.Contains(text, "Supported backends: google-adk") {
 		t.Fatalf("missing supported backends in output: %s", text)
 	}
 }
@@ -179,62 +179,17 @@ func TestHandleSlashCommandAgentSwitch(t *testing.T) {
 func TestHandleSlashCommandAgentInvalid(t *testing.T) {
 	cmd := newTestCommandContext()
 	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "agent"}, "/agent nope")
-	if err == nil || !strings.Contains(err.Error(), "supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
+	if err == nil || !strings.Contains(err.Error(), "supported backends: google-adk") {
 		t.Fatalf("expected supported backend error, got %v", err)
 	}
 }
 
-func TestHandleSlashCommandAgentSwitchToAnthropicSDK(t *testing.T) {
-	var updatedBackend string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
-			var body map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode request: %v", err)
-			}
-			updatedBackend = body["agent_backend"]
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	cmd := newTestCommandContext()
-	client := &testClient{baseURL: server.URL, http: server.Client()}
-
-	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "agent"}, "/agent anthropic-sdk")
-	if err != nil {
-		t.Fatalf("handleSlashCommand returned error: %v", err)
-	}
-	if !result.handled || result.agentBackend != "anthropic-sdk" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if updatedBackend != "anthropic-sdk" {
-		t.Fatalf("updated backend = %q, want anthropic-sdk", updatedBackend)
-	}
-	text := cmd.out.String()
-	if !strings.Contains(text, "Switched agent backend to anthropic-sdk") {
-		t.Fatalf("unexpected output: %s", text)
-	}
-	if !strings.Contains(text, "Supported backends: agent-sdk-go, google-adk, anthropic-sdk") {
-		t.Fatalf("missing supported backends in output: %s", text)
-	}
-}
-
 func TestSupportedAgentBackendsText(t *testing.T) {
-	if got := supportedAgentBackendsText(); got != "agent-sdk-go, google-adk, anthropic-sdk" {
+	if got := supportedAgentBackendsText(); got != "google-adk" {
 		t.Fatalf("supportedAgentBackendsText() = %q", got)
-	}
-	if !isSupportedAgentBackend("agent-sdk-go") {
-		t.Fatal("expected agent-sdk-go to be supported")
 	}
 	if !isSupportedAgentBackend("google-adk") {
 		t.Fatal("expected google-adk to be supported")
-	}
-	if !isSupportedAgentBackend("anthropic-sdk") {
-		t.Fatal("expected anthropic-sdk to be supported")
 	}
 	if isSupportedAgentBackend("nope") {
 		t.Fatal("did not expect nope to be supported")

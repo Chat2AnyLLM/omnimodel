@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"strings"
 
-	"omnillm/internal/cif"
 	"omnillm/internal/tools"
 )
 
@@ -25,7 +24,7 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape,
 
 	memory := NewBufferMemory(64)
 	sysPrompt := buildSystemPrompt()
-	memory.Append(cif.CIFSystemMessage{Role: "system", Content: sysPrompt})
+	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
 	seedHistory(memory, history, prompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
@@ -42,16 +41,17 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 
 	memory := NewBufferMemory(64)
 	sysPrompt := buildSystemPrompt()
-	memory.Append(cif.CIFSystemMessage{Role: "system", Content: sysPrompt})
+	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
 	seedHistory(memory, history, prompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
 	return ag.Stream(ctx, sessionID, prompt)
 }
 
-// selectDispatch picks the request API shape for the local OmniLLM proxy.
-func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
-	return NewDispatch(c, model, apiShape)
+// selectDispatch always uses the OmniLLM /v1/messages proxy path.
+// OmniCode now standardizes on the google-adk workflow and Anthropic Messages shape.
+func selectDispatch(c Client, model, _, _ string) DispatchFn {
+	return NewDispatch(c, model, DefaultAPIShape)
 }
 
 // buildSystemPrompt returns an OS-aware system prompt so the LLM generates
@@ -93,21 +93,11 @@ func seedHistory(memory Memory, history []HistoryMessage, currentPrompt string) 
 		}
 		switch role {
 		case "assistant":
-			memory.Append(cif.CIFAssistantMessage{
-				Role: "assistant",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: content},
-				},
-			})
+			memory.Append(Message{Role: "assistant", Content: []ContentBlock{TextBlock(content)}})
 		case "system":
-			memory.Append(cif.CIFSystemMessage{Role: "system", Content: content})
+			memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(content)}})
 		default:
-			memory.Append(cif.CIFUserMessage{
-				Role: "user",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: content},
-				},
-			})
+			memory.Append(Message{Role: "user", Content: []ContentBlock{TextBlock(content)}})
 		}
 	}
 }

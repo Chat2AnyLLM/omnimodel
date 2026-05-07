@@ -13,8 +13,6 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-
-	"omnillm/internal/cif"
 )
 
 // AnthropicSDKDispatch returns a DispatchFn that calls the Anthropic Messages
@@ -34,8 +32,8 @@ func AnthropicSDKDispatch(apiKey, baseURL string) DispatchFn {
 	}
 	client := anthropic.NewClient(opts...)
 
-	return func(ctx context.Context, req *cif.CanonicalRequest) (<-chan *cif.CanonicalResponse, error) {
-		params, err := cifToAnthropicParams(req)
+	return func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error) {
+		params, err := anthropicParamsFromRequest(req)
 		if err != nil {
 			return nil, fmt.Errorf("anthropic-sdk: build params: %w", err)
 		}
@@ -45,9 +43,9 @@ func AnthropicSDKDispatch(apiKey, baseURL string) DispatchFn {
 			return nil, fmt.Errorf("anthropic-sdk: messages.new: %w", err)
 		}
 
-		resp := anthropicMsgToCIF(msg)
+		resp := anthropicMsgToResponse(msg)
 
-		ch := make(chan *cif.CanonicalResponse, 1)
+		ch := make(chan *MessagesResponse, 1)
 		ch <- resp
 		close(ch)
 		return ch, nil
@@ -58,15 +56,59 @@ func AnthropicSDKDispatch(apiKey, baseURL string) DispatchFn {
 
 const defaultAnthropicMaxTokens = 4096
 
-func cifToAnthropicParams(req *cif.CanonicalRequest) (anthropic.MessageNewParams, error) {
+func buildAnthropicMessagesJSON(model string, req *MessagesRequest, forceStream bool) (json.RawMessage, error) {
+	if req == nil {
+		req = &MessagesRequest{}
+	}
+
+	reqCopy := *req
+	if trimmedModel := strings.TrimSpace(model); trimmedModel != "" {
+		reqCopy.Model = trimmedModel
+	}
+	if forceStream {
+		reqCopy.Stream = true
+	}
+
+	params, err := anthropicParamsFromRequest(&reqCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	payload, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("marshal anthropic messages request: %w", err)
+	}
+
+	if !reqCopy.Stream {
+		return json.RawMessage(payload), nil
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return nil, fmt.Errorf("decode anthropic messages request: %w", err)
+	}
+	body["stream"] = true
+
+	payload, err = json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal anthropic streaming request: %w", err)
+	}
+
+	return json.RawMessage(payload), nil
+}
+
+func anthropicParamsFromRequest(req *MessagesRequest) (anthropic.MessageNewParams, error) {
+	if req == nil {
+		req = &MessagesRequest{}
+	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = "claude-opus-4-5"
 	}
 
 	maxTokens := int64(defaultAnthropicMaxTokens)
-	if req.MaxTokens != nil && *req.MaxTokens > 0 {
-		maxTokens = int64(*req.MaxTokens)
+	if req.MaxTokens > 0 {
+		maxTokens = int64(req.MaxTokens)
 	}
 
 	params := anthropic.MessageNewParams{
@@ -74,13 +116,16 @@ func cifToAnthropicParams(req *cif.CanonicalRequest) (anthropic.MessageNewParams
 		MaxTokens: maxTokens,
 	}
 
-	if req.SystemPrompt != nil && strings.TrimSpace(*req.SystemPrompt) != "" {
-		params.System = []anthropic.TextBlockParam{
-			{Text: strings.TrimSpace(*req.SystemPrompt)},
+	if len(req.System) > 0 {
+		params.System = make([]anthropic.TextBlockParam, 0, len(req.System))
+		for _, block := range req.System {
+			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				params.System = append(params.System, anthropic.TextBlockParam{Text: strings.TrimSpace(block.Text)})
+			}
 		}
 	}
 
-	messages, err := cifMessagesToAnthropicParams(req.Messages)
+	messages, err := messagesToAnthropicParams(req.Messages)
 	if err != nil {
 		return params, err
 	}
@@ -93,12 +138,14 @@ func cifToAnthropicParams(req *cif.CanonicalRequest) (anthropic.MessageNewParams
 			if t.Description != nil {
 				desc = *t.Description
 			}
+			properties, required := anthropicToolSchemaParts(t.InputSchema)
 			tools = append(tools, anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        t.Name,
 					Description: anthropic.String(desc),
 					InputSchema: anthropic.ToolInputSchemaParam{
-						Properties: t.ParametersSchema,
+						Properties: properties,
+						Required:   required,
 					},
 				},
 			})
@@ -116,19 +163,44 @@ func cifToAnthropicParams(req *cif.CanonicalRequest) (anthropic.MessageNewParams
 	return params, nil
 }
 
-func cifMessagesToAnthropicParams(msgs []cif.CIFMessage) ([]anthropic.MessageParam, error) {
+func anthropicToolSchemaParts(schema map[string]any) (any, []string) {
+	if schema == nil {
+		return map[string]any{}, nil
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if properties == nil {
+		properties = map[string]any{}
+	}
+	requiredAny, _ := schema["required"].([]string)
+	if requiredAny != nil {
+		return properties, requiredAny
+	}
+	requiredRaw, _ := schema["required"].([]any)
+	if len(requiredRaw) == 0 {
+		return properties, nil
+	}
+	required := make([]string, 0, len(requiredRaw))
+	for _, item := range requiredRaw {
+		if text, ok := item.(string); ok && text != "" {
+			required = append(required, text)
+		}
+	}
+	return properties, required
+}
+
+func messagesToAnthropicParams(msgs []Message) ([]anthropic.MessageParam, error) {
 	var out []anthropic.MessageParam
 	for _, msg := range msgs {
-		switch m := msg.(type) {
-		case cif.CIFSystemMessage:
-			// System messages are handled via params.System; skip inline.
-		case cif.CIFUserMessage:
-			blocks := cifUserPartsToAnthropicBlocks(m.Content)
+		switch msg.Role {
+		case "system":
+			continue
+		case "user":
+			blocks := userBlocksToAnthropicBlocks(msg.Content)
 			if len(blocks) > 0 {
 				out = append(out, anthropic.NewUserMessage(blocks...))
 			}
-		case cif.CIFAssistantMessage:
-			blocks := cifAssistantPartsToAnthropicBlocks(m.Content)
+		case "assistant":
+			blocks := assistantBlocksToAnthropicBlocks(msg.Content)
 			if len(blocks) > 0 {
 				out = append(out, anthropic.NewAssistantMessage(blocks...))
 			}
@@ -137,32 +209,35 @@ func cifMessagesToAnthropicParams(msgs []cif.CIFMessage) ([]anthropic.MessagePar
 	return out, nil
 }
 
-func cifUserPartsToAnthropicBlocks(parts []cif.CIFContentPart) []anthropic.ContentBlockParamUnion {
+func userBlocksToAnthropicBlocks(parts []ContentBlock) []anthropic.ContentBlockParamUnion {
 	var blocks []anthropic.ContentBlockParamUnion
 	for _, part := range parts {
-		switch p := part.(type) {
-		case cif.CIFTextPart:
-			blocks = append(blocks, anthropic.NewTextBlock(p.Text))
-		case cif.CIFToolResultPart:
+		switch part.Type {
+		case "text":
+			blocks = append(blocks, anthropic.NewTextBlock(part.Text))
+		case "tool_result":
 			isError := false
-			if p.IsError != nil {
-				isError = *p.IsError
+			if part.IsError != nil {
+				isError = *part.IsError
 			}
-			blocks = append(blocks, anthropic.NewToolResultBlock(p.ToolCallID, p.Content, isError))
+			toolUseID := part.ToolUseID
+			if toolUseID == "" {
+				toolUseID = part.ID
+			}
+			blocks = append(blocks, anthropic.NewToolResultBlock(toolUseID, part.Content, isError))
 		}
 	}
 	return blocks
 }
 
-func cifAssistantPartsToAnthropicBlocks(parts []cif.CIFContentPart) []anthropic.ContentBlockParamUnion {
+func assistantBlocksToAnthropicBlocks(parts []ContentBlock) []anthropic.ContentBlockParamUnion {
 	var blocks []anthropic.ContentBlockParamUnion
 	for _, part := range parts {
-		switch p := part.(type) {
-		case cif.CIFTextPart:
-			blocks = append(blocks, anthropic.NewTextBlock(p.Text))
-		case cif.CIFToolCallPart:
-			// NewToolUseBlock(id, input, name) — note: input is any, name is last
-			blocks = append(blocks, anthropic.NewToolUseBlock(p.ToolCallID, p.ToolArguments, p.ToolName))
+		switch part.Type {
+		case "text":
+			blocks = append(blocks, anthropic.NewTextBlock(part.Text))
+		case "tool_use":
+			blocks = append(blocks, anthropic.NewToolUseBlock(part.ID, part.Input, part.Name))
 		}
 	}
 	return blocks
@@ -191,24 +266,24 @@ func canonicalToolChoiceToAnthropicSDK(choice any) anthropic.ToolChoiceUnionPara
 	return anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
 }
 
-func anthropicMsgToCIF(msg *anthropic.Message) *cif.CanonicalResponse {
-	resp := &cif.CanonicalResponse{
+func anthropicMsgToResponse(msg *anthropic.Message) *MessagesResponse {
+	resp := &MessagesResponse{
 		ID:    msg.ID,
 		Model: string(msg.Model),
 	}
 
 	switch msg.StopReason {
 	case anthropic.StopReasonToolUse:
-		resp.StopReason = cif.StopReasonToolUse
+		resp.StopReason = StopReasonToolUse
 	case anthropic.StopReasonMaxTokens:
-		resp.StopReason = cif.StopReasonMaxTokens
+		resp.StopReason = StopReasonMaxTokens
 	case anthropic.StopReasonStopSequence:
-		resp.StopReason = cif.StopReasonStopSequence
+		resp.StopReason = StopReasonStopSequence
 	default:
-		resp.StopReason = cif.StopReasonEndTurn
+		resp.StopReason = StopReasonEndTurn
 	}
 
-	resp.Usage = &cif.CIFUsage{
+	resp.Usage = &Usage{
 		InputTokens:  int(msg.Usage.InputTokens),
 		OutputTokens: int(msg.Usage.OutputTokens),
 	}
@@ -216,18 +291,10 @@ func anthropicMsgToCIF(msg *anthropic.Message) *cif.CanonicalResponse {
 	for _, block := range msg.Content {
 		switch block.Type {
 		case "text":
-			resp.Content = append(resp.Content, cif.CIFTextPart{
-				Type: "text",
-				Text: block.Text,
-			})
+			resp.Content = append(resp.Content, ContentBlock{Type: "text", Text: block.Text})
 		case "tool_use":
 			args := rawMessageToMap(block.Input)
-			resp.Content = append(resp.Content, cif.CIFToolCallPart{
-				Type:          "tool_use",
-				ToolCallID:    block.ID,
-				ToolName:      block.Name,
-				ToolArguments: args,
-			})
+			resp.Content = append(resp.Content, ContentBlock{Type: "tool_use", ID: block.ID, Name: block.Name, Input: args})
 		}
 	}
 

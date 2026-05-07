@@ -9,7 +9,6 @@ import (
 	"sort"
 	"testing"
 
-	"omnillm/internal/cif"
 	"omnillm/internal/tools"
 )
 
@@ -72,10 +71,10 @@ func TestRegistryExecuteToolCallsHonorsPermissionChecker(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Bash())
 
-	results := registry.ExecuteToolCalls(context.Background(), "session-1", []cif.CIFToolCallPart{{
-		ToolCallID: "call-1",
-		ToolName:   "bash",
-		ToolArguments: map[string]any{
+	results := registry.ExecuteCalls(context.Background(), "session-1", []tools.ToolCall{{
+		ID:   "call-1",
+		Name: "bash",
+		Arguments: map[string]any{
 			"command": "echo hello",
 		},
 	}})
@@ -138,11 +137,10 @@ func TestChatCompletionsDispatchRoutesAllModelsToMessages(t *testing.T) {
 			}
 
 			dispatch := NewChatCompletionsDispatch(client, tc.model)
-			respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
-				Messages: []cif.CIFMessage{
-					cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Hello"}}},
-				},
-				Tools:      []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
+			respCh, err := dispatch(context.Background(), &MessagesRequest{
+				MaxTokens:  4096,
+				Messages:   []Message{testUserMessage("Hello")},
+				Tools:      []tools.ToolDefinition{testToolDefinition("ls", stringPtr("List files"), map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}})},
 				ToolChoice: "auto",
 			})
 			if err != nil {
@@ -186,11 +184,10 @@ func TestChatCompletionsDispatchRoutesGPTModelsToMessages(t *testing.T) {
 	}
 
 	dispatch := NewChatCompletionsDispatch(client, "gpt-5.4")
-	respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Hello"}}},
-		},
-		Tools:      []cif.CIFTool{{Name: "ls", Description: stringPtr("List files"), ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}},
+	respCh, err := dispatch(context.Background(), &MessagesRequest{
+		MaxTokens:  4096,
+		Messages:   []Message{testUserMessage("Hello")},
+		Tools:      []tools.ToolDefinition{testToolDefinition("ls", stringPtr("List files"), map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}})},
 		ToolChoice: "auto",
 	})
 	if err != nil {
@@ -233,23 +230,10 @@ func TestChatCompletionsDispatchPostsStandardOpenAIToolPayload(t *testing.T) {
 
 	dispatch := NewChatCompletionsDispatch(client, "deepseek-v4-flash")
 	toolChoice := "auto"
-	respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{
-				Role: "user",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: "List files"},
-				},
-			},
-		},
-		Tools: []cif.CIFTool{{
-			Name:        "ls",
-			Description: stringPtr("List files"),
-			ParametersSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"path": map[string]any{"type": "string"}},
-			},
-		}},
+	respCh, err := dispatch(context.Background(), &MessagesRequest{
+		MaxTokens:  4096,
+		Messages:   []Message{testUserMessage("List files")},
+		Tools:      []tools.ToolDefinition{testToolDefinition("ls", stringPtr("List files"), map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}})},
 		ToolChoice: toolChoice,
 	})
 	if err != nil {
@@ -288,19 +272,10 @@ func TestChatCompletionsDispatchDoesNotRetryWithoutTools(t *testing.T) {
 	}
 
 	dispatch := NewChatCompletionsDispatch(client, "deepseek-v4-flash")
-	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{
-				Role: "user",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: "List files"},
-				},
-			},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "ls",
-			ParametersSchema: map[string]any{"type": "object"},
-		}},
+	_, err := dispatch(context.Background(), &MessagesRequest{
+		MaxTokens:  4096,
+		Messages:   []Message{testUserMessage("List files")},
+		Tools:      []tools.ToolDefinition{testToolDefinition("ls", nil, map[string]any{"type": "object"})},
 		ToolChoice: "auto",
 	})
 	if err == nil {
@@ -329,7 +304,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 		},
 	}
 
-	result, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "agent-sdk-go", DefaultAPIShape, "List this directory", nil, nil, nil, 10)
+	result, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List this directory", nil, nil, nil, 10)
 	if err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
 	}
@@ -382,6 +357,15 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 	if fmt.Sprint(names) != fmt.Sprint(wantNames) {
 		t.Fatalf("tool names = %#v, want %#v", names, wantNames)
 	}
+
+	systemBlocks, ok := capturedPayload["system"].([]any)
+	if !ok || len(systemBlocks) == 0 {
+		t.Fatalf("system = %#v, want Anthropic text blocks", capturedPayload["system"])
+	}
+	firstSystemBlock, ok := systemBlocks[0].(map[string]any)
+	if !ok || firstSystemBlock["text"] == nil {
+		t.Fatalf("system[0] = %#v, want text block", systemBlocks[0])
+	}
 }
 
 type stubAgentClient struct {
@@ -400,7 +384,7 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func TestSelectDispatchUsesProxyForAgentSDKGo(t *testing.T) {
+func TestSelectDispatchAlwaysUsesMessagesProxy(t *testing.T) {
 	var capturedPath string
 	client := &stubAgentClient{
 		postFn: func(path string, body any) ([]byte, error) {
@@ -408,58 +392,8 @@ func TestSelectDispatchUsesProxyForAgentSDKGo(t *testing.T) {
 			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
 		},
 	}
-	dispatch := selectDispatch(client, "claude-opus-4-5", "agent-sdk-go", DefaultAPIShape)
-	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("dispatch error: %v", err)
-	}
-	if capturedPath != "/v1/messages" {
-		t.Fatalf("expected /v1/messages, got %q", capturedPath)
-	}
-}
-
-func TestSelectDispatchUsesProxyForGoogleADK(t *testing.T) {
-	var capturedPath string
-	client := &stubAgentClient{
-		postFn: func(path string, body any) ([]byte, error) {
-			capturedPath = path
-			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"gemini-pro","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
-		},
-	}
-	dispatch := selectDispatch(client, "gemini-pro", "google-adk", DefaultAPIShape)
-	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("dispatch error: %v", err)
-	}
-	if capturedPath != "/v1/messages" {
-		t.Fatalf("expected /v1/messages, got %q", capturedPath)
-	}
-}
-
-func TestSelectDispatchUsesAnthropicSDKForAnthropicSDKBackend(t *testing.T) {
-	// anthropic-sdk now routes through the OmniLLM proxy just like agent-sdk-go
-	// and google-adk.  The proxy client MUST be called.
-	var capturedPath string
-	client := &stubAgentClient{
-		postFn: func(path string, body any) ([]byte, error) {
-			capturedPath = path
-			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
-		},
-	}
-	dispatch := selectDispatch(client, "claude-opus-4-5", "anthropic-sdk", DefaultAPIShape)
-	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
-		},
-	})
+	dispatch := selectDispatch(client, "claude-opus-4-5", "google-adk", "responses")
+	_, err := dispatch(context.Background(), testMessagesRequest("", testUserMessage("hi")))
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}

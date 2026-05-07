@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"omnillm/internal/cif"
 	toolspkg "omnillm/internal/tools"
 )
 
@@ -282,19 +281,11 @@ func TestLiveFullMeshDispatchDirect(t *testing.T) {
 				defer cancel()
 
 				dispatch := NewDispatch(client, mc.model, shape)
-				respCh, err := dispatch(ctx, &cif.CanonicalRequest{
-					Model: mc.model,
-					Messages: []cif.CIFMessage{
-						cif.CIFUserMessage{
-							Role:    "user",
-							Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Say hi in one word."}},
-						},
-					},
-				})
+					respCh, err := dispatch(ctx, testMessagesRequest(mc.model, testUserMessage("Say hi in one word.")))
 				if err != nil {
 					t.Fatalf("dispatch error: %v", err)
 				}
-				var resp *cif.CanonicalResponse
+					var resp *MessagesResponse
 				for r := range respCh {
 					resp = r
 				}

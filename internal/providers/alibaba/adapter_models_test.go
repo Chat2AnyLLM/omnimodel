@@ -84,6 +84,7 @@ func TestBuildRequestToolResultTurnToolRetentionByModel(t *testing.T) {
 		wantTools bool
 	}{
 		{name: "deepseek omits tools", model: "deepseek-v4-flash"},
+		{name: "glm omits tools", model: "glm-5.1"},
 		{name: "qwen keeps tools", model: "qwen3.6-flash", wantTools: true},
 	}
 
