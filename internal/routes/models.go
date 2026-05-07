@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var modelMetadataService = modelsmeta.NewService()
+var modelMetadataService = modelsmeta.DefaultService
 
 func SetupModelRoutes(router *gin.RouterGroup) {
 	router.GET("/models", handleModels)

@@ -1,7 +1,8 @@
 package alibaba
 
 import (
-	"omnillm/internal/providers/types"
+	"context"
+	"omnillm/internal/services/modelsmeta"
 	"strings"
 )
 
@@ -17,17 +18,24 @@ func IsChatCompletionsModel(modelID string) bool {
 	return !strings.Contains(strings.ToLower(modelID), "realtime")
 }
 
-func IsReasoningModel(modelID string) bool {
-	_, ok := reasoningModelIDs[strings.ToLower(RemapModel(modelID))]
-	return ok
+// IsReasoningModel reports whether the model supports extended reasoning output.
+// It consults models.dev (via the shared DefaultService cache); returns false if
+// the model is not found or the service is unavailable.
+func IsReasoningModel(ctx context.Context, modelID string) bool {
+	return isReasoningModelWith(
+		func(id string) *modelsmeta.ModelMetadata {
+			return modelsmeta.DefaultService.LookupModel(ctx, id)
+		},
+		modelID,
+	)
 }
 
-func ModelMetadata(modelID string) (types.Model, bool) {
-	remapped := strings.ToLower(RemapModel(modelID))
-	for _, m := range Models {
-		if m.ID == remapped {
-			return m, true
-		}
+// isReasoningModelWith is the testable core: the caller supplies the lookup so
+// tests can inject a stub without needing a live models.dev connection.
+func isReasoningModelWith(lookup func(string) *modelsmeta.ModelMetadata, modelID string) bool {
+	meta := lookup(strings.ToLower(RemapModel(modelID)))
+	if meta != nil && meta.SupportsReasoning != nil {
+		return *meta.SupportsReasoning
 	}
-	return types.Model{}, false
+	return false
 }

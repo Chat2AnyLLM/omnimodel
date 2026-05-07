@@ -1,6 +1,9 @@
 package alibaba
 
-import "testing"
+import (
+	"omnillm/internal/services/modelsmeta"
+	"testing"
+)
 
 func TestIsChatCompletionsModel(t *testing.T) {
 	cases := []struct {
@@ -21,32 +24,31 @@ func TestIsChatCompletionsModel(t *testing.T) {
 	}
 }
 
-func TestIsReasoningModel(t *testing.T) {
+func boolPtr(b bool) *bool { return &b }
+
+func TestIsReasoningModelWith(t *testing.T) {
 	cases := []struct {
+		name    string
+		meta    *modelsmeta.ModelMetadata
 		modelID string
 		want    bool
 	}{
-		{"qwen3-max", true},
-		{"qwen3-coder-plus", true},
-		{"qwen3-235b-a22b-instruct", true},
-		{"qwen-plus", true},
-		{"qwen3.6-plus", true},
-		{"qwen3.6-flash", true},
-		{"deepseek-r1", true},
-		{"deepseek-r1-0528", true},
-		{"deepseek-v4-flash", false},
-		{"QWEN3-MAX", true},
-		{"glm-5.1", false},
-		{"qwen2-5-72b-instruct", false},
-		{"qwen-turbo", false},
-		{"gpt-4o", false},
-		{"", false},
+		{"reasoning=true from models.dev", &modelsmeta.ModelMetadata{SupportsReasoning: boolPtr(true)}, "qwen3-max", true},
+		{"reasoning=false from models.dev", &modelsmeta.ModelMetadata{SupportsReasoning: boolPtr(false)}, "glm-5.1", false},
+		{"no models.dev entry (nil)", nil, "unknown-model", false},
+		{"models.dev entry but SupportsReasoning nil", &modelsmeta.ModelMetadata{}, "some-model", false},
+		{"model ID case folded", &modelsmeta.ModelMetadata{SupportsReasoning: boolPtr(true)}, "QWEN3-MAX", true},
+		{"provider-prefixed ID stripped", &modelsmeta.ModelMetadata{SupportsReasoning: boolPtr(true)}, "alibaba-sk/qwen3-max", true},
 	}
 	for _, tc := range cases {
-		got := IsReasoningModel(tc.modelID)
-		if got != tc.want {
-			t.Errorf("IsReasoningModel(%q) = %v, want %v", tc.modelID, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got := isReasoningModelWith(func(_ string) *modelsmeta.ModelMetadata {
+				return tc.meta
+			}, tc.modelID)
+			if got != tc.want {
+				t.Errorf("isReasoningModelWith() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

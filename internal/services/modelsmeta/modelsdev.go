@@ -17,6 +17,9 @@ const (
 	defaultCacheTTL     = 30 * time.Minute
 )
 
+// DefaultService is the package-level singleton used by adapters and routes.
+var DefaultService = NewService()
+
 type ModelMetadata struct {
 	ID                        string   `json:"id"`
 	Name                      string   `json:"name,omitempty"`
@@ -47,12 +50,15 @@ type Result struct {
 }
 
 type Service struct {
-	url       string
-	cacheTTL  time.Duration
-	http      *http.Client
+	url      string
+	cacheTTL time.Duration
+	http     *http.Client
+
 	cacheMu   sync.RWMutex
 	cachedAt  time.Time
 	cachedRes Result
+	// index maps lowercase model ID to its metadata for O(1) lookups.
+	index map[string]*ModelMetadata
 }
 
 func NewService() *Service {
@@ -83,9 +89,22 @@ func (s *Service) Get(ctx context.Context, forceRefresh bool) (Result, error) {
 	s.cacheMu.Lock()
 	s.cachedAt = time.Now()
 	s.cachedRes = fetched
+	s.index = buildIndex(fetched.Models)
 	s.cacheMu.Unlock()
 
 	return fetched, nil
+}
+
+// LookupModel returns the ModelMetadata for modelID (case-insensitive) from
+// the cached models.dev result, or nil if not found or the fetch fails.
+func (s *Service) LookupModel(ctx context.Context, modelID string) *ModelMetadata {
+	// Ensure the cache (and index) is warm.
+	if _, err := s.Get(ctx, false); err != nil {
+		return nil
+	}
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	return s.index[strings.ToLower(strings.TrimSpace(modelID))]
 }
 
 func (s *Service) getFromCache() (Result, bool) {
@@ -131,6 +150,18 @@ func (s *Service) fetch(ctx context.Context) (Result, error) {
 	}
 
 	return result, nil
+}
+
+// buildIndex creates a lowercase-ID-keyed map for O(1) LookupModel calls.
+func buildIndex(models []ModelMetadata) map[string]*ModelMetadata {
+	idx := make(map[string]*ModelMetadata, len(models))
+	for i := range models {
+		key := strings.ToLower(models[i].ID)
+		if _, exists := idx[key]; !exists {
+			idx[key] = &models[i]
+		}
+	}
+	return idx
 }
 
 type modelsDevProvider struct {

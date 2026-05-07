@@ -67,7 +67,7 @@ func TestProviderGetModelsFetchesLiveModels(t *testing.T) {
 	if first.Name != "Qwen3 Max" {
 		t.Fatalf("expected metadata-enriched name, got %q", first.Name)
 	}
-	if first.MaxTokens != 32768 {
+	if first.MaxTokens != 16384 {
 		t.Fatalf("expected metadata-enriched max tokens, got %d", first.MaxTokens)
 	}
 	if first.Provider != "alibaba-live" {

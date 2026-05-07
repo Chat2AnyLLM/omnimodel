@@ -24,7 +24,7 @@ func (a *Adapter) Execute(ctx context.Context, request *cif.CanonicalRequest) (*
 	if !IsChatCompletionsModel(a.RemapModel(request.Model)) {
 		return nil, fmt.Errorf("alibaba: model %q is realtime-only", request.Model)
 	}
-	cr, err := a.buildRequest(request, false)
+	cr, err := a.buildRequest(ctx, request, false)
 	if err != nil {
 		return nil, err
 	}
@@ -47,34 +47,44 @@ func (a *Adapter) ExecuteStream(ctx context.Context, request *cif.CanonicalReque
 	return shared.StreamResponse(response), nil
 }
 
+// dashScopeNoThinkingModels: models.dev may classify these as reasoning-capable,
+// but DashScope's API endpoints for them reject enable_thinking entirely.
+var dashScopeNoThinkingModels = map[string]struct{}{
+	"deepseek-v4-flash": {},
+	"qwen3.5-plus":      {},
+	"qwen3.6-plus":      {},
+	"glm-5.1":           {},
+}
+
+func dashScopeNoThinking(modelID string) bool {
+	_, ok := dashScopeNoThinkingModels[strings.ToLower(RemapModel(modelID))]
+	return ok
+}
+
 // buildRequest converts a CIF request into an openaicompat.ChatRequest with
 // DashScope-specific extras (enable_thinking, stream_options).
-func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*openaicompat.ChatRequest, error) {
+func (a *Adapter) buildRequest(ctx context.Context, request *cif.CanonicalRequest, stream bool) (*openaicompat.ChatRequest, error) {
 	model := a.RemapModel(request.Model)
 
 	defTemp := 0.55
 	defTopP := 1.0
 
+	// Consult models.dev once; all reasoning-related branches share the result.
+	// dashScopeNoThinking overrides: DashScope rejects enable_thinking for these
+	// models regardless of models.dev classification.
+	isReasoning := IsReasoningModel(ctx, model) && !dashScopeNoThinking(model)
+
 	extras := map[string]any{}
-	if IsReasoningModel(model) {
+	// Only reasoning-capable models accept the enable_thinking parameter.
+	// Non-reasoning models on DashScope reject it entirely.
+	if isReasoning {
 		if len(request.Tools) == 0 {
 			extras["enable_thinking"] = true
 		} else {
-			// DashScope reasoning models require explicit opt-out when
-			// tools are present; omitting the flag causes a 400 error.
+			// DashScope requires explicit opt-out when tools are present;
+			// omitting the flag causes a 400 error on reasoning models.
 			extras["enable_thinking"] = false
 		}
-	}
-	if isQwenReasoningModel(model) && len(request.Tools) > 0 {
-		delete(extras, "enable_thinking")
-	}
-
-	// Non-reasoning Qwen models require enable_thinking to be explicitly set
-	// to false when tools are present; omitting the flag causes a 400 error.
-	// Third-party models (GLM, Qwen3.5-Plus) do not support enable_thinking
-	// at all — skip it for those.
-	if !IsReasoningModel(model) && !isNonReasoningToolModel(model) && len(request.Tools) > 0 {
-		extras["enable_thinking"] = false
 	}
 
 	cfg := openaicompat.Config{
@@ -87,17 +97,13 @@ func (a *Adapter) buildRequest(request *cif.CanonicalRequest, stream bool) (*ope
 	if err != nil {
 		return nil, err
 	}
-	if isQwenReasoningModel(model) && len(request.Tools) > 0 {
+	sanitizeDashScopeTools(chatReq.Tools)
+	// Qwen and GLM models on DashScope reject explicit tool_choice values.
+	if needsToolChoiceNil(model) && len(request.Tools) > 0 {
 		chatReq.ToolChoice = nil
 	}
-	// Non-reasoning third-party models (e.g. GLM, Qwen3.5-Plus) on DashScope
-	// reject tool_choice entirely when tools are present.
-	if isNonReasoningToolModel(model) && len(request.Tools) > 0 {
-		chatReq.ToolChoice = nil
-	}
-	// Non-reasoning models (e.g. GLM) do not support reasoning_content in
-	// request messages. Strip it to avoid 400 errors.
-	if !IsReasoningModel(model) {
+	// Strip reasoning_content from history for models that won't produce it.
+	if !isReasoning {
 		stripReasoningContent(chatReq.Messages)
 	}
 	if strings.EqualFold(RemapModel(model), "glm-5.1") {
