@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"omnillm/internal/tools"
@@ -365,6 +367,26 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 	firstSystemBlock, ok := systemBlocks[0].(map[string]any)
 	if !ok || firstSystemBlock["text"] == nil {
 		t.Fatalf("system[0] = %#v, want text block", systemBlocks[0])
+	}
+	systemText, ok := firstSystemBlock["text"].(string)
+	if !ok {
+		t.Fatalf("system[0].text = %#v, want string", firstSystemBlock["text"])
+	}
+	if !strings.Contains(systemText, "The current operating system is "+runtime.GOOS) {
+		t.Fatalf("system prompt missing runtime OS %q: %q", runtime.GOOS, systemText)
+	}
+	wantShellTool := "bash"
+		if runtime.GOOS == "windows" {
+		wantShellTool = "powershell"
+	}
+	if !strings.Contains(systemText, `Use the "`+wantShellTool+`" tool to execute shell commands`) {
+		t.Fatalf("system prompt missing shell tool guidance %q: %q", wantShellTool, systemText)
+	}
+	if !strings.Contains(systemText, "When presenting output for the OmniCode conversation UI, prefer structured sections so content reads cleanly in separate blocks.") {
+		t.Fatalf("system prompt missing structured output guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "format it as a compact, readable markdown table whenever practical") {
+		t.Fatalf("system prompt missing markdown table guidance: %q", systemText)
 	}
 }
 

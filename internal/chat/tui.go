@@ -25,6 +25,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	liptable "github.com/charmbracelet/lipgloss/table"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -32,21 +33,27 @@ var (
 	tuiTitleStyle           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Padding(0, 1)
 	tuiUserLabelStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#06B6D4"))
 	tuiAssistantLabelStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A855F7"))
+	tuiThinkingLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A78BFA"))
 	tuiErrorStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
 	tuiHelpStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Padding(0, 1)
 	tuiDivStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	tuiUserBlockStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#171717")).Foreground(lipgloss.Color("#F9FAFB")).Padding(0, 1)
-	tuiAssistantBlockStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
+	tuiUserBlockStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#141A1F")).Foreground(lipgloss.Color("#F9FAFB")).Padding(0, 1)
+	tuiAssistantBlockStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#141216")).Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
+	tuiThinkingBlockStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#171326")).Foreground(lipgloss.Color("#DDD6FE")).Padding(0, 1)
 	tuiThinkingStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Italic(true).PaddingLeft(1)
 	tuiSidebarStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#111111")).Foreground(lipgloss.Color("#E5E7EB")).Padding(1, 2)
 	tuiSidebarHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB"))
 	tuiSidebarLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 	tuiSidebarValueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6"))
 	tuiPermissionLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
-	tuiPermissionBlockStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#F59E0B")).Padding(0, 1)
+	tuiPermissionBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color("#2A1F0F")).Foreground(lipgloss.Color("#FDE68A")).Padding(0, 1)
 	tuiSelectionStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#E8E8E8")).Foreground(lipgloss.Color("#111111"))
 	tuiInputShellStyle      = lipgloss.NewStyle().Background(lipgloss.Color("#1C1C1C")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#3B82F6"))
 	tuiInputAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
+	tuiTableBorderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	tuiTableHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#C084FC")).Bold(true).Padding(0, 1)
+	tuiTableCellStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
+	tuiTableAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
 	ansiPrefixPattern       = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*`)
 )
 
@@ -463,7 +470,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(true)
 
-	mdR, _ := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(80))
+	mdR, _ := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(80), glamour.WithTableWrap(false))
 
 	m := chatTUIModel{
 		client:              c,
@@ -553,7 +560,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.textarea.SetWidth(tuiMax(20, m.mainWidth-6))
 		if m.mdRenderer != nil {
-			m.mdRenderer, _ = glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(tuiMax(20, m.mainWidth-6)))
+			m.mdRenderer, _ = glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(tuiMax(20, m.mainWidth-6)), glamour.WithTableWrap(false))
 		}
 		m.syncViewport()
 		return m, nil
@@ -1352,14 +1359,14 @@ func highlightVisibleRange(line string, left, right int) string {
 }
 
 func (m chatTUIModel) renderUserSection(text string) string {
-	label := tuiUserLabelStyle.Render("You")
+	label := tuiUserLabelStyle.Render("User message")
 	block := tuiUserBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(text)
 	return lipgloss.JoinVertical(lipgloss.Left, label, block)
 }
 
 func (m chatTUIModel) renderAssistantSection(text string) string {
 	rendered := m.renderMD(text)
-	label := tuiAssistantLabelStyle.Render("Assistant")
+	label := tuiAssistantLabelStyle.Render("Assistant response")
 	body := tuiAssistantBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(rendered)
 	return lipgloss.JoinVertical(lipgloss.Left, label, body)
 }
@@ -1371,7 +1378,9 @@ func (m chatTUIModel) renderThinkingSection(text string) string {
 	} else if m.spinning {
 		body = m.spinner.View() + " " + body
 	}
-	return tuiThinkingStyle.Width(tuiMax(8, m.mainWidth-1)).Render(body)
+	label := tuiThinkingLabelStyle.Render("Assistant thinking")
+	block := tuiThinkingBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(tuiThinkingStyle.Render(body))
+	return lipgloss.JoinVertical(lipgloss.Left, label, block)
 }
 
 func (m chatTUIModel) renderInfoSection(text string) string {
@@ -1737,7 +1746,17 @@ func (m *chatTUIModel) historySearchStatus() string {
 }
 
 func (m chatTUIModel) renderMD(md string) string {
-	if m.mdRenderer == nil || strings.TrimSpace(md) == "" {
+	if strings.TrimSpace(md) == "" {
+		return md
+	}
+	if rendered, ok := m.renderMarkdownWithTables(md); ok {
+		return rendered
+	}
+	return m.renderMarkdownFragment(md)
+}
+
+func (m chatTUIModel) renderMarkdownFragment(md string) string {
+	if m.mdRenderer == nil {
 		return md
 	}
 	out, err := m.mdRenderer.Render(md)
@@ -1745,6 +1764,152 @@ func (m chatTUIModel) renderMD(md string) string {
 		return md
 	}
 	return trimCommonLeadingSpaces(strings.TrimRight(out, "\n"))
+}
+
+func (m chatTUIModel) renderMarkdownWithTables(md string) (string, bool) {
+	lines := strings.Split(md, "\n")
+	blocks := make([]string, 0, len(lines))
+	proseStart := 0
+	hasTable := false
+
+	flushProse := func(end int) {
+		if end <= proseStart {
+			return
+		}
+		fragment := strings.Join(lines[proseStart:end], "\n")
+		if strings.TrimSpace(fragment) == "" {
+			proseStart = end
+			return
+		}
+		blocks = append(blocks, m.renderMarkdownFragment(fragment))
+		proseStart = end
+	}
+
+	for i := 0; i < len(lines); {
+		headers, rows, next, ok := parseMarkdownTableBlock(lines, i)
+		if !ok {
+			i++
+			continue
+		}
+		flushProse(i)
+		blocks = append(blocks, m.renderTableGrid(headers, rows))
+		hasTable = true
+		i = next
+		proseStart = next
+	}
+	flushProse(len(lines))
+	if !hasTable {
+		return "", false
+	}
+	return strings.Join(blocks, "\n"), true
+}
+
+func parseMarkdownTableBlock(lines []string, start int) ([]string, [][]string, int, bool) {
+	if start >= len(lines) {
+		return nil, nil, start, false
+	}
+	trimmed := strings.TrimSpace(lines[start])
+	if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
+		return nil, nil, start, false
+	}
+
+	end := start
+	for end < len(lines) {
+		trimmed = strings.TrimSpace(lines[end])
+		if trimmed == "" {
+			break
+		}
+		if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
+			break
+		}
+		end++
+	}
+
+	rows := make([][]string, 0, end-start)
+	hasSeparator := false
+	for i := start; i < end; i++ {
+		trimmed = strings.TrimSpace(lines[i])
+		if isMarkdownTableSeparator(trimmed) {
+			hasSeparator = true
+			continue
+		}
+		rows = append(rows, parseMarkdownTableRow(trimmed))
+	}
+	if !hasSeparator || len(rows) < 2 {
+		return nil, nil, start, false
+	}
+	colCount := len(rows[0])
+	if colCount == 0 {
+		return nil, nil, start, false
+	}
+	for _, row := range rows[1:] {
+		if len(row) != colCount {
+			return nil, nil, start, false
+		}
+	}
+	return rows[0], rows[1:], end, true
+}
+
+func (m chatTUIModel) renderMarkdownTable(md string) (string, bool) {
+	lines := strings.Split(strings.TrimSpace(md), "\n")
+	headers, rows, _, ok := parseMarkdownTableBlock(lines, 0)
+	if !ok {
+		return "", false
+	}
+	return m.renderTableGrid(headers, rows), true
+}
+
+func isMarkdownTableSeparator(line string) bool {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return false
+	}
+	for _, r := range line {
+		switch r {
+		case '|', '-', ':', ' ':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func parseMarkdownTableRow(line string) []string {
+	parts := strings.Split(line, "|")
+	cells := make([]string, 0, len(parts)-2)
+	for i := 1; i < len(parts)-1; i++ {
+		cells = append(cells, strings.TrimSpace(parts[i]))
+	}
+	return cells
+}
+
+func (m chatTUIModel) renderTableGrid(headers []string, rows [][]string) string {
+	availableWidth := tuiMax(24, m.mainWidth-4)
+	tbl := liptable.New().
+		Border(lipgloss.NormalBorder()).
+		BorderTop(true).
+		BorderBottom(true).
+		BorderLeft(true).
+		BorderRight(true).
+		BorderHeader(true).
+		BorderColumn(true).
+		BorderRow(true).
+		BorderStyle(tuiTableBorderStyle).
+		Width(availableWidth).
+		Wrap(false).
+		Headers(headers...).
+		Rows(rows...)
+	tbl.StyleFunc(func(row, col int) lipgloss.Style {
+		switch {
+		case row == liptable.HeaderRow:
+			return tuiTableHeaderStyle
+		case col == 0:
+			return tuiTableAccentStyle.Padding(0, 1)
+		default:
+			return tuiTableCellStyle
+		}
+	})
+	return tbl.String()
 }
 
 func trimCommonLeadingSpaces(s string) string {

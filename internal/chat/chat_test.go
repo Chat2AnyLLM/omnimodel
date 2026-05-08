@@ -63,6 +63,55 @@ func TestHandleSlashCommandUnknown(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownTable(t *testing.T) {
+	t.Parallel()
+
+	model := newChatTUIModel(nil, "session-1", "model", "chat", "anthropic", "", nil, nil)
+	model.mainWidth = 100
+
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name: "standalone table",
+			input: strings.Join([]string{
+				"| Name | Status |",
+				"| --- | --- |",
+				"| printer-1 | normal |",
+			}, "\n"),
+			want: []string{"┌", "Name", "printer-1", "Status"},
+		},
+		{
+			name: "prose surrounding table",
+			input: strings.Join([]string{
+				"Here are all the printers available on your system:",
+				"",
+				"| Name | Status |",
+				"| --- | --- |",
+				"| printer-1 | normal |",
+				"",
+				"Summary: 1 printer found.",
+			}, "\n"),
+			want: []string{"Here are all the printers available on your system:", "┌", "printer-1", "Summary: 1 printer found."},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := model.renderMD(tt.input)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("renderMD() missing %q in output:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestHandleSlashCommandModeShow(t *testing.T) {
 	cmd := newTestCommandContext()
 	session := &SessionState{ID: "session-1", Mode: "chat"}

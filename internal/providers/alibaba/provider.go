@@ -1,14 +1,18 @@
 package alibaba
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"omnillm/internal/database"
+	"omnillm/internal/providers/openaicompat"
 	"omnillm/internal/providers/shared"
 	"omnillm/internal/providers/types"
 	"strings"
 	"sync"
 
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,6 +28,7 @@ type Provider struct {
 	token      string
 	baseURL    string
 	config     map[string]interface{}
+	client     openai.Client
 	// configOnce ensures config is loaded from the database exactly once,
 	// even under concurrent requests.  Replaces the racy configLoaded bool.
 	configOnce sync.Once
@@ -59,6 +64,7 @@ func (p *Provider) SetupAuth(options *types.AuthOptions) error {
 	p.baseURL = baseURL
 	p.name = name
 	p.config = config
+	p.refreshClient()
 	return nil
 }
 
@@ -80,6 +86,38 @@ func (p *Provider) GetConfig() map[string]interface{} {
 	return p.config
 }
 
+func (p *Provider) refreshClient() {
+	p.client = newOpenAIClient(p.token, p.baseURL)
+}
+
+func newOpenAIClient(token, baseURL string) openai.Client {
+	opts := []option.RequestOption{
+		option.WithHTTPClient(alibabaHTTPClient),
+		option.WithBaseURL(EnsureBaseURL(baseURL)),
+		option.WithHeader("User-Agent", UserAgent),
+	}
+	if token != "" {
+		opts = append(opts, option.WithAPIKey(token))
+	}
+	return openai.NewClient(opts...)
+}
+
+func (p *Provider) postChatCompletions(ctx context.Context, payload []byte) (*openaicompat.ChatResponse, error) {
+	p.ensureConfig()
+	var response openaicompat.ChatResponse
+	if err := p.client.Post(
+		ctx,
+		"chat/completions",
+		nil,
+		&response,
+		option.WithRequestBody("application/json", payload),
+		option.WithHeader("Accept", "application/json"),
+	); err != nil {
+		return nil, fmt.Errorf("alibaba: request failed: %w", err)
+	}
+	return &response, nil
+}
+
 func (p *Provider) ensureConfig() {
 	// sync.Once guarantees this runs exactly once across concurrent goroutines,
 	// replacing the racy if p.configLoaded { return } pattern.
@@ -96,6 +134,7 @@ func (p *Provider) ensureConfig() {
 		}
 		p.applyConfig(cfg)
 	})
+	p.refreshClient()
 }
 
 func (p *Provider) applyConfig(cfg map[string]interface{}) {
@@ -247,9 +286,12 @@ func LoadTokenFromDB(instanceID string) (token, baseURL string, config map[strin
 // Headers returns HTTP headers for DashScope requests.
 func Headers(token string, stream bool, config map[string]interface{}) map[string]string {
 	h := map[string]string{
-		"Authorization": "Bearer " + token,
-		"Content-Type":  "application/json",
-		"Accept":        "application/json",
+		"Content-Type": "application/json",
+		"Accept":       "application/json",
+		"User-Agent":   UserAgent,
+	}
+	if token != "" {
+		h["Authorization"] = "Bearer " + token
 	}
 	if stream {
 		h["Accept"] = "text/event-stream"

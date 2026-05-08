@@ -5,11 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"omnillm/internal/cif"
 	"omnillm/internal/providers/shared"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -74,7 +78,13 @@ func doPOST(req *http.Request, stream bool) (*http.Response, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		if retryReq := clonePOSTRetryRequest(req, stream, err); retryReq != nil {
+			log.Warn().Err(err).Str("url", retryReq.URL.String()).Msg("openaicompat: retrying timed out POST request once")
+			resp, err = client.Do(retryReq)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		b, _ := io.ReadAll(resp.Body)
@@ -82,6 +92,33 @@ func doPOST(req *http.Request, stream bool) (*http.Response, error) {
 		return nil, &APIError{StatusCode: resp.StatusCode, Body: b}
 	}
 	return resp, nil
+}
+
+func clonePOSTRetryRequest(req *http.Request, stream bool, err error) *http.Request {
+	if stream || req == nil || req.GetBody == nil || !shouldRetryPOSTTimeout(req.URL, err) {
+		return nil
+	}
+	retryReq := req.Clone(req.Context())
+	body, bodyErr := req.GetBody()
+	if bodyErr != nil {
+		return nil
+	}
+	retryReq.Body = body
+	return retryReq
+}
+
+func shouldRetryPOSTTimeout(target *url.URL, err error) bool {
+	if target == nil || !strings.EqualFold(target.Hostname(), "api.githubcopilot.com") || !strings.HasSuffix(strings.TrimRight(target.Path, "/"), "/responses") {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "client.timeout exceeded while awaiting headers")
 }
 
 func startSSEStream(body io.ReadCloser, parser func(io.ReadCloser, chan cif.CIFStreamEvent)) <-chan cif.CIFStreamEvent {

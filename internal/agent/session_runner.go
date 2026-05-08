@@ -57,20 +57,26 @@ func selectDispatch(c Client, model, _, _ string) DispatchFn {
 // buildSystemPrompt returns an OS-aware system prompt so the LLM generates
 // shell commands appropriate for the host platform.
 func buildSystemPrompt() string {
-	os := runtime.GOOS
-	shell := "bash/sh"
-	if os == "windows" {
-		shell = "PowerShell"
+	osName := runtime.GOOS
+	shellTool := "bash"
+	shellSyntax := "bash/sh"
+	if osName == "windows" {
+		shellTool = "powershell"
+		shellSyntax = "PowerShell"
 	}
 	return fmt.Sprintf(
-		"You are a software engineering agent running inside OmniCode. The current operating system is %s and shell commands must use %s syntax. "+
+		"You are a software engineering agent running inside OmniCode. The current operating system is %s. "+
+			"Use the %q tool to execute shell commands — all commands must use %s syntax. "+
+			"When presenting output for the OmniCode conversation UI, prefer structured sections so content reads cleanly in separate blocks. "+
+			"When useful, organize content with short headings such as User message, Assistant thinking, and Assistant response. "+
+			"When information is tabular or comparative, format it as a compact, readable markdown table whenever practical. "+
 			"For actionable requests, prefer using tools to inspect, verify, and change the real environment instead of describing what you would do. "+
 			"Use tools when the answer depends on the repository, filesystem, git state, runtime state, command output, or any fact you can check directly. "+
 			"Before making concrete claims about code or files, verify them with tools when practical. "+
 			"For conceptual or advisory requests that do not require inspection, answer directly without unnecessary tool use. "+
 			"When a task is multi-step, gather the needed context with tools, take the next concrete action, and then report the result briefly. "+
 			"Do not merely promise tool use — actually execute the relevant tools when they are needed.",
-		os, shell,
+		osName, shellTool, shellSyntax,
 	)
 }
 

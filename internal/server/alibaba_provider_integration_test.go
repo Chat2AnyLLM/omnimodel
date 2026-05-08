@@ -520,8 +520,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		lastReq := upstream.lastChatRequest(t)
-		if _, exists := lastReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking when tools are present, got %#v", lastReq.Payload["enable_thinking"])
+		enableThinking, ok := lastReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true when tools are present, got %#v", lastReq.Payload["enable_thinking"])
 		}
 		if len(asInterfaceSlice(lastReq.Payload["tools"])) != 1 {
 			t.Fatalf("expected 1 upstream tool definition, got %#v", lastReq.Payload["tools"])
@@ -578,8 +579,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		firstUpstreamReq := upstream.lastChatRequest(t)
-		if _, exists := firstUpstreamReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking on first chat tool-use turn, got %#v", firstUpstreamReq.Payload["enable_thinking"])
+		enableThinking, ok := firstUpstreamReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true on first chat tool-use turn, got %#v", firstUpstreamReq.Payload["enable_thinking"])
 		}
 		if stream, _ := firstUpstreamReq.Payload["stream"].(bool); stream {
 			t.Fatalf("did not expect upstream streaming on buffered chat turn, got payload %#v", firstUpstreamReq.Payload)
@@ -628,8 +630,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		secondUpstreamReq := upstream.lastChatRequest(t)
-		if _, exists := secondUpstreamReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking on second chat tool-result turn, got %#v", secondUpstreamReq.Payload["enable_thinking"])
+		enableThinking, ok = secondUpstreamReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true on second chat tool-result turn, got %#v", secondUpstreamReq.Payload["enable_thinking"])
 		}
 		if stream, _ := secondUpstreamReq.Payload["stream"].(bool); stream {
 			t.Fatalf("did not expect upstream streaming on second buffered chat turn, got payload %#v", secondUpstreamReq.Payload)
@@ -771,8 +774,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		lastReq := upstream.lastChatRequest(t)
-		if _, exists := lastReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking in streaming tool request, got %#v", lastReq.Payload["enable_thinking"])
+		enableThinking, ok := lastReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true in streaming tool request, got %#v", lastReq.Payload["enable_thinking"])
 		}
 		stream, _ := lastReq.Payload["stream"].(bool)
 		if stream {
@@ -840,8 +844,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		firstUpstreamReq := upstream.lastChatRequest(t)
-		if _, exists := firstUpstreamReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking on first tool-use turn, got %#v", firstUpstreamReq.Payload["enable_thinking"])
+		enableThinking, ok := firstUpstreamReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true on first tool-use turn, got %#v", firstUpstreamReq.Payload["enable_thinking"])
 		}
 		if firstUpstreamReq.Accept != "application/json" {
 			t.Fatalf("expected buffered upstream Accept header on first turn, got %q", firstUpstreamReq.Accept)
@@ -916,8 +921,9 @@ func TestAlibabaQwen36PlusProviderIntegration(t *testing.T) {
 		}
 
 		secondUpstreamReq := upstream.lastChatRequest(t)
-		if _, exists := secondUpstreamReq.Payload["enable_thinking"]; exists {
-			t.Fatalf("did not expect enable_thinking on second tool-result turn, got %#v", secondUpstreamReq.Payload["enable_thinking"])
+		enableThinking, ok = secondUpstreamReq.Payload["enable_thinking"].(bool)
+		if !ok || !enableThinking {
+			t.Fatalf("expected enable_thinking=true on second tool-result turn, got %#v", secondUpstreamReq.Payload["enable_thinking"])
 		}
 		if secondUpstreamReq.Accept != "application/json" {
 			t.Fatalf("expected buffered upstream Accept header on second turn, got %q", secondUpstreamReq.Accept)
