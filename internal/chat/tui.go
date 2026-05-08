@@ -531,7 +531,7 @@ func (m chatTUIModel) Init() tea.Cmd {
 }
 
 func deferredSubmitInput(seq uint64) tea.Cmd {
-	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(20*time.Millisecond, func(time.Time) tea.Msg {
 		return submitInputMsg(seq)
 	})
 }
@@ -581,7 +581,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Width = m.mainWidth
 			m.viewport.Height = vpH
 		}
-		m.textarea.SetWidth(tuiMax(20, m.mainWidth-6))
+		m.textarea.SetWidth(tuiTextareaInputWidth(m.mainWidth))
 		if m.mdRenderer != nil {
 			m.mdRenderer, _ = glamour.NewTermRenderer(glamour.WithStandardStyle("dark"), glamour.WithWordWrap(m.transcriptContentWidth()), glamour.WithTableWrap(false))
 		}
@@ -1114,11 +1114,55 @@ func (m chatTUIModel) View() string {
 
 func (m chatTUIModel) renderTextarea() string {
 	contentWidth := m.transcriptBlockMaxWidth()
+	inputWidth := tuiTextareaInputWidth(contentWidth)
 	taView := m.textarea.View()
+	if !strings.Contains(m.textarea.Value(), "\n") && m.textarea.Height() == 1 {
+		taView = m.renderSingleLineTextarea(inputWidth)
+	}
 
 	shellInnerWidth := tuiMax(0, contentWidth-2)
-	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(tuiMax(0, shellInnerWidth-4)).Render(taView)
+	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(inputWidth).Render(taView)
 	return tuiInputShellStyle.Width(shellInnerWidth).Render(inner)
+}
+
+func (m chatTUIModel) renderSingleLineTextarea(width int) string {
+	if width <= 0 || m.textarea.Value() == "" {
+		return m.textarea.View()
+	}
+
+	prompt := m.textarea.Prompt
+	textWidth := tuiMax(1, width-xansi.StringWidth(prompt))
+	line := []rune(m.textarea.Value())
+	lineInfo := m.textarea.LineInfo()
+	cursorIndex := lineInfo.StartColumn + lineInfo.ColumnOffset
+	if cursorIndex < 0 {
+		cursorIndex = 0
+	}
+	if cursorIndex > len(line) {
+		cursorIndex = len(line)
+	}
+
+	start := 0
+	if cursorIndex >= textWidth {
+		start = cursorIndex - textWidth + 1
+	}
+	end := minInt(len(line), start+textWidth)
+	if end < start {
+		end = start
+	}
+
+	cursor := m.textarea.Cursor
+	if cursorIndex < end {
+		cursor.SetChar(string(line[cursorIndex]))
+		return prompt + string(line[start:cursorIndex]) + cursor.View() + string(line[cursorIndex+1:end])
+	}
+
+	cursor.SetChar(" ")
+	return prompt + string(line[start:end]) + cursor.View()
+}
+
+func tuiTextareaInputWidth(contentWidth int) int {
+	return tuiMax(1, contentWidth-6)
 }
 
 func (m chatTUIModel) renderSessionPickerModal() string {
