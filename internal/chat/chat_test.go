@@ -14,6 +14,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 type testCommandContext struct {
@@ -112,6 +114,83 @@ func TestRenderMarkdownTable(t *testing.T) {
 	}
 }
 
+func TestRenderAssistantBodyMatchesInputWidth(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.mainWidth = 80
+
+	body := m.renderAssistantBody("short", false)
+	lines := strings.Split(body, "\n")
+	if len(lines) != 1 {
+		t.Fatalf("line count = %d, want 1", len(lines))
+	}
+	if got := xansi.StringWidth(lines[0]); got != m.transcriptBlockMaxWidth() {
+		t.Fatalf("assistant body width = %d, want %d", got, m.transcriptBlockMaxWidth())
+	}
+	input := lipgloss.Width(m.renderTextarea())
+	if got := lipgloss.Width(lines[0]); got != input {
+		t.Fatalf("assistant body width = %d, want input width %d", got, input)
+	}
+}
+
+func TestRenderTextareaDoesNotShowTopStatusChips(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "", nil, nil)
+	m.mainWidth = 80
+	m.textarea.SetValue("hello")
+
+	rendered := m.renderTextarea()
+	if strings.Contains(rendered, "AGENT") {
+		t.Fatalf("renderTextarea() duplicated mode chip: %q", rendered)
+	}
+	if strings.Contains(rendered, "MANUAL APPROVAL") {
+		t.Fatalf("renderTextarea() still shows manual chip: %q", rendered)
+	}
+	if strings.Contains(rendered, "AUTOPILOT") {
+		t.Fatalf("renderTextarea() still shows autopilot chip: %q", rendered)
+	}
+}
+
+func TestRenderFooterStatusPrefersContextualState(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.mainWidth = 80
+
+	if got := m.renderFooterStatus(); !strings.Contains(got, "? help") {
+		t.Fatalf("default footer = %q", got)
+	}
+
+	m.showInlineHelp = true
+	if got := m.renderFooterStatus(); !strings.Contains(got, "Ctrl+R search") {
+		t.Fatalf("inline help footer = %q", got)
+	}
+
+	m.showInlineHelp = false
+	m.streamActive = true
+	if got := m.renderFooterStatus(); !strings.Contains(got, "Streaming response") {
+		t.Fatalf("stream footer = %q", got)
+	}
+}
+
+func TestRenderSidebarPrioritizesActionsOverMessageCount(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "google-adk", nil, nil)
+	m.sidebarWidth = 30
+	m.height = 20
+	m.autopilot = true
+	m.appendEntry(transcriptAssistant, "hello")
+
+	rendered := m.renderSidebar()
+	if !strings.Contains(rendered, "Context") {
+		t.Fatalf("renderSidebar() missing Context section: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Working dir") {
+		t.Fatalf("renderSidebar() missing working directory: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Actions") {
+		t.Fatalf("renderSidebar() missing Actions section: %q", rendered)
+	}
+	if strings.Contains(rendered, "total") {
+		t.Fatalf("renderSidebar() still shows message count: %q", rendered)
+	}
+}
+
 func TestHandleSlashCommandModeShow(t *testing.T) {
 	cmd := newTestCommandContext()
 	session := &SessionState{ID: "session-1", Mode: "chat"}
@@ -168,7 +247,7 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 
 	cmd := newTestCommandContext()
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: DefaultAgentBackend}
+	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: "google-adk"}
 
 	result, err := handleSlashCommand(cmd, client, session, "/agent")
 	if err != nil {
@@ -660,21 +739,28 @@ func TestTUINormalEnterSubmitsAfterDeferredTick(t *testing.T) {
 
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count before deferred submit = %d, want 0", len(updated.entries))
+	}
+	if !updated.pendingSubmitNewline {
+		t.Fatal("expected Enter to start deferred submit")
+	}
+
 	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
 	updated = model.(chatTUIModel)
-
 	if len(updated.entries) != 1 {
-		t.Fatalf("entry count = %d, want 1", len(updated.entries))
+		t.Fatalf("entry count after deferred submit = %d, want 1", len(updated.entries))
 	}
 	if got := updated.entries[0].content; got != "hello" {
 		t.Fatalf("submitted content = %q, want hello", got)
 	}
 	if !updated.streamActive {
-		t.Fatal("expected deferred submit to start sending")
+		t.Fatal("expected deferred submit to start streaming")
 	}
 }
 
-func TestTUIMultilinePasteWaitsForEnterBeforeSubmitting(t *testing.T) {
+func TestTUICtrlJAddsNewlineWithoutSubmitting(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -682,28 +768,31 @@ func TestTUIMultilinePasteWaitsForEnterBeforeSubmitting(t *testing.T) {
 	m.textarea.Focus()
 	m.textarea.SetValue("first line")
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	updated := model.(chatTUIModel)
-	firstSeq := updated.submitSeq
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second line"), Paste: true})
-	updated = model.(chatTUIModel)
-	model, _ = updated.Update(submitInputMsg(firstSeq))
-	updated = model.(chatTUIModel)
+	updated.textarea.SetValue(updated.textarea.Value() + "second line")
 
 	if len(updated.entries) != 0 {
-		t.Fatalf("entry count before explicit Enter = %d, want 0", len(updated.entries))
+		t.Fatalf("entry count before submit = %d, want 0", len(updated.entries))
 	}
 	if got := updated.textarea.Value(); got != "first line\nsecond line" {
-		t.Fatalf("textarea after paste = %q, want %q", got, "first line\nsecond line")
+		t.Fatalf("textarea after newline = %q, want %q", got, "first line\nsecond line")
 	}
 
 	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count before deferred submit = %d, want 0", len(updated.entries))
+	}
+	if !updated.pendingSubmitNewline {
+		t.Fatal("expected Enter to start deferred submit")
+	}
+
 	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
 	updated = model.(chatTUIModel)
-
 	if len(updated.entries) != 1 {
-		t.Fatalf("entry count = %d, want 1", len(updated.entries))
+		t.Fatalf("entry count after deferred submit = %d, want 1", len(updated.entries))
 	}
 	if got := updated.entries[0].content; got != "first line\nsecond line" {
 		t.Fatalf("submitted content = %q, want %q", got, "first line\nsecond line")
@@ -712,11 +801,11 @@ func TestTUIMultilinePasteWaitsForEnterBeforeSubmitting(t *testing.T) {
 		t.Fatalf("textarea after submit = %q, want empty", got)
 	}
 	if !updated.streamActive {
-		t.Fatal("expected deferred submit to start sending")
+		t.Fatal("expected deferred submit to start streaming")
 	}
 }
 
-func TestTUIPastedEnterKeepsContentInTextareaUntilUserSubmits(t *testing.T) {
+func TestTUIPastedEnterDoesNotSubmit(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -724,35 +813,21 @@ func TestTUIPastedEnterKeepsContentInTextareaUntilUserSubmits(t *testing.T) {
 	m.textarea.Focus()
 	m.textarea.SetValue("first line")
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter, Paste: true})
 	updated := model.(chatTUIModel)
-	firstSeq := updated.submitSeq
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter, Paste: true})
-	updated = model.(chatTUIModel)
-	model, _ = updated.Update(submitInputMsg(firstSeq))
-	updated = model.(chatTUIModel)
 
 	if len(updated.entries) != 0 {
-		t.Fatalf("entry count after first deferred submit = %d, want 0", len(updated.entries))
+		t.Fatalf("entry count after pasted enter = %d, want 0", len(updated.entries))
 	}
 	if got := updated.textarea.Value(); got != "first line\n" {
 		t.Fatalf("textarea after pasted enter = %q, want %q", got, "first line\n")
 	}
-
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second line"), Paste: true})
-	updated = model.(chatTUIModel)
-	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
-	updated = model.(chatTUIModel)
-
-	if len(updated.entries) != 0 {
-		t.Fatalf("entry count before explicit Enter = %d, want 0", len(updated.entries))
-	}
-	if got := updated.textarea.Value(); got != "first line\nsecond line" {
-		t.Fatalf("textarea after paste = %q, want %q", got, "first line\nsecond line")
+	if updated.streamActive {
+		t.Fatal("expected pasted enter not to submit")
 	}
 }
 
-func TestTUIStaleDeferredSubmitDoesNotSendPartialPaste(t *testing.T) {
+func TestTUIRepeatedEnterOnlyUsesLatestDeferredSubmit(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -762,20 +837,31 @@ func TestTUIStaleDeferredSubmitDoesNotSendPartialPaste(t *testing.T) {
 
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := model.(chatTUIModel)
-	staleSeq := updated.submitSeq
+	seq1 := updated.submitSeq
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count after first enter = %d, want 0", len(updated.entries))
+	}
+	if !updated.pendingSubmitNewline {
+		t.Fatal("expected first Enter to start deferred submit")
+	}
+
 	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = model.(chatTUIModel)
-	model, _ = updated.Update(submitInputMsg(staleSeq))
-	updated = model.(chatTUIModel)
+	seq2 := updated.submitSeq
+	if seq2 == seq1 {
+		t.Fatal("expected second Enter to advance submit sequence")
+	}
 
+	model, _ = updated.Update(submitInputMsg(seq1))
+	updated = model.(chatTUIModel)
 	if len(updated.entries) != 0 {
-		t.Fatalf("entry count after stale submit = %d, want 0", len(updated.entries))
+		t.Fatalf("stale deferred submit fired: entry count = %d, want 0", len(updated.entries))
 	}
-	if updated.streamActive {
-		t.Fatal("expected stale submit not to start sending")
-	}
-	if got := updated.textarea.Value(); got != "first line" {
-		t.Fatalf("textarea after stale submit = %q, want %q", got, "first line")
+
+	model, _ = updated.Update(submitInputMsg(seq2))
+	updated = model.(chatTUIModel)
+	if len(updated.entries) != 1 {
+		t.Fatalf("entry count after latest deferred submit = %d, want 1", len(updated.entries))
 	}
 }
 
@@ -810,6 +896,171 @@ func TestTUICtrlVPastesMultilineClipboardWithoutSubmitting(t *testing.T) {
 	}
 }
 
+func TestTUIBracketedPasteMultilineDoesNotSubmit(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("prefix: ")
+	entryCount := len(m.entries)
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("first line\nsecond line\nthird line"), Paste: true})
+	updated := model.(chatTUIModel)
+
+	want := "prefix: first line\nsecond line\nthird line"
+	if got := updated.textarea.Value(); got != want {
+		t.Fatalf("textarea after bracketed paste = %q, want %q", got, want)
+	}
+	if !updated.textareaExpanded {
+		t.Fatal("expected bracketed multiline paste to expand textarea")
+	}
+	if len(updated.entries) != entryCount {
+		t.Fatalf("entry count = %d, want %d", len(updated.entries), entryCount)
+	}
+	if updated.streamActive {
+		t.Fatal("expected bracketed paste not to start sending")
+	}
+
+	updated.textarea.SetValue(updated.textarea.Value() + " edited")
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(chatTUIModel)
+	if !updated.pendingSubmitNewline {
+		t.Fatal("expected explicit Enter to start deferred submit")
+	}
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count before deferred submit = %d, want 0", len(updated.entries))
+	}
+
+	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
+	updated = model.(chatTUIModel)
+	if len(updated.entries) != 1 {
+		t.Fatalf("entry count after deferred submit = %d, want 1", len(updated.entries))
+	}
+	if got := updated.entries[0].content; got != want+" edited" {
+		t.Fatalf("submitted content = %q, want %q", got, want+" edited")
+	}
+}
+
+func TestTUIMultilineRapidEnterIsTreatedAsPasteContinuation(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("first line\nsecond line"), Paste: true})
+	updated := model.(chatTUIModel)
+	if got := updated.textarea.Value(); got != "first line\nsecond line" {
+		t.Fatalf("textarea after bracketed paste = %q", got)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(chatTUIModel)
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count after explicit enter = %d, want 0", len(updated.entries))
+	}
+	if updated.streamActive {
+		t.Fatal("expected explicit enter not to submit before deferred timer")
+	}
+	if !updated.pendingSubmitNewline {
+		t.Fatal("expected explicit Enter to start deferred submit")
+	}
+	if got := updated.textarea.Value(); got != "first line\nsecond line" {
+		t.Fatalf("textarea after rapid enter = %q", got)
+	}
+
+	model, _ = updated.Update(submitInputMsg(updated.submitSeq))
+	updated = model.(chatTUIModel)
+	if len(updated.entries) != 1 {
+		t.Fatalf("entry count after deferred submit = %d, want 1", len(updated.entries))
+	}
+	if got := updated.entries[0].content; got != "first line\nsecond line" {
+		t.Fatalf("submitted content = %q", got)
+	}
+}
+
+func TestTUIUnmarkedMulticharacterPasteDoesNotSubmit(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Check its version or help info?")})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(chatTUIModel)
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Configure it for a proxy setup?")})
+	updated = model.(chatTUIModel)
+
+	if len(updated.entries) != 0 {
+		t.Fatalf("entry count after unmarked multiline paste = %d, want 0", len(updated.entries))
+	}
+	if updated.streamActive {
+		t.Fatal("expected unmarked multiline paste not to start sending")
+	}
+	want := "Check its version or help info?\nConfigure it for a proxy setup?"
+	if got := updated.textarea.Value(); got != want {
+		t.Fatalf("textarea after unmarked multiline paste = %q, want %q", got, want)
+	}
+}
+
+func TestTUIEscapeCancelsStreamAndClearsInput(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+	m.textarea.SetValue("draft message")
+	m.streamActive = true
+	m.spinning = true
+	m.streamBuf = "partial"
+	cancelled := false
+	m.agentTurnCancel = func() { cancelled = true }
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	updated := model.(chatTUIModel)
+
+	if updated.streamActive {
+		t.Fatal("expected streamActive to be false")
+	}
+	if updated.spinning {
+		t.Fatal("expected spinning to be false")
+	}
+	if got := updated.textarea.Value(); got != "" {
+		t.Fatalf("textarea after Esc = %q, want empty", got)
+	}
+	if !cancelled {
+		t.Fatal("expected Esc to cancel ongoing task")
+	}
+	if len(updated.entries) == 0 || updated.entries[len(updated.entries)-1].content != "(cancelled)" {
+		t.Fatalf("expected cancellation entry, got %+v", updated.entries)
+	}
+}
+
+func TestTUICtrlCRequiresSecondPressBeforeQuitWhenInputStartsEmpty(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 6)
+	m.textarea.Focus()
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := model.(chatTUIModel)
+	if cmd != nil {
+		t.Fatal("expected first Ctrl+C with empty input not to quit")
+	}
+	if !updated.ctrlCPrimed {
+		t.Fatal("expected first Ctrl+C to prime quit")
+	}
+
+	_, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected second Ctrl+C with empty input to quit")
+	}
+}
+
 func TestTUICtrlCClearsInputBeforeQuitting(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
@@ -838,22 +1089,16 @@ func TestTUICtrlCClearsInputBeforeQuitting(t *testing.T) {
 	if updated.historySearchMode {
 		t.Fatal("expected history search to exit after clearing input")
 	}
+	if !updated.ctrlCPrimed {
+		t.Fatal("expected first Ctrl+C to prime quit after clearing input")
+	}
 	if cmd != nil {
 		t.Fatal("expected no quit command when first Ctrl+C clears input")
 	}
-}
 
-func TestTUICtrlCQuitsWhenInputAlreadyEmpty(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
-	m.ready = true
-	m.mainWidth = 80
-	m.viewport = viewport.New(80, 6)
-	m.textarea.Focus()
-
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-
+	_, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
-		t.Fatal("expected quit command when Ctrl+C pressed with empty input")
+		t.Fatal("expected second Ctrl+C to quit after input has been cleared")
 	}
 }
 
@@ -886,7 +1131,7 @@ func TestTUIUpDownStillNavigatePromptHistory(t *testing.T) {
 	}
 }
 
-func TestTUISyncViewportDoesNotJumpWhenAutoFollowDisabled(t *testing.T) {
+func TestTUISyncViewportFollowsLatestContent(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -899,8 +1144,8 @@ func TestTUISyncViewportDoesNotJumpWhenAutoFollowDisabled(t *testing.T) {
 	m.appendEntry(transcriptAssistant, "next")
 	m.syncViewport()
 
-	if m.viewport.AtBottom() {
-		t.Fatal("expected viewport to stay off the bottom when autoFollow is disabled")
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected viewport to follow the newest content")
 	}
 }
 
@@ -1294,4 +1539,137 @@ func (c *testClient) PostStream(path string, body any) (*http.Response, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return c.http.Do(req)
+}
+
+// ─── Paste simulation tests ───────────────────────────────────────────────────
+
+func readyChatTUIModelForInput() chatTUIModel {
+	m := newChatTUIModel(nil, "session-1", "model", "chat", "openai", "", nil, nil)
+	raw, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return raw.(chatTUIModel)
+}
+
+// sendLineByLinePaste simulates a terminal that pastes each line as a rune
+// block separated by regular Enter key events. This is the regression path:
+// each pasted newline can look like a real submit unless the TUI defers it.
+func sendLineByLinePaste(m chatTUIModel, text string) chatTUIModel {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line != "" {
+			raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(line)})
+			m = raw.(chatTUIModel)
+		}
+		if i < len(lines)-1 {
+			raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = raw.(chatTUIModel)
+		}
+	}
+	return m
+}
+
+// sendBracketedPaste simulates terminals that mark pasted runes and newline
+// events with Paste=true.
+func sendBracketedPaste(m chatTUIModel, text string) chatTUIModel {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line != "" {
+			raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(line), Paste: true})
+			m = raw.(chatTUIModel)
+		}
+		if i < len(lines)-1 {
+			raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter, Paste: true})
+			m = raw.(chatTUIModel)
+		}
+	}
+	return m
+}
+
+func TestPasteMultiLineLineByLineDoesNotAutoSend(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m = sendLineByLinePaste(m, "line one\nline two\nline three")
+
+	if m.streamActive {
+		t.Fatal("line-by-line paste triggered an automatic send")
+	}
+	if m.pendingSubmitNewline {
+		t.Fatal("line-by-line paste left submit pending instead of absorbing newline")
+	}
+	if got := m.textarea.Value(); got != "line one\nline two\nline three" {
+		t.Fatalf("textarea = %q, want full multiline paste", got)
+	}
+	if got := len(m.entries); got != 0 {
+		t.Fatalf("entries = %d, want 0 before explicit user send", got)
+	}
+}
+
+func TestPasteMultiLineBracketedDoesNotAutoSend(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m = sendBracketedPaste(m, "alpha\nbeta\ngamma")
+
+	if m.streamActive {
+		t.Fatal("bracketed paste triggered an automatic send")
+	}
+	if got := m.textarea.Value(); got != "alpha\nbeta\ngamma" {
+		t.Fatalf("textarea = %q, want full bracketed paste", got)
+	}
+	if got := len(m.entries); got != 0 {
+		t.Fatalf("entries = %d, want 0 before explicit user send", got)
+	}
+}
+
+func TestPasteMultiLineSendsAllTogetherAfterExplicitEnter(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m = sendLineByLinePaste(m, "hello world\nsecond line")
+
+	raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = raw.(chatTUIModel)
+	if !m.pendingSubmitNewline {
+		t.Fatal("explicit Enter did not start deferred submit")
+	}
+	if got := m.textarea.Value(); got != "hello world\nsecond line" {
+		t.Fatalf("textarea changed before deferred submit fired: %q", got)
+	}
+
+	raw, _ = m.Update(submitInputMsg(m.submitSeq))
+	m = raw.(chatTUIModel)
+	if got := m.textarea.Value(); got != "" {
+		t.Fatalf("textarea = %q, want cleared after submit", got)
+	}
+	if !m.streamActive {
+		t.Fatal("submit did not transition into streaming state")
+	}
+	if got := len(m.entries); got != 1 {
+		t.Fatalf("entries = %d, want 1 submitted user entry", got)
+	}
+	if got := m.entries[0].content; got != "hello world\nsecond line" {
+		t.Fatalf("submitted content = %q, want full multiline text", got)
+	}
+}
+
+func TestPendingSubmitIsAbsorbedByIncomingPasteText(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m.applyTextareaValue("line one")
+
+	raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = raw.(chatTUIModel)
+	if !m.pendingSubmitNewline {
+		t.Fatal("Enter did not mark submit as pending")
+	}
+
+	raw, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("line two")})
+	m = raw.(chatTUIModel)
+	if m.pendingSubmitNewline {
+		t.Fatal("incoming paste text did not absorb pending submit newline")
+	}
+	if got := m.textarea.Value(); got != "line one\nline two" {
+		t.Fatalf("textarea = %q, want absorbed newline before pasted text", got)
+	}
 }

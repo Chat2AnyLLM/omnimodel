@@ -25,44 +25,26 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	liptable "github.com/charmbracelet/lipgloss/table"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
 var (
 	tuiTitleStyle           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Padding(0, 1)
-	tuiUserLabelStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#67E8F9"))
-	tuiAssistantLabelStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D8B4FE"))
-	tuiThinkingLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A78BFA"))
+	tuiUserLabelStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#06B6D4"))
+	tuiAssistantLabelStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A855F7"))
 	tuiErrorStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
 	tuiHelpStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Padding(0, 1)
-	tuiStatusStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
-	tuiStatusAccentStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
-	tuiInputMetaStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
-	tuiPermManualChipStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FDE68A")).Background(lipgloss.Color("#3A2A10")).Padding(0, 1)
-	tuiPermAutoChipStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1FAE5")).Background(lipgloss.Color("#123225")).Padding(0, 1)
-	tuiPermPendingChipStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFE7B3")).Background(lipgloss.Color("#4A3415")).Padding(0, 1)
 	tuiDivStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	tuiUserBlockStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#10161B")).Foreground(lipgloss.Color("#E6F7FB")).Padding(0, 1)
-	tuiAssistantBlockStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#17141D")).Foreground(lipgloss.Color("#F0EAF7")).Padding(0, 1)
-	tuiThinkingBlockStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#141723")).Foreground(lipgloss.Color("#D6CCFF")).Padding(0, 1)
-	tuiUserHoverStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#17232A")).Foreground(lipgloss.Color("#ECFBFF")).Padding(0, 1)
-	tuiAssistantHoverStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#211A2B")).Foreground(lipgloss.Color("#F7F1FF")).Padding(0, 1)
-	tuiThinkingHoverStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#1A1E2E")).Foreground(lipgloss.Color("#E6DEFF")).Padding(0, 1)
-	tuiThinkingStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Italic(true)
-	tuiSidebarStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#101014")).Foreground(lipgloss.Color("#E5E7EB")).Padding(1, 2)
+	tuiUserBlockStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#171717")).Foreground(lipgloss.Color("#F9FAFB")).Padding(0, 1)
+	tuiAssistantBlockStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
+	tuiThinkingStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Italic(true).PaddingLeft(1)
+	tuiSidebarStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#111111")).Foreground(lipgloss.Color("#E5E7EB")).Padding(1, 2)
 	tuiSidebarHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB"))
 	tuiSidebarLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 	tuiSidebarValueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6"))
 	tuiPermissionLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
-	tuiPermissionBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color("#2A1F0F")).Foreground(lipgloss.Color("#FDE68A")).Padding(0, 1)
+	tuiPermissionBlockStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#F59E0B")).Padding(0, 1)
 	tuiSelectionStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#E8E8E8")).Foreground(lipgloss.Color("#111111"))
-	tuiInputShellStyle      = lipgloss.NewStyle().Background(lipgloss.Color("#1C1C1C")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#3B82F6"))
-	tuiInputAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
-	tuiTableBorderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	tuiTableHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#C084FC")).Bold(true).Padding(0, 1)
-	tuiTableCellStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
-	tuiTableAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
 	ansiPrefixPattern       = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*`)
 )
 
@@ -104,12 +86,6 @@ type transcriptEntry struct {
 	content string
 }
 
-type transcriptLayoutEntry struct {
-	kind      transcriptEntryType
-	startLine int
-	endLine   int
-}
-
 type clipboardWriter interface {
 	ReadAll() (string, error)
 	WriteAll(text string) error
@@ -137,8 +113,8 @@ type transcriptSelection struct {
 type progReadyMsg struct{ p *tea.Program }
 type streamDeltaMsg string
 type streamDoneMsg struct{ err error }
-type submitInputMsg uint64
 type appendLineMsg string
+type submitInputMsg uint64
 type modelChangedMsg string
 type agentBackendChangedMsg string
 type apiShapeChangedMsg string
@@ -432,9 +408,6 @@ type chatTUIModel struct {
 	spinning bool
 
 	entries              []transcriptEntry
-	transcriptLayout     []transcriptLayoutEntry
-	hoveredEntry         int
-	selectionMessage     string
 	streamActive         bool
 	streamBuf            string
 	queuedPrompt         string
@@ -462,8 +435,6 @@ type chatTUIModel struct {
 	onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
 
 	textareaExpanded bool
-	showInlineHelp   bool
-	ctrlCPrimed      bool
 
 	width                 int
 	height                int
@@ -482,7 +453,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 	sp.Spinner = spinner.Dot
 
 	ta := textarea.New()
-	ta.Placeholder = "Type a message… (Enter to send, Ctrl+J for newline)"
+	ta.Placeholder = "Type a message… (Enter to send, Ctrl+J to expand input)"
 	ta.SetWidth(80)
 	ta.SetHeight(1)
 	ta.Focus()
@@ -490,7 +461,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(true)
 
-	mdR, _ := glamour.NewTermRenderer(glamour.WithStandardStyle("dark"), glamour.WithWordWrap(78), glamour.WithTableWrap(false))
+	mdR, _ := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(80))
 
 	m := chatTUIModel{
 		client:              c,
@@ -511,8 +482,6 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 		autoFollow:          true,
 		maxTurns:            max(InitialConfig.MaxTurns, 1),
 		clipboard:           systemClipboard{},
-		hoveredEntry:        -1,
-		selectionMessage:    "",
 	}
 	for _, msg := range history {
 		switch msg.Role {
@@ -545,7 +514,6 @@ func (m *chatTUIModel) absorbPendingSubmitNewline() {
 	m.textareaExpanded = true
 	lines := strings.Count(m.textarea.Value(), "\n") + 1
 	m.textarea.SetHeight(tuiMax(3, lines))
-	m.textarea.CursorEnd()
 }
 
 func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -581,9 +549,9 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Width = m.mainWidth
 			m.viewport.Height = vpH
 		}
-		m.textarea.SetWidth(tuiMax(20, m.mainWidth-6))
+		m.textarea.SetWidth(tuiMax(20, m.mainWidth-2))
 		if m.mdRenderer != nil {
-			m.mdRenderer, _ = glamour.NewTermRenderer(glamour.WithStandardStyle("dark"), glamour.WithWordWrap(m.transcriptContentWidth()), glamour.WithTableWrap(false))
+			m.mdRenderer, _ = glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(tuiMax(20, m.mainWidth-6)))
 		}
 		m.syncViewport()
 		return m, nil
@@ -699,21 +667,29 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			if m.streamActive {
+				m.streamActive = false
+				m.spinning = false
+				m.streamBuf = ""
+				if m.pendingPermission != nil {
+					select {
+					case m.pendingPermission.respCh <- false:
+					default:
+					}
+					m.pendingPermission = nil
+				}
+				if m.agentTurnCancel != nil {
+					m.agentTurnCancel()
+					m.agentTurnCancel = nil
+				}
+				m.textarea.Placeholder = m.normalPlaceholder
+				m.syncViewport()
+				return m, nil
+			}
 			if m.textarea.Value() != "" {
 				m.applyTextareaValue("")
-				m.pendingSubmitNewline = false
-				m.submitSeq++
 				m.resetHistoryNavigation()
 				m.exitHistorySearch()
-				m.ctrlCPrimed = true
-				return m, nil
-			}
-			if !m.ctrlCPrimed {
-				m.ctrlCPrimed = true
-				return m, nil
-			}
-			if m.streamActive {
-				m.cancelOngoingTurn(false)
 				return m, nil
 			}
 			if m.agentTurnCancel != nil {
@@ -725,17 +701,27 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEscape:
 			if m.historySearchMode {
 				m.exitHistorySearch()
+				return m, nil
 			}
-			m.ctrlCPrimed = false
-			m.cancelOngoingTurn(true)
-			if m.textarea.Value() != "" {
-				m.applyTextareaValue("")
-				m.pendingSubmitNewline = false
-				m.submitSeq++
-				m.resetHistoryNavigation()
-				m.exitHistorySearch()
+			if m.streamActive {
+				m.streamActive = false
+				m.spinning = false
+				m.streamBuf = ""
+				if m.pendingPermission != nil {
+					select {
+					case m.pendingPermission.respCh <- false:
+					default:
+					}
+					m.pendingPermission = nil
+				}
+				m.textarea.Placeholder = m.normalPlaceholder
+				m.appendEntry(transcriptInfo, "(cancelled)")
+				m.syncViewport()
 			}
-			m.syncViewport()
+			if m.agentTurnCancel != nil {
+				m.agentTurnCancel()
+				m.agentTurnCancel = nil
+			}
 			return m, nil
 		case tea.KeyCtrlR:
 			if !m.textarea.Focused() || m.streamActive {
@@ -752,24 +738,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 			m.syncViewport()
 			return m, nil
-		case tea.KeyRunes:
-			if (msg.Paste || len(msg.Runes) > 1) && m.textarea.Focused() {
-				if !m.streamActive {
-					m.textarea.InsertString(string(msg.Runes))
-					lines := strings.Count(m.textarea.Value(), "\n") + 1
-					if lines > 1 {
-						m.textareaExpanded = true
-						m.textarea.SetHeight(tuiMax(3, lines))
-					}
-					m.textarea.CursorEnd()
-					m.syncViewport()
-					return m, textarea.Blink
-				}
-			}
-			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == '?' && strings.TrimSpace(m.textarea.Value()) == "" {
-				m.showInlineHelp = !m.showInlineHelp
-				return m, nil
-			}
 		case tea.KeyUp, tea.KeyCtrlP:
 			if !m.textarea.Focused() || m.streamActive {
 				break
@@ -802,8 +770,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyCtrlJ:
 			if m.textarea.Focused() && !m.streamActive {
-				m.pendingSubmitNewline = false
-				m.submitSeq++
 				m.textarea.InsertString("\n")
 				m.textareaExpanded = true
 				lines := strings.Count(m.textarea.Value(), "\n") + 1
@@ -816,8 +782,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.textarea.Focused() && m.clipboard != nil {
 				text, err := m.clipboard.ReadAll()
 				if err == nil && text != "" {
-					m.pendingSubmitNewline = false
-					m.submitSeq++
 					m.textarea.InsertString(text)
 					lines := strings.Count(m.textarea.Value(), "\n") + 1
 					if lines > 1 {
@@ -849,8 +813,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.queuedPrompt = text
 					m.textarea.Reset()
-					m.pendingSubmitNewline = false
-					m.submitSeq++
 					m.appendEntry(transcriptInfo, fmt.Sprintf("(queued: %s)", truncateString(text, 60)))
 					m.syncViewport()
 					return m, nil
@@ -873,7 +835,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case streamDeltaMsg:
 		m.streamBuf += string(msg)
-		m.autoFollow = true
 		m.syncViewport()
 		return m, nil
 	case streamDoneMsg:
@@ -1041,7 +1002,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateAutoFollowFromViewport()
 	}
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if keyMsg.Paste && keyMsg.Type != tea.KeyRunes {
+		if keyMsg.Paste {
 			lines := strings.Count(m.textarea.Value(), "\n") + 1
 			if lines > 1 {
 				m.textareaExpanded = true
@@ -1092,15 +1053,26 @@ func (m chatTUIModel) View() string {
 	main.WriteString("\n")
 	main.WriteString(m.viewport.View())
 	main.WriteString("\n")
-	main.WriteString(m.renderTextarea())
-	if status := m.renderFooterStatus(); status != "" {
+	main.WriteString(div)
+	main.WriteString("\n")
+	main.WriteString(m.textarea.View())
+	if m.pendingPermission != nil {
+		main.WriteString("\n")
+		main.WriteString(tuiHelpStyle.Render(m.approvalPromptText))
+	} else if status := m.historySearchStatus(); status != "" {
+		main.WriteString("\n")
+		main.WriteString(status)
+	} else if status := m.selectionStatus(); status != "" {
 		main.WriteString("\n")
 		main.WriteString(status)
 	}
+	main.WriteString("\n")
+	main.WriteString(tuiHelpStyle.Render("Ctrl+C: clear/quit  Ctrl+V: paste  Ctrl+J: expand input  ↑↓: history  PgUp/PgDn: scroll  End: follow bottom  Ctrl+R: search  Shift+Tab: autopilot  /help: commands  /apishape: API shape"))
 
 	base := main.String()
 	if m.sidebarWidth > 0 {
 		sidebar := m.renderSidebar()
+		// Overlay sidebar at top-right corner so it stays fixed when main content scrolls.
 		base = placeOverlayTopRight(base, sidebar, m.width)
 	}
 	if m.picker == nil && m.sessionPicker == nil {
@@ -1110,15 +1082,6 @@ func (m chatTUIModel) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSessionPickerModal())
 	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderPickerModal())
-}
-
-func (m chatTUIModel) renderTextarea() string {
-	contentWidth := m.transcriptBlockMaxWidth()
-	taView := m.textarea.View()
-
-	shellInnerWidth := tuiMax(0, contentWidth-2)
-	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(tuiMax(0, shellInnerWidth-4)).Render(taView)
-	return tuiInputShellStyle.Width(shellInnerWidth).Render(inner)
 }
 
 func (m chatTUIModel) renderSessionPickerModal() string {
@@ -1261,7 +1224,6 @@ func (m chatTUIModel) submitTextareaInput() (tea.Model, tea.Cmd) {
 	}
 	m.recordPromptHistory(text)
 	m.textarea.Reset()
-	m.pendingSubmitNewline = false
 	m.resetHistoryNavigation()
 	m.exitHistorySearch()
 	if strings.HasPrefix(text, "?") && strings.TrimSpace(text) == "?" {
@@ -1306,40 +1268,27 @@ func (m *chatTUIModel) appendEntry(kind transcriptEntryType, content string) {
 		return
 	}
 	m.entries = append(m.entries, transcriptEntry{kind: kind, content: content})
-	m.autoFollow = true
 }
 
 func (m chatTUIModel) renderTranscript() string {
 	blocks := make([]string, 0, len(m.entries)+1)
-	layout := make([]transcriptLayoutEntry, 0, len(m.entries)+1)
-	lineOffset := 0
-	for idx, entry := range m.entries {
-		var block string
+	for _, entry := range m.entries {
 		switch entry.kind {
 		case transcriptUser:
-			block = m.renderUserSection(entry.content, idx == m.hoveredEntry)
+			blocks = append(blocks, m.renderUserSection(entry.content))
 		case transcriptAssistant:
-			block = m.renderAssistantSection(entry.content, idx == m.hoveredEntry)
+			blocks = append(blocks, m.renderAssistantSection(entry.content))
 		case transcriptError:
-			block = tuiErrorStyle.Render(entry.content)
+			blocks = append(blocks, tuiErrorStyle.Render(entry.content))
 		case transcriptPermission:
-			block = m.renderPermissionSection(entry.content)
+			blocks = append(blocks, m.renderPermissionSection(entry.content))
 		default:
-			block = m.renderInfoSection(entry.content)
+			blocks = append(blocks, m.renderInfoSection(entry.content))
 		}
-		blocks = append(blocks, block)
-		lineCount := strings.Count(block, "\n") + 1
-		layout = append(layout, transcriptLayoutEntry{kind: entry.kind, startLine: lineOffset, endLine: lineOffset + lineCount - 1})
-		lineOffset += lineCount + 2
 	}
 	if m.streamActive || strings.TrimSpace(m.streamBuf) != "" {
-		block := m.renderThinkingSection(m.streamBuf, len(m.entries) == m.hoveredEntry)
-		blocks = append(blocks, block)
-		lineCount := strings.Count(block, "\n") + 1
-		layout = append(layout, transcriptLayoutEntry{kind: transcriptAssistant, startLine: lineOffset, endLine: lineOffset + lineCount - 1})
-		lineOffset += lineCount + 2
+		blocks = append(blocks, m.renderThinkingSection(m.streamBuf))
 	}
-	m.transcriptLayout = layout
 	transcript := strings.Join(blocks, "\n\n")
 	if !m.selection.active {
 		return transcript
@@ -1395,113 +1344,36 @@ func highlightVisibleRange(line string, left, right int) string {
 	return prefix + tuiSelectionStyle.Render(segment) + suffix
 }
 
-func (m chatTUIModel) renderFooterStatus() string {
-	if m.pendingPermission != nil {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render(m.approvalPromptText)
-	}
-	if status := m.historySearchStatus(); status != "" {
-		return status
-	}
-	if status := m.selectionStatus(); status != "" {
-		return status
-	}
-	if m.showInlineHelp {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
-	}
-	status := "Enter send · Ctrl+J newline · ? help"
-	if m.streamActive {
-		status = "Streaming response… Esc cancels"
-	} else if m.queuedPrompt != "" {
-		status = "Queued prompt ready"
-	}
-	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render(status)
-}
-
-func (m chatTUIModel) renderPermissionChip() string {
-	if m.pendingPermission != nil {
-		return tuiPermPendingChipStyle.Render("APPROVAL REQUIRED")
-	}
-	if m.autopilot {
-		return tuiPermAutoChipStyle.Render("AUTOPILOT")
-	}
-	return tuiPermManualChipStyle.Render("MANUAL APPROVAL")
-}
-
-func (m chatTUIModel) transcriptContentWidth() int {
-	return tuiMax(20, m.transcriptBlockMaxWidth()-2)
-}
-
-func (m chatTUIModel) transcriptBlockMaxWidth() int {
-	return tuiMax(8, m.mainWidth)
-}
-
-func (m chatTUIModel) renderUserSection(text string, hovered bool) string {
-	label := tuiUserLabelStyle.Render("User")
-	style := tuiUserBlockStyle
-	if hovered {
-		style = tuiUserHoverStyle
-	}
-	blockWidth := m.transcriptBlockMaxWidth()
-	block := style.Width(blockWidth).MaxWidth(blockWidth).Render(text)
+func (m chatTUIModel) renderUserSection(text string) string {
+	label := tuiUserLabelStyle.Render("You")
+	block := tuiUserBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(text)
 	return lipgloss.JoinVertical(lipgloss.Left, label, block)
 }
 
-func (m chatTUIModel) renderAssistantSection(text string, hovered bool) string {
+func (m chatTUIModel) renderAssistantSection(text string) string {
 	rendered := m.renderMD(text)
 	label := tuiAssistantLabelStyle.Render("Assistant")
-	body := m.renderAssistantBody(rendered, hovered)
+	body := tuiAssistantBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(rendered)
 	return lipgloss.JoinVertical(lipgloss.Left, label, body)
 }
 
-func (m chatTUIModel) renderThinkingSection(text string, hovered bool) string {
+func (m chatTUIModel) renderThinkingSection(text string) string {
 	body := strings.TrimSpace(text)
 	if body == "" {
 		body = m.spinner.View() + " thinking…"
 	} else if m.spinning {
 		body = m.spinner.View() + " " + body
 	}
-	label := tuiThinkingLabelStyle.Render("Thinking")
-	block := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
-	return lipgloss.JoinVertical(lipgloss.Left, label, block)
-}
-
-func (m chatTUIModel) renderAssistantBody(text string, hovered bool) string {
-	plain := xansi.Strip(text)
-	lines := strings.Split(plain, "\n")
-	styled := make([]string, len(lines))
-	style := tuiAssistantBlockStyle
-	if hovered {
-		style = tuiAssistantHoverStyle
-	}
-	blockWidth := m.transcriptBlockMaxWidth()
-	for i, line := range lines {
-		styled[i] = style.Width(blockWidth).MaxWidth(blockWidth).Render(line)
-	}
-	return strings.Join(styled, "\n")
-}
-
-func (m chatTUIModel) renderThinkingBody(text string, hovered bool) string {
-	plain := xansi.Strip(text)
-	lines := strings.Split(plain, "\n")
-	styled := make([]string, len(lines))
-	style := tuiThinkingBlockStyle
-	if hovered {
-		style = tuiThinkingHoverStyle
-	}
-	blockWidth := m.transcriptBlockMaxWidth()
-	for i, line := range lines {
-		styled[i] = style.Width(blockWidth).MaxWidth(blockWidth).Render(line)
-	}
-	return strings.Join(styled, "\n")
+	return tuiThinkingStyle.Width(tuiMax(8, m.mainWidth-1)).Render(body)
 }
 
 func (m chatTUIModel) renderInfoSection(text string) string {
-	return tuiStatusStyle.Width(tuiMax(8, m.transcriptBlockMaxWidth())).Render(text)
+	return tuiHelpStyle.Width(tuiMax(8, m.mainWidth-1)).Render(text)
 }
 
 func (m chatTUIModel) renderPermissionSection(text string) string {
 	label := tuiPermissionLabelStyle.Render("Permission required")
-	body := tuiPermissionBlockStyle.Width(m.transcriptBlockMaxWidth()).MaxWidth(m.transcriptBlockMaxWidth()).Render(text)
+	body := tuiPermissionBlockStyle.Width(tuiMax(8, m.mainWidth-2)).Render(text)
 	return lipgloss.JoinVertical(lipgloss.Left, label, body)
 }
 
@@ -1515,35 +1387,40 @@ func (m chatTUIModel) renderSidebar() string {
 	statusDot := lipgloss.NewStyle().Foreground(statusColor).Render("●")
 	valueWidth := tuiMax(8, m.sidebarWidth-11)
 
-	permMode := "Manual approval"
+	permMode := "Manual"
 	if m.autopilot {
 		permMode = "Autopilot"
 	}
+	permDisplay := tuiSidebarValueStyle.Render(permMode)
 	if m.pendingPermission != nil {
-		permMode = "Waiting: " + m.pendingPermission.req.ToolName
-	}
-	workingDir, err := os.Getwd()
-	if err != nil || strings.TrimSpace(workingDir) == "" {
-		workingDir = "unknown"
+		toolName := m.pendingPermission.req.ToolName
+		permDisplay = tuiPermissionLabelStyle.Render("⚠ " + toolName)
 	}
 
 	sections := []string{
+		tuiSidebarHeaderStyle.Render("Permissions"),
+		permDisplay,
+		"",
 		tuiSidebarHeaderStyle.Render("Context"),
-		tuiSidebarLabelStyle.Render("Permissions") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(permMode),
-		tuiSidebarLabelStyle.Render("Working dir") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(workingDir),
 		tuiSidebarLabelStyle.Render("Session") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.sessionID),
 		tuiSidebarLabelStyle.Render("Model") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.model),
 		tuiSidebarLabelStyle.Render("Mode") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(m.mode),
-		tuiSidebarLabelStyle.Render("Status") + "\n" + statusDot + " " + status,
+		tuiSidebarLabelStyle.Render("API Shape") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(formatAPIShape(m.apiShape)),
+		tuiSidebarLabelStyle.Render("Max Turns") + "\n" + tuiSidebarValueStyle.Width(valueWidth).Render(fmt.Sprintf("%d", m.maxTurns)),
+	}
+	if wd, err := os.Getwd(); err == nil {
+		sections = append(sections, tuiSidebarLabelStyle.Render("Working Dir")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(wd))
 	}
 	if m.agentBackend != "" {
 		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(m.agentBackend))
 	}
 	sections = append(sections,
-		tuiSidebarHeaderStyle.Render("Actions"),
-		tuiSidebarValueStyle.Width(valueWidth).Render("Shift+Tab  Toggle autopilot"),
-		tuiSidebarValueStyle.Width(valueWidth).Render("/models    Switch model"),
-		tuiSidebarValueStyle.Width(valueWidth).Render("/sessions  Resume chat"),
+		tuiSidebarLabelStyle.Render("Status")+"\n"+statusDot+" "+status,
+		tuiSidebarLabelStyle.Render("Messages")+"\n"+tuiSidebarValueStyle.Render(fmt.Sprintf("%d total", len(m.entries))),
+	)
+	sections = append(sections,
+		tuiSidebarHeaderStyle.Render("LSP"),
+		tuiSidebarLabelStyle.Render("LSPs will activate as files are read"),
 	)
 	return lipgloss.NewStyle().Width(m.sidebarWidth).Render(tuiSidebarStyle.Width(m.sidebarWidth).Height(tuiMax(8, m.height-1)).Render(strings.Join(sections, "\n\n")))
 }
@@ -1585,29 +1462,6 @@ func placeOverlayTopRight(base, sidebar string, totalWidth int) string {
 	return strings.Join(result, "\n")
 }
 
-func (m *chatTUIModel) cancelOngoingTurn(recordCancellation bool) {
-	wasActive := m.streamActive || m.agentTurnCancel != nil || m.pendingPermission != nil || strings.TrimSpace(m.streamBuf) != ""
-	m.streamActive = false
-	m.spinning = false
-	m.streamBuf = ""
-	m.pendingSubmitNewline = false
-	if m.pendingPermission != nil {
-		select {
-		case m.pendingPermission.respCh <- false:
-		default:
-		}
-		m.pendingPermission = nil
-	}
-	if m.agentTurnCancel != nil {
-		m.agentTurnCancel()
-		m.agentTurnCancel = nil
-	}
-	m.textarea.Placeholder = m.normalPlaceholder
-	if recordCancellation && wasActive {
-		m.appendEntry(transcriptInfo, "(cancelled)")
-	}
-}
-
 func (m *chatTUIModel) saveConfig() {
 	if m.onConfigSave != nil {
 		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.autopilot, m.maxTurns)
@@ -1622,15 +1476,12 @@ func (m *chatTUIModel) copySelection() {
 	selected := m.selectedTranscriptText()
 	if selected == "" {
 		m.clearSelection()
-		m.selectionMessage = ""
 		return
 	}
 	if m.clipboard == nil {
-		m.selectionMessage = fmt.Sprintf("Selected %d chars", len([]rune(selected)))
 		return
 	}
 	_ = m.clipboard.WriteAll(selected)
-	m.selectionMessage = fmt.Sprintf("Copied %d chars", len([]rune(selected)))
 }
 
 func (m *chatTUIModel) setAutoFollow(enabled bool) {
@@ -1660,36 +1511,7 @@ func (m *chatTUIModel) viewportMousePosition(x, y int) (int, int, bool) {
 	return x - left, y - top, true
 }
 
-func (m *chatTUIModel) clearSelectionStatus() {
-	m.selectionMessage = ""
-}
-
-func (m *chatTUIModel) hoveredTranscriptEntry(localY int) int {
-	lineIdx := m.viewport.YOffset + localY
-	for idx, entry := range m.transcriptLayout {
-		if lineIdx >= entry.startLine && lineIdx <= entry.endLine {
-			switch entry.kind {
-			case transcriptUser, transcriptAssistant:
-				return idx
-			}
-			return -1
-		}
-	}
-	return -1
-}
-
-func (m *chatTUIModel) updateHoveredEntry(localY int, insideViewport bool) bool {
-	next := -1
-	if insideViewport {
-		next = m.hoveredTranscriptEntry(localY)
-	}
-	if next == m.hoveredEntry {
-		return false
-	}
-	m.hoveredEntry = next
-	m.syncViewport()
-	return true
-}
+func (m *chatTUIModel) clearSelectionStatus() {}
 
 func (m *chatTUIModel) handleMouseEvent(msg tea.MouseMsg) bool {
 	if !m.ready || m.picker != nil || m.sessionPicker != nil {
@@ -1707,15 +1529,6 @@ func (m *chatTUIModel) handleMouseEvent(msg tea.MouseMsg) bool {
 	}
 
 	mouseX, mouseY, insideViewport := m.viewportMousePosition(msg.X, msg.Y)
-	if msg.Action == tea.MouseActionMotion {
-		if m.updateHoveredEntry(mouseY, insideViewport) {
-			return true
-		}
-	} else if !insideViewport && m.hoveredEntry != -1 {
-		m.hoveredEntry = -1
-		m.syncViewport()
-		return true
-	}
 
 	if m.middleDragging {
 		if msg.Action == tea.MouseActionMotion {
@@ -1820,13 +1633,7 @@ func (m chatTUIModel) selectedTranscriptText() string {
 }
 
 func (m *chatTUIModel) selectionStatus() string {
-	if strings.TrimSpace(m.selectionMessage) == "" {
-		if m.selection.active {
-			return tuiHelpStyle.Render("Selection active · drag to adjust · release copies")
-		}
-		return ""
-	}
-	return tuiHelpStyle.Render(m.selectionMessage)
+	return ""
 }
 
 func (m *chatTUIModel) recordPromptHistory(text string) {
@@ -1923,171 +1730,14 @@ func (m *chatTUIModel) historySearchStatus() string {
 }
 
 func (m chatTUIModel) renderMD(md string) string {
-	if strings.TrimSpace(md) == "" {
-		return md
-	}
-	if rendered, ok := m.renderMarkdownWithTables(md); ok {
-		return rendered
-	}
-	return m.renderMarkdownFragment(md)
-}
-
-func (m chatTUIModel) renderMarkdownFragment(md string) string {
-	if m.mdRenderer == nil {
+	if m.mdRenderer == nil || strings.TrimSpace(md) == "" {
 		return md
 	}
 	out, err := m.mdRenderer.Render(md)
 	if err != nil {
 		return md
 	}
-	plain := xansi.Strip(strings.TrimRight(out, "\n"))
-	return trimCommonLeadingSpaces(plain)
-}
-
-func (m chatTUIModel) renderMarkdownWithTables(md string) (string, bool) {
-	lines := strings.Split(md, "\n")
-	blocks := make([]string, 0, len(lines))
-	proseStart := 0
-	hasTable := false
-
-	flushProse := func(end int) {
-		if end <= proseStart {
-			return
-		}
-		fragment := strings.Join(lines[proseStart:end], "\n")
-		if strings.TrimSpace(fragment) == "" {
-			proseStart = end
-			return
-		}
-		blocks = append(blocks, m.renderMarkdownFragment(fragment))
-		proseStart = end
-	}
-
-	for i := 0; i < len(lines); {
-		headers, rows, next, ok := parseMarkdownTableBlock(lines, i)
-		if !ok {
-			i++
-			continue
-		}
-		flushProse(i)
-		blocks = append(blocks, m.renderTableGrid(headers, rows))
-		hasTable = true
-		i = next
-		proseStart = next
-	}
-	flushProse(len(lines))
-	if !hasTable {
-		return "", false
-	}
-	return strings.Join(blocks, "\n"), true
-}
-
-func parseMarkdownTableBlock(lines []string, start int) ([]string, [][]string, int, bool) {
-	if start >= len(lines) {
-		return nil, nil, start, false
-	}
-	trimmed := strings.TrimSpace(lines[start])
-	if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
-		return nil, nil, start, false
-	}
-
-	end := start
-	for end < len(lines) {
-		trimmed = strings.TrimSpace(lines[end])
-		if trimmed == "" {
-			break
-		}
-		if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
-			break
-		}
-		end++
-	}
-
-	rows := make([][]string, 0, end-start)
-	hasSeparator := false
-	for i := start; i < end; i++ {
-		trimmed = strings.TrimSpace(lines[i])
-		if isMarkdownTableSeparator(trimmed) {
-			hasSeparator = true
-			continue
-		}
-		rows = append(rows, parseMarkdownTableRow(trimmed))
-	}
-	if !hasSeparator || len(rows) < 2 {
-		return nil, nil, start, false
-	}
-	colCount := len(rows[0])
-	if colCount == 0 {
-		return nil, nil, start, false
-	}
-	for _, row := range rows[1:] {
-		if len(row) != colCount {
-			return nil, nil, start, false
-		}
-	}
-	return rows[0], rows[1:], end, true
-}
-
-func (m chatTUIModel) renderMarkdownTable(md string) (string, bool) {
-	lines := strings.Split(strings.TrimSpace(md), "\n")
-	headers, rows, _, ok := parseMarkdownTableBlock(lines, 0)
-	if !ok {
-		return "", false
-	}
-	return m.renderTableGrid(headers, rows), true
-}
-
-func isMarkdownTableSeparator(line string) bool {
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
-		return false
-	}
-	for _, r := range line {
-		switch r {
-		case '|', '-', ':', ' ':
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func parseMarkdownTableRow(line string) []string {
-	parts := strings.Split(line, "|")
-	cells := make([]string, 0, len(parts)-2)
-	for i := 1; i < len(parts)-1; i++ {
-		cells = append(cells, strings.TrimSpace(parts[i]))
-	}
-	return cells
-}
-
-func (m chatTUIModel) renderTableGrid(headers []string, rows [][]string) string {
-	availableWidth := m.transcriptContentWidth()
-	tbl := liptable.New().
-		Border(lipgloss.NormalBorder()).
-		BorderTop(true).
-		BorderBottom(true).
-		BorderLeft(true).
-		BorderRight(true).
-		BorderHeader(true).
-		BorderColumn(true).
-		BorderRow(true).
-		BorderStyle(tuiTableBorderStyle).
-		Width(availableWidth).
-		Wrap(false).
-		Headers(headers...).
-		Rows(rows...)
-	tbl.StyleFunc(func(row, col int) lipgloss.Style {
-		switch {
-		case row == liptable.HeaderRow:
-			return tuiTableHeaderStyle
-		case col == 0:
-			return tuiTableAccentStyle.Padding(0, 1)
-		default:
-			return tuiTableCellStyle
-		}
-	})
-	return tbl.String()
+	return trimCommonLeadingSpaces(strings.TrimRight(out, "\n"))
 }
 
 func trimCommonLeadingSpaces(s string) string {
@@ -2345,7 +1995,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show agent API request shape\n- `/apishape <anthropic|openai|responses>` — switch agent API request shape\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show current backend and supported backends\n- `/agent <backend>` — switch agent backend (agent-sdk-go, google-adk, anthropic-sdk)\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
@@ -2388,7 +2038,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newShape, ok := normalizeAPIShape(fields[1])
-		if !ok || newShape != DefaultAPIShape {
+		if !ok {
 			add(tuiErrorStyle.Render(fmt.Sprintf("Error: unknown API shape %q — supported shapes: %s", fields[1], supportedAPIShapesText())))
 			return m, nil
 		}
