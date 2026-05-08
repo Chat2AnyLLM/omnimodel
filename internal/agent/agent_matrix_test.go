@@ -3,14 +3,14 @@ package agent
 // agent_matrix_test.go — Comprehensive agent turn matrix
 //
 // Tests every combination of:
-//   - 3 API shapes   : /v1/messages (Anthropic), /v1/chat/completions (OpenAI), /v1/responses (Responses)
-//   - 3 SDK backends : agent-sdk-go, google-adk, anthropic-sdk
+//   - 3 logical shape labels accepted by the agent settings UI
+//   - the single supported SDK backend: google-adk
 //   - 8 target models: gpt-5.4-mini, gpt-5-mini, claude-haiku-4.5, gemini-3.1-flash,
 //                      deepseek-v4-flash, qwen3.6-flash, kimi-k2.6, glm-5.1
 //
 // All requests run through the OmniLLM stub proxy (no real network).
 // Each case verifies:
-//   - The proxy is always called on /v1/messages  (all backends, all models)
+//   - The proxy is always called on /v1/messages
 //   - The correct model name is forwarded
 //   - The Anthropic Messages API shape is used (tools array with input_schema,
 //     NOT deprecated functions/function_call)
@@ -25,7 +25,6 @@ import (
 	"strings"
 	"testing"
 
-	"omnillm/internal/cif"
 	toolspkg "omnillm/internal/tools"
 )
 
@@ -41,7 +40,7 @@ const (
 
 var allShapes = []apiShape{shapeMessages, shapeChatCompl, shapeResponses}
 
-var allBackends = []string{"agent-sdk-go", "google-adk", "anthropic-sdk"}
+var allBackends = []string{"google-adk"}
 
 var allModels = []string{
 	"gpt-5.4-mini",
@@ -179,15 +178,8 @@ func (s *proxyStub) PostStream(_ string, _ any) (*http.Response, error) {
 	return nil, fmt.Errorf("streaming not exercised in matrix test")
 }
 
-func pathForShape(shape apiShape) string {
-	switch shape {
-	case shapeChatCompl:
-		return "/v1/chat/completions"
-	case shapeResponses:
-		return "/v1/responses"
-	default:
-		return "/v1/messages"
-	}
+func pathForShape(_ apiShape) string {
+	return "/v1/messages"
 }
 
 // ─── assertion helpers ────────────────────────────────────────────────────────
@@ -340,37 +332,29 @@ func TestAgentMatrixStreamTurn(t *testing.T) {
 	}
 }
 
-// ─── matrix: all 3 API shapes → all route to /v1/messages ───────────────────
+// ─── matrix: all logical API shape labels → /v1/messages ─────────────────────
 
 // TestAgentMatrixAllAPIShapes verifies that NewChatCompletionsDispatch
 // (the only dispatch used by all backends) always sends to /v1/messages
-// regardless of which "shape" OmniLLM is configured to use upstream.
-// From the agent's perspective, the shape is an upstream concern — the agent
-// always speaks Anthropic Messages API to the proxy.
+// regardless of which legacy "shape" label is still present in a session.
+// From the agent's perspective, shape selection is no longer meaningful — the
+// agent always speaks Anthropic Messages API to the proxy.
 func TestAgentMatrixAllAPIShapes(t *testing.T) {
 	// The agent runtime always calls /v1/messages.
-	// We verify this is true for every model across every logical "shape" label.
+	// We verify this is true for every model across every legacy shape label.
 	for _, shape := range allShapes {
 		for _, model := range allModels {
 			tag := fmt.Sprintf("shape=%s/model=%s", shape, model)
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				dispatch := NewDispatch(stub, model, string(shape))
-				respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
-					Model: model,
-					Messages: []cif.CIFMessage{
-						cif.CIFUserMessage{
-							Role:    "user",
-							Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}},
-						},
-					},
-					Tools: []cif.CIFTool{{
-						Name:             "get_current_time",
-						Description:      stringPtr("Return current time"),
-						ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-					}},
-					ToolChoice: "auto",
-				})
+					respCh, err := dispatch(context.Background(), &MessagesRequest{
+						Model:      model,
+						MaxTokens:  4096,
+						Messages:   []Message{testUserMessage("hi")},
+						Tools:      []toolspkg.ToolDefinition{testToolDefinition("get_current_time", stringPtr("Return current time"), map[string]any{"type": "object", "properties": map[string]any{}})},
+						ToolChoice: "auto",
+					})
 				if err != nil {
 					t.Fatalf("dispatch error: %v", err)
 				}
@@ -386,29 +370,26 @@ func TestAgentMatrixAllAPIShapes(t *testing.T) {
 				if payload["model"] != model {
 					t.Fatalf("[%s] model = %#v, want %q", tag, payload["model"], model)
 				}
-				if shape == shapeMessages {
-					tools, _ := payload["tools"].([]any)
-					if len(tools) != 1 {
-						t.Fatalf("[%s] tools count = %d, want 1", tag, len(tools))
-					}
-					tool, _ := tools[0].(map[string]any)
-					if tool["input_schema"] == nil {
-						t.Fatalf("[%s] tool missing input_schema: %#v", tag, tool)
-					}
-					if tool["parameters"] != nil {
-						t.Fatalf("[%s] tool has 'parameters' (OpenAI shape leaked): %#v", tag, tool)
-					}
+				tools, _ := payload["tools"].([]any)
+				if len(tools) != 1 {
+					t.Fatalf("[%s] tools count = %d, want 1", tag, len(tools))
+				}
+				tool, _ := tools[0].(map[string]any)
+				if tool["input_schema"] == nil {
+					t.Fatalf("[%s] tool missing input_schema: %#v", tag, tool)
+				}
+				if tool["parameters"] != nil {
+					t.Fatalf("[%s] tool has 'parameters' (OpenAI shape leaked): %#v", tag, tool)
 				}
 			})
 		}
 	}
 }
 
-// ─── matrix: selectDispatch — all backends route to /v1/messages ─────────────
+// ─── matrix: selectDispatch — google-adk routes to /v1/messages ──────────────
 
-// TestAgentMatrixSelectDispatchAllBackends verifies that all three backends
-// produce the same dispatch behaviour: they all call the OmniLLM proxy on
-// /v1/messages with the correct model.
+// TestAgentMatrixSelectDispatchAllBackends verifies that the supported backend
+// calls the OmniLLM proxy on /v1/messages with the correct model.
 func TestAgentMatrixSelectDispatchAllBackends(t *testing.T) {
 	for _, backend := range allBackends {
 		for _, model := range allModels {
@@ -416,15 +397,7 @@ func TestAgentMatrixSelectDispatchAllBackends(t *testing.T) {
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				dispatch := selectDispatch(stub, model, backend, DefaultAPIShape)
-				respCh, err := dispatch(context.Background(), &cif.CanonicalRequest{
-					Model: model,
-					Messages: []cif.CIFMessage{
-						cif.CIFUserMessage{
-							Role:    "user",
-							Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}},
-						},
-					},
-				})
+					respCh, err := dispatch(context.Background(), testMessagesRequest(model, testUserMessage("hi")))
 				if err != nil {
 					t.Fatalf("[%s] dispatch error: %v", tag, err)
 				}
@@ -447,16 +420,16 @@ func TestAgentMatrixSelectDispatchAllBackends(t *testing.T) {
 // uses the Anthropic Messages API shape (input_schema, name, description) and
 // never the deprecated OpenAI functions field.
 func TestAgentMatrixToolPayloadShape(t *testing.T) {
-	toolDefs := []cif.CIFTool{
+	toolDefs := []toolspkg.ToolDefinition{
 		{
-			Name:             "bash",
-			Description:      stringPtr("Run a shell command"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}, "required": []string{"command"}},
+			Name:        "bash",
+			Description: stringPtr("Run a shell command"),
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}, "required": []string{"command"}},
 		},
 		{
-			Name:             "read",
-			Description:      stringPtr("Read a file"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"file_path": map[string]any{"type": "string"}}, "required": []string{"file_path"}},
+			Name:        "read",
+			Description: stringPtr("Read a file"),
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_path": map[string]any{"type": "string"}}, "required": []string{"file_path"}},
 		},
 	}
 
@@ -464,17 +437,7 @@ func TestAgentMatrixToolPayloadShape(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			stub := &proxyStub{t: t, model: model}
 			dispatch := NewChatCompletionsDispatch(stub, model)
-			_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-				Model: model,
-				Messages: []cif.CIFMessage{
-					cif.CIFUserMessage{
-						Role:    "user",
-						Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "help"}},
-					},
-				},
-				Tools:      toolDefs,
-				ToolChoice: "auto",
-			})
+				_, err := dispatch(context.Background(), &MessagesRequest{Model: model, MaxTokens: 4096, Messages: []Message{testUserMessage("help")}, Tools: toolDefs, ToolChoice: "auto"})
 			if err != nil {
 				t.Fatalf("[%s] dispatch error: %v", model, err)
 			}
@@ -810,8 +773,8 @@ func TestAgentMatrixDimensions(t *testing.T) {
 	if len(allShapes) != 3 {
 		t.Errorf("allShapes = %d, want 3", len(allShapes))
 	}
-	if len(allBackends) != 3 {
-		t.Errorf("allBackends = %d, want 3", len(allBackends))
+	if len(allBackends) != 1 {
+		t.Errorf("allBackends = %d, want 1", len(allBackends))
 	}
 	if len(allModels) != 8 {
 		t.Errorf("allModels = %d, want 8", len(allModels))

@@ -20,6 +20,7 @@ type Client struct {
 	BaseURL    string
 	APIKey     string
 	OutputMode string
+	UserAgent  string
 	http       *http.Client
 	stdin      io.Reader
 	stdout     io.Writer
@@ -51,7 +52,23 @@ func NewClient(cmd *cobra.Command) *Client {
 		BaseURL:    server,
 		APIKey:     apiKey,
 		OutputMode: output,
+		UserAgent:  clientUserAgent(cmd),
 		http:       &http.Client{},
+	}
+}
+
+func clientUserAgent(cmd *cobra.Command) string {
+	if cmd == nil || cmd.Root() == nil {
+		return "OmniLLM"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cmd.Root().Name())) {
+	case "omnicode":
+		return "Omnicode"
+	case "omnillm":
+		return "OmniLLM"
+	default:
+		return "OmniLLM"
 	}
 }
 
@@ -66,6 +83,10 @@ func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request,
 	}
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
+		req.Header.Set("X-Client-Name", c.UserAgent)
 	}
 	return req, nil
 }

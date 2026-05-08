@@ -3,6 +3,8 @@ package alibaba
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"omnillm/internal/cif"
 	"omnillm/internal/providers/openaicompat"
 	"testing"
@@ -84,6 +86,7 @@ func TestBuildRequestToolResultTurnToolRetentionByModel(t *testing.T) {
 		wantTools bool
 	}{
 		{name: "deepseek omits tools", model: "deepseek-v4-flash"},
+		{name: "glm omits tools", model: "glm-5.1"},
 		{name: "qwen keeps tools", model: "qwen3.6-flash", wantTools: true},
 	}
 
@@ -170,28 +173,71 @@ func TestBuildRequestDeepSeekV4FlashNoEnableThinking(t *testing.T) {
 	}
 }
 
-func TestBuildRequestQwen36PlusNoEnableThinking(t *testing.T) {
-	adapter := &Adapter{provider: NewProvider("alibaba-test", "Alibaba")}
-	request := &cif.CanonicalRequest{
+func TestAdapterExecuteUsesOpenAIClientWithRawJSONPayload(t *testing.T) {
+	var gotAuthorization string
+	var gotAccept string
+	var gotPayload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		gotAccept = r.Header.Get("Accept")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":    "chatcmpl_test",
+			"model": "qwen3.6-plus",
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "hello from alibaba",
+				},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{
+				"prompt_tokens":     1,
+				"completion_tokens": 1,
+				"total_tokens":      2,
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewProvider("alibaba-test", "Alibaba")
+	provider.token = "test-token"
+	provider.baseURL = server.URL + "/v1"
+	provider.refreshClient()
+	provider.configOnce.Do(func() {})
+
+	adapter := &Adapter{provider: provider}
+	response, err := adapter.Execute(context.Background(), &cif.CanonicalRequest{
 		Model: "qwen3.6-plus",
 		Messages: []cif.CIFMessage{
 			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Hi"}}},
 		},
-		ToolChoice: "auto",
-		Tools: []cif.CIFTool{{
-			Name:             "ping",
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-		}},
-	}
-
-	chatReq, err := adapter.buildRequest(context.Background(), request, false)
+	})
 	if err != nil {
-		t.Fatalf("buildRequest() error = %v", err)
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if _, ok := chatReq.Extras["enable_thinking"]; ok {
-		t.Fatal("qwen3.6-plus must not receive enable_thinking — DashScope rejects it for this endpoint (dashScopeNoThinkingModels override)")
+	if response == nil || len(response.Content) != 1 {
+		t.Fatalf("unexpected response: %#v", response)
 	}
-	if chatReq.ToolChoice != nil {
-		t.Fatalf("expected tool_choice=nil for qwen3.6-plus, got %#v", chatReq.ToolChoice)
+	if gotAuthorization != "Bearer test-token" {
+		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthorization)
+	}
+	if gotAccept != "application/json" {
+		t.Fatalf("Accept = %q, want application/json", gotAccept)
+	}
+	if gotPayload["model"] != "qwen3.6-plus" {
+		t.Fatalf("model = %#v, want qwen3.6-plus", gotPayload["model"])
+	}
+	if enabled, ok := gotPayload["enable_thinking"].(bool); !ok || !enabled {
+		t.Fatalf("enable_thinking = %#v, want true", gotPayload["enable_thinking"])
+	}
+	if stream, _ := gotPayload["stream"].(bool); stream {
+		t.Fatalf("stream = %#v, want false", gotPayload["stream"])
 	}
 }
+

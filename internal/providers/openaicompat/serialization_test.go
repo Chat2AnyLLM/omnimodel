@@ -9,6 +9,7 @@ import (
 	"omnillm/internal/cif"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildChatRequest_AppliesDefaultsToolsAndSystemPrompt(t *testing.T) {
@@ -170,6 +171,44 @@ func TestExecute_ReturnsAPIErrorDetails(t *testing.T) {
 	}
 }
 
+func TestExecuteResponses_RetriesGitHubCopilotTimeoutOnce(t *testing.T) {
+	origClient := httpClient
+	t.Cleanup(func() { httpClient = origClient })
+
+	attempts := 0
+	httpClient = &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, context.DeadlineExceeded
+			}
+			body := io.NopCloser(strings.NewReader(`{"id":"resp_retry","model":"gpt-5.4","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"pong"}]}],"usage":{"input_tokens":3,"output_tokens":1}}`))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       body,
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	resp, err := ExecuteResponses(context.Background(), "https://api.githubcopilot.com/responses", map[string]string{"Authorization": "Bearer test"}, map[string]interface{}{
+		"model": "gpt-5.4",
+		"input": "ping",
+		"stream": false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if resp == nil || resp.Model != "gpt-5.4" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
 func TestMarshalAssistantToolOnlyContentShowsEmptyString(t *testing.T) {
 	body, err := Marshal(&ChatRequest{
 		Model: "glm-5.1",
@@ -187,6 +226,12 @@ func TestMarshalAssistantToolOnlyContentShowsEmptyString(t *testing.T) {
 	if strings.Contains(text, `"call_id":"call_1"`) {
 		t.Fatalf("did not expect provider-specific call_id in shared marshaled body: %s", text)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func stringPtr(s string) *string { return &s }

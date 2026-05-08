@@ -2,25 +2,24 @@ package agent
 
 import (
 	"context"
-	"omnillm/internal/cif"
 	"strings"
 	"sync"
 )
 
 // SummarizerFn takes a list of messages and returns a summary string.
-type SummarizerFn func(ctx context.Context, msgs []cif.CIFMessage) (string, error)
+type SummarizerFn func(ctx context.Context, msgs []Message) (string, error)
 
 // Memory is the interface for agent conversation memory.
 type Memory interface {
-	Append(msg cif.CIFMessage)
-	Messages() []cif.CIFMessage
+	Append(msg Message)
+	Messages() []Message
 	Compact(ctx context.Context, summarizer SummarizerFn) error
 }
 
 // BufferMemory keeps the last N messages.
 type BufferMemory struct {
 	mu       sync.RWMutex
-	messages []cif.CIFMessage
+	messages []Message
 	maxSize  int
 }
 
@@ -31,12 +30,12 @@ func NewBufferMemory(maxSize int) *BufferMemory {
 		maxSize = 20
 	}
 	return &BufferMemory{
-		messages: make([]cif.CIFMessage, 0),
+		messages: make([]Message, 0),
 		maxSize:  maxSize,
 	}
 }
 
-func (b *BufferMemory) Append(msg cif.CIFMessage) {
+func (b *BufferMemory) Append(msg Message) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.messages = append(b.messages, msg)
@@ -45,10 +44,10 @@ func (b *BufferMemory) Append(msg cif.CIFMessage) {
 	}
 }
 
-func (b *BufferMemory) Messages() []cif.CIFMessage {
+func (b *BufferMemory) Messages() []Message {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	result := make([]cif.CIFMessage, len(b.messages))
+	result := make([]Message, len(b.messages))
 	copy(result, b.messages)
 	return result
 }
@@ -61,7 +60,7 @@ func (b *BufferMemory) Compact(_ context.Context, _ SummarizerFn) error {
 // SummaryMemory tracks estimated token budget and summarizes when over budget.
 type SummaryMemory struct {
 	mu          sync.RWMutex
-	messages    []cif.CIFMessage
+	messages    []Message
 	tokenBudget int
 }
 
@@ -72,21 +71,21 @@ func NewSummaryMemory(tokenBudget int) *SummaryMemory {
 		tokenBudget = 4000
 	}
 	return &SummaryMemory{
-		messages:    make([]cif.CIFMessage, 0),
+		messages:    make([]Message, 0),
 		tokenBudget: tokenBudget,
 	}
 }
 
-func (s *SummaryMemory) Append(msg cif.CIFMessage) {
+func (s *SummaryMemory) Append(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
 }
 
-func (s *SummaryMemory) Messages() []cif.CIFMessage {
+func (s *SummaryMemory) Messages() []Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := make([]cif.CIFMessage, len(s.messages))
+	result := make([]Message, len(s.messages))
 	copy(result, s.messages)
 	return result
 }
@@ -119,12 +118,12 @@ func (s *SummaryMemory) Compact(ctx context.Context, summarizer SummarizerFn) er
 	}
 
 	// Replace oldest half with summary system message
-	summaryMsg := cif.CIFSystemMessage{
+	summaryMsg := Message{
 		Role:    "system",
-		Content: "[Conversation Summary] " + summary,
+		Content: []ContentBlock{TextBlock("[Conversation Summary] " + summary)},
 	}
 
-	remaining := make([]cif.CIFMessage, 0, 1+len(s.messages)-half)
+	remaining := make([]Message, 0, 1+len(s.messages)-half)
 	remaining = append(remaining, summaryMsg)
 	remaining = append(remaining, s.messages[half:]...)
 	s.messages = remaining
@@ -141,24 +140,9 @@ func (s *SummaryMemory) estimateTokens() int {
 	return total
 }
 
-func estimateMessageTokens(msg cif.CIFMessage) int {
-	var text string
-	switch m := msg.(type) {
-	case cif.CIFSystemMessage:
-		text = m.Content
-	case cif.CIFUserMessage:
-		for _, p := range m.Content {
-			if tp, ok := p.(cif.CIFTextPart); ok {
-				text += tp.Text
-			}
-		}
-	case cif.CIFAssistantMessage:
-		for _, p := range m.Content {
-			if tp, ok := p.(cif.CIFTextPart); ok {
-				text += tp.Text
-			}
-		}
-	}
+
+func estimateMessageTokens(msg Message) int {
+	text := extractTextContent(msg.Content)
 	words := len(strings.Fields(text))
 	return int(float64(words) * 1.3)
 }

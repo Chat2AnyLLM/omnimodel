@@ -6,19 +6,17 @@ import (
 	"fmt"
 	"strings"
 
-	"omnillm/internal/cif"
 	"omnillm/internal/tools"
 )
 
-// DispatchFn wraps the existing provider dispatch. It sends a CIF request
-// and returns a channel of CIF responses (supporting streaming).
-type DispatchFn func(ctx context.Context, req *cif.CanonicalRequest) (<-chan *cif.CanonicalResponse, error)
+// DispatchFn sends an Anthropic /v1/messages request and returns agent-native responses.
+type DispatchFn func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error)
 
 // RunResult contains the output of a completed agent run.
 type RunResult struct {
 	Output   string
 	Steps    int
-	Messages []cif.CIFMessage
+	Messages []Message
 }
 
 // Agent orchestrates multi-step LLM interactions with tool calling.
@@ -75,16 +73,16 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			}, nil
 		}
 
-		toolResults := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
-		var toolResultParts []cif.CIFContentPart
+		toolResults := a.registry.ExecuteCalls(ctx, sessionID, toolCalls)
+		toolResultParts := make([]ContentBlock, 0, len(toolResults))
 		for _, r := range toolResults {
 			isErr := r.IsError
-			toolResultParts = append(toolResultParts, cif.CIFToolResultPart{
-				Type:       "tool_result",
-				ToolCallID: r.ToolCallID,
-				ToolName:   r.ToolName,
-				Content:    r.Content,
-				IsError:    &isErr,
+			toolResultParts = append(toolResultParts, ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: r.ToolCallID,
+				Name:      r.ToolName,
+				Content:   r.Content,
+				IsError:   &isErr,
 			})
 		}
 		a.memory.Append(toToolResultMessage(toolResultParts))
@@ -115,8 +113,8 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 
 			for _, part := range response.Content {
-				if tp, ok := part.(cif.CIFTextPart); ok {
-					events <- Event{Type: EventToken, Content: tp.Text}
+				if part.Type == "text" {
+					events <- Event{Type: EventToken, Content: part.Text}
 				}
 			}
 
@@ -129,21 +127,21 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 
 			for _, tc := range toolCalls {
-				events <- Event{Type: EventToolCall, Tool: tc.ToolName, Content: tc.ToolCallID}
+				events <- Event{Type: EventToolCall, Tool: tc.Name, Content: tc.ID}
 			}
 
-			toolResults := a.registry.ExecuteToolCalls(ctx, sessionID, toolCalls)
+			toolResults := a.registry.ExecuteCalls(ctx, sessionID, toolCalls)
 
-			var toolResultParts []cif.CIFContentPart
+			toolResultParts := make([]ContentBlock, 0, len(toolResults))
 			for _, r := range toolResults {
 				events <- Event{Type: EventToolResult, Tool: r.ToolName, Content: r.Content}
 				isErr := r.IsError
-				toolResultParts = append(toolResultParts, cif.CIFToolResultPart{
-					Type:       "tool_result",
-					ToolCallID: r.ToolCallID,
-					ToolName:   r.ToolName,
-					Content:    r.Content,
-					IsError:    &isErr,
+				toolResultParts = append(toolResultParts, ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: r.ToolCallID,
+					Name:      r.ToolName,
+					Content:   r.Content,
+					IsError:   &isErr,
 				})
 			}
 			a.memory.Append(toToolResultMessage(toolResultParts))
@@ -156,29 +154,27 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 }
 
 func (a *Agent) appendUserMessage(prompt string) {
-	a.memory.Append(cif.CIFUserMessage{
-		Role: "user",
-		Content: []cif.CIFContentPart{
-			cif.CIFTextPart{Type: "text", Text: prompt},
-		},
+	a.memory.Append(Message{
+		Role:    "user",
+		Content: []ContentBlock{TextBlock(prompt)},
 	})
 }
 
-func toToolResultMessage(results []cif.CIFContentPart) cif.CIFUserMessage {
-	return cif.CIFUserMessage{
+func toToolResultMessage(results []ContentBlock) Message {
+	return Message{
 		Role:    "user",
 		Content: results,
 	}
 }
 
-func toAssistantMessage(content []cif.CIFContentPart) cif.CIFAssistantMessage {
-	return cif.CIFAssistantMessage{
+func toAssistantMessage(content []ContentBlock) Message {
+	return Message{
 		Role:    "assistant",
 		Content: content,
 	}
 }
 
-func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string) (*cif.CanonicalResponse, error) {
+func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string) (*MessagesResponse, error) {
 	req := a.buildRequest(step, prompt)
 
 	respCh, err := a.dispatch(ctx, req)
@@ -186,7 +182,7 @@ func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string)
 		return nil, fmt.Errorf("dispatch error at step %d: %w", step, err)
 	}
 
-	var response *cif.CanonicalResponse
+	var response *MessagesResponse
 	for resp := range respCh {
 		response = resp
 	}
@@ -197,35 +193,38 @@ func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string)
 	return response, nil
 }
 
-func (a *Agent) buildRequest(step int, prompt string) *cif.CanonicalRequest {
+
+func (a *Agent) buildRequest(step int, prompt string) *MessagesRequest {
 	messages := a.memory.Messages()
-	cifTools := a.registry.ToCIFTools()
+	toolDefs := a.registry.Definitions()
 
 	// Extract system prompt from memory; send as SystemPrompt, not buried in history.
 	var systemPrompt string
-	filtered := make([]cif.CIFMessage, 0, len(messages))
+	filtered := make([]Message, 0, len(messages))
 	for _, msg := range messages {
-		if sm, ok := msg.(cif.CIFSystemMessage); ok {
+		if msg.Role == "system" {
+			text := extractTextContent(msg.Content)
 			if systemPrompt == "" {
-				systemPrompt = sm.Content
-			} else {
-				systemPrompt += "\n" + sm.Content
+				systemPrompt = text
+			} else if text != "" {
+				systemPrompt += "\n" + text
 			}
 		} else {
 			filtered = append(filtered, msg)
 		}
 	}
 
-	req := &cif.CanonicalRequest{
+	req := &MessagesRequest{
+		MaxTokens: 4096,
 		Messages: filtered,
-		Tools:    cifTools,
+		Tools:    toolDefs,
 		Stream:   false,
 	}
 	if systemPrompt != "" {
-		req.SystemPrompt = &systemPrompt
+		req.System = []ContentBlock{TextBlock(systemPrompt)}
 	}
 	// Per OpenAI spec: tool_choice must only be set when tools are present.
-	if len(cifTools) > 0 {
+	if len(toolDefs) > 0 {
 		if step == 0 && shouldRequireInitialToolUse(prompt) {
 			req.ToolChoice = "required"
 		} else {
@@ -285,21 +284,21 @@ func shouldRequireInitialToolUse(prompt string) bool {
 	return false
 }
 
-func extractToolCalls(content []cif.CIFContentPart) []cif.CIFToolCallPart {
-	var calls []cif.CIFToolCallPart
+func extractToolCalls(content []ContentBlock) []tools.ToolCall {
+	var calls []tools.ToolCall
 	for _, part := range content {
-		if tc, ok := part.(cif.CIFToolCallPart); ok {
-			calls = append(calls, tc)
+		if part.Type == "tool_use" {
+			calls = append(calls, tools.ToolCall{ID: part.ID, Name: part.Name, Arguments: part.Input})
 		}
 	}
 	return calls
 }
 
-func extractTextContent(content []cif.CIFContentPart) string {
+func extractTextContent(content []ContentBlock) string {
 	var sb strings.Builder
 	for _, part := range content {
-		if tp, ok := part.(cif.CIFTextPart); ok {
-			sb.WriteString(tp.Text)
+		if part.Type == "text" {
+			sb.WriteString(part.Text)
 		}
 	}
 	return sb.String()

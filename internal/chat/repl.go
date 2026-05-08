@@ -28,7 +28,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 	errOut := cmd.ErrOrStderr()
 
 	_, _ = fmt.Fprintln(out, "Type your message and press Enter. Use ↑↓ for history, Ctrl+R to search.")
-	_, _ = fmt.Fprintln(out, "Use /help for commands, /models to browse models, /mode to switch chat modes, /apishape to switch agent API shape.")
+	_, _ = fmt.Fprintln(out, "Use /help for commands, /models to browse models, /mode to switch chat modes, /apishape to inspect the fixed agent request shape.")
 	_, _ = fmt.Fprintln(out)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -267,7 +267,7 @@ func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model,
 }
 
 func supportedAgentBackends() []string {
-	return []string{"agent-sdk-go", "google-adk", "anthropic-sdk"}
+	return []string{DefaultAgentBackend}
 }
 
 func supportedAgentBackendsText() string {
@@ -339,6 +339,9 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		}
 		newShape, ok := normalizeAPIShape(fields[1])
 		if !ok {
+			return replCommandResult{}, fmt.Errorf("unknown API shape %q; supported shapes: %s", fields[1], supportedAPIShapesText())
+		}
+		if newShape != DefaultAPIShape {
 			return replCommandResult{}, fmt.Errorf("unknown API shape %q; supported shapes: %s", fields[1], supportedAPIShapesText())
 		}
 		if err := UpdateSessionAPIShape(c, session.ID, newShape); err != nil {
@@ -436,12 +439,12 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /mode              Show the current chat mode")
 	_, _ = fmt.Fprintln(w, "  /mode <chat|agent> Switch between chat and agent modes")
 	_, _ = fmt.Fprintln(w, "  /apishape          Show the agent API request shape")
-	_, _ = fmt.Fprintln(w, "  /apishape <shape>  Switch API shape (anthropic, openai, or responses)")
+	_, _ = fmt.Fprintln(w, "  /apishape <shape>  Keep API shape on anthropic (/v1/messages)")
 	_, _ = fmt.Fprintln(w, "  /permissions       Toggle autopilot (auto-approve tool calls)")
 	_, _ = fmt.Fprintln(w, "  /model             Show the current model")
 	_, _ = fmt.Fprintln(w, "  /model <id>        Switch to a different model")
 	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")
-	_, _ = fmt.Fprintln(w, "  /agent <backend>   Switch agent backend (agent-sdk-go, google-adk, or anthropic-sdk)")
+	_, _ = fmt.Fprintln(w, "  /agent <backend>   Keep agent backend on google-adk")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
 	_, _ = fmt.Fprintln(w, "  /clear, /cls       Clear the screen")

@@ -44,5 +44,5 @@ func formatAPIShape(shape string) string {
 }
 
 func supportedAPIShapesText() string {
-	return "anthropic (/v1/messages), openai (/v1/chat/completions), responses (/v1/responses)"
+	return "anthropic (/v1/messages)"
 }

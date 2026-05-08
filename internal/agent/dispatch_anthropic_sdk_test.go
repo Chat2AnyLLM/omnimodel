@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"omnillm/internal/cif"
+	"omnillm/internal/tools"
 )
 
 // TestAnthropicSDKDispatchConvertsRequest verifies that AnthropicSDKDispatch
 // sends the correct Anthropic Messages API payload and converts the response
-// back to a CIF CanonicalResponse.
+// back to an agent-native messages response.
 func TestAnthropicSDKDispatchConvertsRequest(t *testing.T) {
 	// Minimal Anthropic Messages API response.
 	responseBody := map[string]any{
@@ -45,24 +45,14 @@ func TestAnthropicSDKDispatchConvertsRequest(t *testing.T) {
 
 	dispatch := AnthropicSDKDispatch("test-api-key", srv.URL)
 
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{
-				Role: "user",
-				Content: []cif.CIFContentPart{
-					cif.CIFTextPart{Type: "text", Text: "Hello!"},
-				},
-			},
-		},
-	}
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("Hello!"))
 
 	respCh, err := dispatch(context.Background(), req)
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
 
-	var resp *cif.CanonicalResponse
+	var resp *MessagesResponse
 	for r := range respCh {
 		resp = r
 	}
@@ -72,15 +62,15 @@ func TestAnthropicSDKDispatchConvertsRequest(t *testing.T) {
 	if resp.ID != "msg_test123" {
 		t.Fatalf("id = %q, want msg_test123", resp.ID)
 	}
-	if resp.StopReason != cif.StopReasonEndTurn {
+	if resp.StopReason != StopReasonEndTurn {
 		t.Fatalf("stop_reason = %v, want EndTurn", resp.StopReason)
 	}
 	if len(resp.Content) != 1 {
 		t.Fatalf("content blocks = %d, want 1", len(resp.Content))
 	}
-	tp, ok := resp.Content[0].(cif.CIFTextPart)
-	if !ok {
-		t.Fatalf("content[0] is not CIFTextPart: %T", resp.Content[0])
+	tp := resp.Content[0]
+	if tp.Type != "text" {
+		t.Fatalf("content[0] type = %q, want text", tp.Type)
 	}
 	if !strings.Contains(tp.Text, "Anthropic SDK") {
 		t.Fatalf("text = %q", tp.Text)
@@ -97,7 +87,7 @@ func TestAnthropicSDKDispatchConvertsRequest(t *testing.T) {
 }
 
 // TestAnthropicSDKDispatchToolUseRoundTrip verifies that tool_use blocks in
-// the response are correctly converted to CIFToolCallPart.
+// the response is correctly converted to a tool_use content block.
 func TestAnthropicSDKDispatchToolUseRoundTrip(t *testing.T) {
 	responseBody := map[string]any{
 		"id":          "msg_tool",
@@ -124,55 +114,41 @@ func TestAnthropicSDKDispatchToolUseRoundTrip(t *testing.T) {
 
 	dispatch := AnthropicSDKDispatch("test-api-key", srv.URL)
 
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{
-				Role:    "user",
-				Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "Run ls"}},
-			},
-		},
-		Tools: []cif.CIFTool{
-			{
-				Name:             "bash",
-				Description:      stringPtr("Execute shell commands"),
-				ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
-			},
-		},
-	}
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("Run ls"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("bash", stringPtr("Execute shell commands"), map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}})}
 
 	respCh, err := dispatch(context.Background(), req)
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
 
-	var resp *cif.CanonicalResponse
+	var resp *MessagesResponse
 	for r := range respCh {
 		resp = r
 	}
 	if resp == nil {
 		t.Fatal("got nil response")
 	}
-	if resp.StopReason != cif.StopReasonToolUse {
+	if resp.StopReason != StopReasonToolUse {
 		t.Fatalf("stop_reason = %v, want ToolUse", resp.StopReason)
 	}
 	if len(resp.Content) != 1 {
 		t.Fatalf("content blocks = %d, want 1", len(resp.Content))
 	}
-	tc, ok := resp.Content[0].(cif.CIFToolCallPart)
-	if !ok {
-		t.Fatalf("content[0] is not CIFToolCallPart: %T", resp.Content[0])
+	tc := resp.Content[0]
+	if tc.Type != "tool_use" {
+		t.Fatalf("content[0] type = %q, want tool_use", tc.Type)
 	}
-	if tc.ToolCallID != "toolu_01" {
-		t.Fatalf("tool call id = %q, want toolu_01", tc.ToolCallID)
+	if tc.ID != "toolu_01" {
+		t.Fatalf("tool call id = %q, want toolu_01", tc.ID)
 	}
-	if tc.ToolName != "bash" {
-		t.Fatalf("tool name = %q, want bash", tc.ToolName)
+	if tc.Name != "bash" {
+		t.Fatalf("tool name = %q, want bash", tc.Name)
 	}
 }
 
 // TestAnthropicSDKDispatchSystemPrompt verifies that a system prompt in the
-// CIF request is forwarded correctly to the Anthropic API.
+// agent-native request is forwarded correctly to the Anthropic API.
 func TestAnthropicSDKDispatchSystemPrompt(t *testing.T) {
 	var capturedBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,13 +164,7 @@ func TestAnthropicSDKDispatchSystemPrompt(t *testing.T) {
 
 	sys := "You are a helpful coding assistant."
 	dispatch := AnthropicSDKDispatch("test-api-key", srv.URL)
-	_, err := dispatch(context.Background(), &cif.CanonicalRequest{
-		Model:        "claude-opus-4-5",
-		SystemPrompt: &sys,
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
-		},
-	})
+	_, err := dispatch(context.Background(), &MessagesRequest{Model: "claude-opus-4-5", MaxTokens: 4096, System: []ContentBlock{TextBlock(sys)}, Messages: []Message{testUserMessage("hi")}})
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
@@ -207,14 +177,8 @@ func TestAnthropicSDKDispatchSystemPrompt(t *testing.T) {
 }
 
 // TestCifToAnthropicParamsDefaultModel verifies the default model fallback.
-func TestCifToAnthropicParamsDefaultModel(t *testing.T) {
-	req := &cif.CanonicalRequest{
-		Model: "", // empty — should default to claude-opus-4-5
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "hi"}}},
-		},
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsDefaultModel(t *testing.T) {
+	params, err := anthropicParamsFromRequest(testMessagesRequest("", testUserMessage("hi")))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,14 +188,8 @@ func TestCifToAnthropicParamsDefaultModel(t *testing.T) {
 }
 
 // TestCifToAnthropicParamsMaxTokensOverride verifies that MaxTokens is forwarded.
-func TestCifToAnthropicParamsMaxTokensOverride(t *testing.T) {
-	maxTok := 1234
-	req := &cif.CanonicalRequest{
-		Model:     "claude-haiku-3-5",
-		MaxTokens: &maxTok,
-		Messages:  []cif.CIFMessage{},
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsMaxTokensOverride(t *testing.T) {
+	params, err := anthropicParamsFromRequest(&MessagesRequest{Model: "claude-haiku-3-5", MaxTokens: 1234})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -240,20 +198,11 @@ func TestCifToAnthropicParamsMaxTokensOverride(t *testing.T) {
 	}
 }
 
-func TestCifToAnthropicParamsRespectsToolChoiceRequired(t *testing.T) {
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "list files"}}},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "bash",
-			Description:      stringPtr("Execute shell commands"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
-		}},
-		ToolChoice: "required",
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsRespectsToolChoiceRequired(t *testing.T) {
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("list files"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("bash", stringPtr("Execute shell commands"), map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}})}
+	req.ToolChoice = "required"
+	params, err := anthropicParamsFromRequest(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,20 +211,11 @@ func TestCifToAnthropicParamsRespectsToolChoiceRequired(t *testing.T) {
 	}
 }
 
-func TestCifToAnthropicParamsRespectsToolChoiceNone(t *testing.T) {
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "answer directly"}}},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "bash",
-			Description:      stringPtr("Execute shell commands"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
-		}},
-		ToolChoice: "none",
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsRespectsToolChoiceNone(t *testing.T) {
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("answer directly"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("bash", stringPtr("Execute shell commands"), map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}})}
+	req.ToolChoice = "none"
+	params, err := anthropicParamsFromRequest(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -284,19 +224,10 @@ func TestCifToAnthropicParamsRespectsToolChoiceNone(t *testing.T) {
 	}
 }
 
-func TestCifToAnthropicParamsDefaultsToolChoiceToAutoWhenUnset(t *testing.T) {
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "list files"}}},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "bash",
-			Description:      stringPtr("Execute shell commands"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
-		}},
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsDefaultsToolChoiceToAutoWhenUnset(t *testing.T) {
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("list files"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("bash", stringPtr("Execute shell commands"), map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}})}
+	params, err := anthropicParamsFromRequest(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -305,24 +236,57 @@ func TestCifToAnthropicParamsDefaultsToolChoiceToAutoWhenUnset(t *testing.T) {
 	}
 }
 
-func TestCifToAnthropicParamsSupportsSpecificToolChoice(t *testing.T) {
-	req := &cif.CanonicalRequest{
-		Model: "claude-opus-4-5",
-		Messages: []cif.CIFMessage{
-			cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "use bash"}}},
-		},
-		Tools: []cif.CIFTool{{
-			Name:             "bash",
-			Description:      stringPtr("Execute shell commands"),
-			ParametersSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}},
-		}},
-		ToolChoice: map[string]any{"type": "function", "functionName": "bash"},
-	}
-	params, err := cifToAnthropicParams(req)
+func TestAnthropicParamsSupportsSpecificToolChoice(t *testing.T) {
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("use bash"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("bash", stringPtr("Execute shell commands"), map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}})}
+	req.ToolChoice = map[string]any{"type": "function", "functionName": "bash"}
+	params, err := anthropicParamsFromRequest(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if params.ToolChoice.OfTool == nil || params.ToolChoice.OfTool.Name != "bash" {
 		t.Fatalf("expected specific tool choice to map to bash, got %#v", params.ToolChoice)
+	}
+}
+
+func TestAnthropicParamsToolSchemaUsesPropertiesFieldOnly(t *testing.T) {
+	req := testMessagesRequest("claude-opus-4-5", testUserMessage("show config"))
+	req.Tools = []tools.ToolDefinition{testToolDefinition("config", stringPtr("Read config"), map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type": "string",
+				"enum": []string{"get", "set", "list"},
+			},
+			"key": map[string]any{"type": "string"},
+		},
+		"required": []string{"action"},
+	})}
+
+	payload, err := buildAnthropicMessagesJSON("claude-opus-4-5", req, false)
+	if err != nil {
+		t.Fatalf("buildAnthropicMessagesJSON() error = %v", err)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	toolsRaw, _ := body["tools"].([]any)
+	if len(toolsRaw) != 1 {
+		t.Fatalf("tools = %#v", body["tools"])
+	}
+	tool, _ := toolsRaw[0].(map[string]any)
+	inputSchema, _ := tool["input_schema"].(map[string]any)
+	properties, _ := inputSchema["properties"].(map[string]any)
+	if _, ok := properties["action"].(map[string]any); !ok {
+		t.Fatalf("input_schema.properties.action = %#v, want object schema", properties["action"])
+	}
+	if nested, ok := properties["properties"]; ok {
+		t.Fatalf("input_schema.properties must not contain nested full schema: %#v", nested)
+	}
+	required, _ := inputSchema["required"].([]any)
+	if len(required) != 1 || required[0] != "action" {
+		t.Fatalf("input_schema.required = %#v, want [\"action\"]", inputSchema["required"])
 	}
 }

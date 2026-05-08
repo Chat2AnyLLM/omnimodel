@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+const DefaultAgentBackend = "google-adk"
+
+func normalizeAgentBackend(agentBackend string) string {
+	if agentBackend == DefaultAgentBackend {
+		return agentBackend
+	}
+	return DefaultAgentBackend
+}
+
 // SessionSummary holds the metadata for a single chat session returned by the list endpoint.
 type SessionSummary struct {
 	ID           string    `json:"session_id"`
@@ -39,7 +48,7 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 		"title":         "CLI session",
 		"model_id":      requestedModel,
 		"api_shape":     DefaultAPIShape,
-		"agent_backend": "agent-sdk-go",
+		"agent_backend": DefaultAgentBackend,
 	}
 	data, err := c.Post("/api/admin/chat/sessions", body)
 	if err != nil {
@@ -57,7 +66,7 @@ func EnsureSession(cmd CommandContext, c Client, existingSession string, request
 	if requestedModel != "" {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Using model: %s\n", requestedModel)
 	}
-	return SessionState{ID: sid, Model: requestedModel, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: "agent-sdk-go"}, nil
+	return SessionState{ID: sid, Model: requestedModel, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: DefaultAgentBackend}, nil
 }
 
 func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, error) {
@@ -70,7 +79,7 @@ func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, e
 		return SessionState{}, nil, fmt.Errorf("parse session: %w", err)
 	}
 
-	state := SessionState{ID: sessionID, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: "agent-sdk-go"}
+	state := SessionState{ID: sessionID, Mode: "chat", APIShape: DefaultAPIShape, AgentBackend: DefaultAgentBackend}
 	if mid, ok := session["model_id"].(string); ok {
 		state.Model = mid
 	}
@@ -78,7 +87,7 @@ func LoadSessionMessages(c Client, sessionID string) (SessionState, []Message, e
 		state.APIShape = canonicalAPIShape(apiShape)
 	}
 	if backend, ok := session["agent_backend"].(string); ok && backend != "" {
-		state.AgentBackend = backend
+		state.AgentBackend = normalizeAgentBackend(backend)
 	}
 
 	var messages []Message
@@ -110,7 +119,7 @@ func UpdateSessionModel(c Client, sessionID string, modelID string) error {
 
 func UpdateSessionAgentBackend(c Client, sessionID string, agentBackend string) error {
 	_, err := c.Put("/api/admin/chat/sessions/"+sessionID, map[string]string{
-		"agent_backend": agentBackend,
+		"agent_backend": normalizeAgentBackend(agentBackend),
 	})
 	return err
 }
@@ -139,9 +148,9 @@ func CurrentAgentBackend(c Client, sessionID string, fallback string) (string, e
 		return "", err
 	}
 	if session.AgentBackend != "" {
-		return session.AgentBackend, nil
+		return normalizeAgentBackend(session.AgentBackend), nil
 	}
-	return fallback, nil
+	return normalizeAgentBackend(fallback), nil
 }
 
 func CurrentAPIShape(c Client, sessionID string, fallback string) (string, error) {
@@ -181,9 +190,7 @@ func CreateSession(c Client, title, model, apiShape, agentBackend string) (strin
 		title = "New session"
 	}
 	apiShape = canonicalAPIShape(apiShape)
-	if agentBackend == "" {
-		agentBackend = "agent-sdk-go"
-	}
+	agentBackend = normalizeAgentBackend(agentBackend)
 	body := map[string]any{
 		"title":         title,
 		"model_id":      model,

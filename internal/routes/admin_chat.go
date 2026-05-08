@@ -119,7 +119,7 @@ func handleCreateChatSession(c *gin.Context) {
 	}
 
 	if req.AgentBackend == "" {
-		req.AgentBackend = "agent-sdk-go"
+		req.AgentBackend = "google-adk"
 	}
 
 	sessionID := req.SessionID

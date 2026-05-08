@@ -8,9 +8,13 @@ import (
 	"omnillm/internal/providers/shared"
 	"omnillm/internal/providers/types"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
-// Adapter implements types.ProviderAdapter using openaicompat for HTTP.
+// Adapter implements types.ProviderAdapter using the official OpenAI Go SDK.
+// For DashScope-specific extensions (enable_thinking, etc.), we marshal requests
+// with extras to JSON and use raw HTTP, since the SDK doesn't expose these fields directly.
 type Adapter struct {
 	provider *Provider
 }
@@ -28,7 +32,23 @@ func (a *Adapter) Execute(ctx context.Context, request *cif.CanonicalRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	return openaicompat.Execute(ctx, ChatURL(a.provider.baseURL), Headers(a.provider.token, false, a.provider.config), cr)
+
+	// Marshal the request with extras (enable_thinking, etc.)
+	payload, err := openaicompat.Marshal(cr)
+	if err != nil {
+		return nil, fmt.Errorf("alibaba: failed to marshal request: %w", err)
+	}
+
+	if log.Logger.GetLevel() <= -1 { // TraceLevel equivalent
+		log.Trace().RawJSON("payload", payload).Msg("outbound alibaba SDK request")
+	}
+
+	chatResp, err := a.provider.postChatCompletions(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return openaicompat.ParseChatResponse(chatResp), nil
 }
 
 func (a *Adapter) ExecuteStream(ctx context.Context, request *cif.CanonicalRequest) (<-chan cif.CIFStreamEvent, error) {
@@ -52,7 +72,6 @@ func (a *Adapter) ExecuteStream(ctx context.Context, request *cif.CanonicalReque
 var dashScopeNoThinkingModels = map[string]struct{}{
 	"deepseek-v4-flash": {},
 	"qwen3.5-plus":      {},
-	"qwen3.6-plus":      {},
 	"glm-5.1":           {},
 }
 
@@ -75,16 +94,11 @@ func (a *Adapter) buildRequest(ctx context.Context, request *cif.CanonicalReques
 	isReasoning := IsReasoningModel(ctx, model) && !dashScopeNoThinking(model)
 
 	extras := map[string]any{}
-	// Only reasoning-capable models accept the enable_thinking parameter.
-	// Non-reasoning models on DashScope reject it entirely.
+	// DashScope compatible-mode requests need enable_thinking=true on reasoning
+	// models to surface reasoning_content. Known endpoint exceptions are excluded
+	// via dashScopeNoThinkingModels.
 	if isReasoning {
-		if len(request.Tools) == 0 {
-			extras["enable_thinking"] = true
-		} else {
-			// DashScope requires explicit opt-out when tools are present;
-			// omitting the flag causes a 400 error on reasoning models.
-			extras["enable_thinking"] = false
-		}
+		extras["enable_thinking"] = true
 	}
 
 	cfg := openaicompat.Config{
