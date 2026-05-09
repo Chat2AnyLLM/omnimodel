@@ -23,6 +23,9 @@ type liveHTTPClient struct {
 	apiKey  string
 }
 
+func (c *liveHTTPClient) GetBaseURL() string { return c.baseURL }
+func (c *liveHTTPClient) GetAPIKey() string  { return c.apiKey }
+
 func (c *liveHTTPClient) Post(path string, body any) ([]byte, error) {
 	jsonBytes, err := json.Marshal(body)
 	if err != nil {
@@ -281,11 +284,11 @@ func TestLiveFullMeshDispatchDirect(t *testing.T) {
 				defer cancel()
 
 				dispatch := NewDispatch(client, mc.model, shape)
-					respCh, err := dispatch(ctx, testMessagesRequest(mc.model, testUserMessage("Say hi in one word.")))
+				respCh, err := dispatch(ctx, testMessagesRequest(mc.model, testUserMessage("Say hi in one word.")))
 				if err != nil {
 					t.Fatalf("dispatch error: %v", err)
 				}
-					var resp *MessagesResponse
+				var resp *MessagesResponse
 				for r := range respCh {
 					resp = r
 				}

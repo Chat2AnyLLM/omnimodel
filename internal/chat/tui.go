@@ -16,7 +16,6 @@ import (
 	"time"
 
 	agentpkg "omnillm/internal/agent"
-	"omnillm/internal/branding"
 	toolspkg "omnillm/internal/tools"
 
 	"github.com/atotto/clipboard"
@@ -65,6 +64,27 @@ var (
 	tuiTableCellStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
 	tuiTableAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
 	ansiPrefixPattern       = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*`)
+	omnicodeLogoLeft        = []string{
+		"                    ",
+		"█▀▀█ █▄  ▄█ █▄  █  █ ",
+		"█  █ █ ▀▀ █ █ ▀▄█  █ ",
+		"▀▀▀▀ ▀    ▀ ▀  ▀▀  ▀ ",
+	}
+	omnicodeLogoRight = []string{
+		"                   ",
+		"█▀▀▀ █▀▀█ █▀▀▄ █▀▀▀",
+		"█    █  █ █  █ █▀▀▀",
+		"▀▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀▀",
+	}
+	omnicodeLogoStyle = logoStyle{
+		left:          lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")),
+		right:         tuiSidebarHeaderStyle,
+		leftShadow:    lipgloss.NewStyle().Foreground(lipgloss.Color("#24242A")),
+		rightShadow:   lipgloss.NewStyle().Foreground(lipgloss.Color("#3A3A42")),
+		leftShadowBg:  lipgloss.NewStyle().Background(lipgloss.Color("#24242A")),
+		rightShadowBg: lipgloss.NewStyle().Background(lipgloss.Color("#3A3A42")),
+	}
+	omnicodeLogo = renderOmnicodeLogo()
 )
 
 // ConfigSaveCallback is invoked when the TUI state changes so the hosting binary
@@ -89,6 +109,15 @@ const (
 	tuiSidebarWidth    = 30
 	tuiMinSidebarWidth = 60
 )
+
+type logoStyle struct {
+	left          lipgloss.Style
+	right         lipgloss.Style
+	leftShadow    lipgloss.Style
+	rightShadow   lipgloss.Style
+	leftShadowBg  lipgloss.Style
+	rightShadowBg lipgloss.Style
+}
 
 type transcriptEntryType string
 
@@ -1397,8 +1426,42 @@ func (m chatTUIModel) renderTranscript() string {
 	return m.renderSelectionHighlight(transcript)
 }
 
+func renderOmnicodeLogo() string {
+	rows := make([]string, 0, len(omnicodeLogoLeft))
+	draw := func(line string, fg, shadow, bg lipgloss.Style) string {
+		var row strings.Builder
+		fgOnBg := fg.Background(bg.GetBackground())
+		for _, char := range line {
+			switch char {
+			case '_':
+				row.WriteString(bg.Render(" "))
+			case '^':
+				row.WriteString(fgOnBg.Render("▀"))
+			case '~':
+				row.WriteString(shadow.Render("▀"))
+			case ' ':
+				row.WriteRune(char)
+			default:
+				row.WriteString(fg.Render(string(char)))
+			}
+		}
+		return row.String()
+	}
+
+	for i, left := range omnicodeLogoLeft {
+		right := ""
+		if i < len(omnicodeLogoRight) {
+			right = omnicodeLogoRight[i]
+		}
+		rows = append(rows,
+			draw(left, omnicodeLogoStyle.left, omnicodeLogoStyle.leftShadow, omnicodeLogoStyle.leftShadowBg)+" "+
+				draw(right, omnicodeLogoStyle.right, omnicodeLogoStyle.rightShadow, omnicodeLogoStyle.rightShadowBg),
+		)
+	}
+	return strings.Join(rows, "\n")
+}
+
 func (m chatTUIModel) renderWelcomeBanner() string {
-	logo := branding.Logo
 	cwd, _ := os.Getwd()
 	version := "v0.0.1"
 	if data, err := os.ReadFile("VERSION"); err == nil {
@@ -1407,26 +1470,31 @@ func (m chatTUIModel) renderWelcomeBanner() string {
 		}
 	}
 
-	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Bold(true)
-	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	metaAccent := lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
+	accentColor := lipgloss.Color("#7C3AED")
+	subtleColor := lipgloss.Color("#9CA3AF")
+	highlightColor := lipgloss.Color("#C4B5FD")
 
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(logo, "\n"), "\n") {
-		centered := lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, logoStyle.Render(line))
-		b.WriteString(centered)
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
+	title := omnicodeLogo
 
-	info := metaAccent.Render(version) + metaStyle.Render("  •  ") + metaStyle.Render(cwd)
+	subtitle := lipgloss.NewStyle().
+		Foreground(subtleColor).
+		Render(version + "  •  " + cwd)
 	if m.model != "" {
-		info += metaStyle.Render("  •  ") + metaAccent.Render(m.model)
+		subtitle = lipgloss.NewStyle().
+			Foreground(subtleColor).
+			Render(version+"  •  "+cwd+"  •  ") +
+			lipgloss.NewStyle().Foreground(highlightColor).Render(m.model)
 	}
-	b.WriteString(lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, info))
-	b.WriteString("\n")
 
-	return b.String()
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accentColor).
+		Padding(1, 4).
+		Width(m.mainWidth - 4).
+		Align(lipgloss.Center).
+		Render(title + "\n" + subtitle)
+
+	return lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, box) + "\n"
 }
 
 func (m chatTUIModel) renderSelectionHighlight(transcript string) string {
@@ -2470,7 +2538,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newShape, ok := normalizeAPIShape(fields[1])
-		if !ok || newShape != DefaultAPIShape {
+		if !ok || newShape == "responses" {
 			add(tuiErrorStyle.Render(fmt.Sprintf("Error: unknown API shape %q — supported shapes: %s", fields[1], supportedAPIShapesText())))
 			return m, nil
 		}
