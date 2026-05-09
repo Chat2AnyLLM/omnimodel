@@ -16,10 +16,10 @@ func TestGetModels_PopulatesShapeCache(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"object":"list","data":[
-					{"id":"gpt-5.4","name":"GPT-5.4","capabilities":{},"supported_endpoints":["/responses","ws:/responses"]},
-					{"id":"claude-opus-4.7","name":"Claude Opus 4.7","capabilities":{},"supported_endpoints":["/v1/messages","/chat/completions"]},
-					{"id":"gpt-4o","name":"GPT-4o","capabilities":{},"supported_endpoints":["/chat/completions"]}
-				]}`))
+						{"id":"gpt-5.4","name":"GPT-5.4","capabilities":{},"supported_endpoints":["/responses","ws:/responses"]},
+						{"id":"claude-opus-4.7","name":"Claude Opus 4.7","capabilities":{},"supported_endpoints":["/v1/messages","/chat/completions"]},
+						{"id":"gpt-4o","name":"GPT-4o","capabilities":{},"supported_endpoints":["/chat/completions"]}
+					]}`))
 	}))
 	defer server.Close()
 
@@ -102,5 +102,14 @@ func TestSelectShape_CacheMissFallsBackToHeuristic(t *testing.T) {
 	}
 	if got := adapter.selectShape("claude-opus-4.7", nil); got != shapeChat {
 		t.Errorf("expected shapeChat for claude fallback, got %q", got)
+	}
+}
+
+func TestSelectShape_GPT5MiniDoesNotUseResponses(t *testing.T) {
+	provider := NewGitHubCopilotProvider("test", "")
+	adapter := provider.GetAdapter().(*CopilotAdapter)
+
+	if got := adapter.selectShape("gpt-5-mini", nil); got != shapeChat {
+		t.Errorf("expected shapeChat for gpt-5-mini, got %q", got)
 	}
 }

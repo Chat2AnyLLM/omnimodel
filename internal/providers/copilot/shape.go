@@ -19,16 +19,18 @@ func (a *CopilotAdapter) selectShape(model string, request *cif.CanonicalRequest
 		return shapeChat
 	}
 
+	// Normalize once; use the same key for cache lookup and heuristic.
+	normalized := strings.ToLower(strings.TrimSpace(model))
+
 	if a.provider.shapeCache != nil {
-		if shape, ok := a.provider.shapeCache[model]; ok {
+		if shape, ok := a.provider.shapeCache[normalized]; ok {
 			return shape
 		}
 	}
 
 	// Cache miss: fall back to family heuristic so the provider works
 	// before GetModels() has been called.
-	lower := strings.ToLower(strings.TrimSpace(model))
-	if shared.IsGPT5Family(lower) && !strings.Contains(lower, "-mini") {
+	if shared.IsGPT5Family(normalized) && !strings.Contains(normalized, "-mini") {
 		return shapeResponses
 	}
 	return shapeChat
