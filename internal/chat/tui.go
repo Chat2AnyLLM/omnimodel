@@ -2470,7 +2470,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newShape, ok := normalizeAPIShape(fields[1])
-		if !ok || newShape != DefaultAPIShape {
+		if !ok || newShape == "responses" {
 			add(tuiErrorStyle.Render(fmt.Sprintf("Error: unknown API shape %q — supported shapes: %s", fields[1], supportedAPIShapesText())))
 			return m, nil
 		}

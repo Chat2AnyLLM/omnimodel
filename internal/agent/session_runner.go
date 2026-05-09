@@ -48,10 +48,33 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 	return ag.Stream(ctx, sessionID, prompt)
 }
 
-// selectDispatch always uses the OmniLLM /v1/messages proxy path.
-// OmniCode now standardizes on the google-adk workflow and Anthropic Messages shape.
-func selectDispatch(c Client, model, _, _ string) DispatchFn {
-	return NewDispatch(c, model, DefaultAPIShape)
+func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
+	switch normalizeAPIShape(apiShape) {
+	case "openai":
+		return OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c))
+	default:
+		return NewDispatch(c, model, DefaultAPIShape)
+	}
+}
+
+func omniLLMOpenAIBaseURL(c Client) string {
+	config, ok := c.(OmniLLMClientConfig)
+	if !ok {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(config.GetBaseURL()), "/")
+	if baseURL == "" {
+		return ""
+	}
+	return baseURL + "/v1"
+}
+
+func omniLLMAPIKey(c Client) string {
+	config, ok := c.(OmniLLMClientConfig)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(config.GetAPIKey())
 }
 
 // buildSystemPrompt returns an OS-aware system prompt so the LLM generates

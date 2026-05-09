@@ -18,6 +18,11 @@ type Client interface {
 	PostStream(path string, body any) (*http.Response, error)
 }
 
+type OmniLLMClientConfig interface {
+	GetBaseURL() string
+	GetAPIKey() string
+}
+
 // NewChatCompletionsDispatch returns a DispatchFn backed by OmniLLM's local proxy.
 // All models are sent to /v1/messages and OmniLLM translates the request upstream.
 func NewChatCompletionsDispatch(c Client, model string) DispatchFn {

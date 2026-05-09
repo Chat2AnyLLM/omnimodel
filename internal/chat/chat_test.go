@@ -304,6 +304,41 @@ func TestHandleSlashCommandAgentSwitch(t *testing.T) {
 	}
 }
 
+func TestHandleSlashCommandAPIShapeSwitchOpenAI(t *testing.T) {
+	var updatedShape string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			updatedShape = body["api_shape"]
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+
+	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "agent"}, "/apishape openai")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.apiShape != "openai" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if updatedShape != "openai" {
+		t.Fatalf("updated shape = %q, want openai", updatedShape)
+	}
+	if !strings.Contains(cmd.out.String(), "Switched API shape to openai (/v1/chat/completions)") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
 func TestHandleSlashCommandAgentInvalid(t *testing.T) {
 	cmd := newTestCommandContext()
 	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "agent"}, "/agent nope")
