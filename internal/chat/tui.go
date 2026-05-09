@@ -16,7 +16,6 @@ import (
 	"time"
 
 	agentpkg "omnillm/internal/agent"
-	"omnillm/internal/branding"
 	toolspkg "omnillm/internal/tools"
 
 	"github.com/atotto/clipboard"
@@ -1398,7 +1397,6 @@ func (m chatTUIModel) renderTranscript() string {
 }
 
 func (m chatTUIModel) renderWelcomeBanner() string {
-	logo := branding.Logo
 	cwd, _ := os.Getwd()
 	version := "v0.0.1"
 	if data, err := os.ReadFile("VERSION"); err == nil {
@@ -1407,26 +1405,34 @@ func (m chatTUIModel) renderWelcomeBanner() string {
 		}
 	}
 
-	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Bold(true)
-	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	metaAccent := lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
+	accentColor := lipgloss.Color("#7C3AED")
+	subtleColor := lipgloss.Color("#9CA3AF")
+	highlightColor := lipgloss.Color("#C4B5FD")
 
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(logo, "\n"), "\n") {
-		centered := lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, logoStyle.Render(line))
-		b.WriteString(centered)
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(accentColor).
+		Render("◆  OMNICODE  ◆")
 
-	info := metaAccent.Render(version) + metaStyle.Render("  •  ") + metaStyle.Render(cwd)
+	subtitle := lipgloss.NewStyle().
+		Foreground(subtleColor).
+		Render(version + "  •  " + cwd)
 	if m.model != "" {
-		info += metaStyle.Render("  •  ") + metaAccent.Render(m.model)
+		subtitle = lipgloss.NewStyle().
+			Foreground(subtleColor).
+			Render(version + "  •  " + cwd + "  •  ") +
+			lipgloss.NewStyle().Foreground(highlightColor).Render(m.model)
 	}
-	b.WriteString(lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, info))
-	b.WriteString("\n")
 
-	return b.String()
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accentColor).
+		Padding(1, 4).
+		Width(m.mainWidth - 4).
+		Align(lipgloss.Center).
+		Render(title + "\n" + subtitle)
+
+	return lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, box) + "\n"
 }
 
 func (m chatTUIModel) renderSelectionHighlight(transcript string) string {
