@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 
 	"omnillm/internal/cif"
 	"omnillm/internal/lib/modelrouting"
-	"omnillm/internal/providers/openaicompat"
 	"omnillm/internal/providers/shared"
 	"omnillm/internal/providers/types"
 
@@ -305,75 +303,3 @@ func (a *CopilotAdapter) refreshTokenForRetry(endpoint string) bool {
 	return true
 }
 
-func (a *CopilotAdapter) responsesURL() string {
-	return fmt.Sprintf("%s/responses", a.provider.GetBaseURL())
-}
-
-func (a *CopilotAdapter) buildResponsesPayload(request *cif.CanonicalRequest, stream bool) map[string]interface{} {
-	payload := openaicompat.BuildResponsesPayload(a.RemapModel(request.Model), request, stream, openaicompat.ResponsesConfig{})
-	model := a.RemapModel(request.Model)
-	if shared.IsReasoningModel(model) {
-		delete(payload, "temperature")
-		delete(payload, "top_p")
-	}
-	if request != nil && request.MaxTokens != nil && *request.MaxTokens > 0 {
-		if copilotModelUsesMaxCompletionTokens(model) {
-			delete(payload, "max_output_tokens")
-			payload["max_completion_tokens"] = *request.MaxTokens
-		} else if *request.MaxTokens < 16 {
-			payload["max_output_tokens"] = 16
-		}
-	}
-	return payload
-}
-
-func (a *CopilotAdapter) executeResponses(ctx context.Context, request *cif.CanonicalRequest) (*cif.CanonicalResponse, error) {
-	return a.executeResponsesWithRetry(ctx, request, true)
-}
-
-func (a *CopilotAdapter) executeResponsesWithRetry(ctx context.Context, request *cif.CanonicalRequest, allowAuthRetry bool) (*cif.CanonicalResponse, error) {
-	payload := a.buildResponsesPayload(request, false)
-	resp, err := openaicompat.ExecuteResponses(ctx, a.responsesURL(), a.requestHeaders(request), payload)
-	if err != nil {
-		if allowAuthRetry {
-			if apiErr := copilotAPIErrorFromOpenAICompat(err); apiErr != nil &&
-				a.shouldRetryAfterAuthError(request, apiErr) &&
-				a.refreshTokenForRetry("responses") {
-				return a.executeResponsesWithRetry(ctx, request, false)
-			}
-		}
-		return nil, err
-	}
-	return resp, nil
-}
-
-func (a *CopilotAdapter) executeResponsesStream(ctx context.Context, request *cif.CanonicalRequest) (<-chan cif.CIFStreamEvent, error) {
-	return a.executeResponsesStreamWithRetry(ctx, request, true)
-}
-
-func (a *CopilotAdapter) executeResponsesStreamWithRetry(ctx context.Context, request *cif.CanonicalRequest, allowAuthRetry bool) (<-chan cif.CIFStreamEvent, error) {
-	payload := a.buildResponsesPayload(request, true)
-	eventCh, err := openaicompat.StreamResponses(ctx, a.responsesURL(), a.requestHeaders(request), payload)
-	if err != nil {
-		if allowAuthRetry {
-			if apiErr := copilotAPIErrorFromOpenAICompat(err); apiErr != nil &&
-				a.shouldRetryAfterAuthError(request, apiErr) &&
-				a.refreshTokenForRetry("responses-stream") {
-				return a.executeResponsesStreamWithRetry(ctx, request, false)
-			}
-		}
-		return nil, err
-	}
-	return eventCh, nil
-}
-
-// copilotAPIErrorFromOpenAICompat lifts the openaicompat APIError into the
-// Copilot-local error type so existing auth-retry helpers can reason about
-// status codes without importing openaicompat in their signatures.
-func copilotAPIErrorFromOpenAICompat(err error) *copilotAPIError {
-	var compatErr *openaicompat.APIError
-	if !errors.As(err, &compatErr) || compatErr == nil {
-		return nil
-	}
-	return &copilotAPIError{statusCode: compatErr.StatusCode, body: compatErr.Body}
-}
