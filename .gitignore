@@ -42,3 +42,6 @@ pages/admin/
 .tmp-hook-log.jsonl
 .tmp-live-*-err.log
 .tmp-live-*-out.log
+
+# runtime logs
+omniproxy-*.log
