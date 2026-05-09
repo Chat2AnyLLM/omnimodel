@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OmniLLM Architecture Pager</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08111f;
+      --bg-2: #0d1730;
+      --card: rgba(13, 23, 48, 0.78);
+      --card-strong: rgba(18, 31, 62, 0.94);
+      --line: rgba(170, 191, 255, 0.16);
+      --text: #edf2ff;
+      --muted: #a8b5d8;
+      --accent: #79b8ff;
+      --accent-2: #7ef0c4;
+      --accent-3: #ffcc66;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(121, 184, 255, 0.22), transparent 30%),
+        radial-gradient(circle at top right, rgba(126, 240, 196, 0.16), transparent 24%),
+        linear-gradient(180deg, #07111d 0%, #0b1628 45%, #08111f 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      padding: 32px;
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      gap: 18px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(13, 23, 48, 0.92), rgba(10, 17, 31, 0.86));
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -45% auto;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(121, 184, 255, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      font-size: 12px;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(36px, 5vw, 64px);
+      line-height: 0.95;
+      max-width: 12ch;
+    }
+
+    .lede {
+      margin: 0;
+      max-width: 78ch;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .diagram {
+      margin-top: 20px;
+      padding: 24px;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(13, 23, 48, 0.72), rgba(9, 16, 30, 0.72));
+      box-shadow: var(--shadow);
+    }
+
+    .diagram-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .diagram-header h2 {
+      margin: 0;
+      font-size: 26px;
+    }
+
+    .diagram-header p {
+      margin: 0;
+      max-width: 78ch;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .diagram-canvas {
+      position: relative;
+      border-radius: 28px;
+      border: 1px solid rgba(121, 184, 255, 0.16);
+      background:
+        radial-gradient(circle at 20% 25%, rgba(121, 184, 255, 0.16), transparent 24%),
+        radial-gradient(circle at 80% 18%, rgba(126, 240, 196, 0.16), transparent 20%),
+        linear-gradient(180deg, rgba(13, 23, 48, 0.82), rgba(7, 13, 25, 0.9));
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .diagram-canvas::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.65), transparent 100%);
+      pointer-events: none;
+    }
+
+    .diagram-canvas svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .lane-label {
+      position: absolute;
+      top: 18px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      z-index: 2;
+    }
+
+    .lane-left {
+      left: 22px;
+    }
+
+    .lane-mid {
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .lane-right {
+      right: 22px;
+    }
+
+    .diagram-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) 120px minmax(340px, 1.15fr) 120px minmax(280px, 1fr);
+      gap: 0;
+      align-items: stretch;
+      padding: 72px 24px 24px;
+      z-index: 1;
+    }
+
+    .diagram-box {
+      position: relative;
+      border-radius: 28px;
+      border: 1px solid rgba(170, 191, 255, 0.18);
+      padding: 22px;
+      background: rgba(13, 23, 48, 0.84);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+      min-height: 100%;
+      overflow: hidden;
+    }
+
+    .diagram-box::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      opacity: 0.95;
+    }
+
+    .diagram-box.alt::before {
+      background: linear-gradient(90deg, var(--accent-3), var(--accent));
+    }
+
+    .diagram-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .diagram-box h2,
+    .diagram-box h3 {
+      margin: 0 0 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .diagram-box h2 {
+      font-size: 24px;
+    }
+
+    .diagram-box h3 {
+      font-size: 18px;
+    }
+
+    .diagram-box p,
+    .diagram-box li {
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .diagram-box ul {
+      margin: 16px 0 0;
+      padding-left: 18px;
+    }
+
+    .diagram-node {
+      display: grid;
+      gap: 8px;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(170, 191, 255, 0.16);
+    }
+
+    .diagram-node strong {
+      font-size: 14px;
+    }
+
+    .diagram-node span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .center-core {
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+      padding: 24px 26px 28px;
+      background:
+        radial-gradient(circle at 50% 22%, rgba(121, 184, 255, 0.2), transparent 36%),
+        radial-gradient(circle at 50% 78%, rgba(126, 240, 196, 0.15), transparent 42%),
+        rgba(13, 23, 48, 0.9);
+    }
+
+    .core-orbit {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      margin-bottom: 18px;
+      background: radial-gradient(circle, rgba(121, 184, 255, 0.35), rgba(121, 184, 255, 0.08) 62%, transparent 63%);
+      box-shadow: 0 0 0 1px rgba(121, 184, 255, 0.25), 0 0 44px rgba(121, 184, 255, 0.18);
+      position: relative;
+    }
+
+    .core-orbit::after {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .core-orbit span {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #fff;
+      z-index: 1;
+    }
+
+    .core-title {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.05;
+      max-width: 10ch;
+    }
+
+    .core-copy {
+      margin-top: 12px;
+      color: var(--muted);
+      max-width: 44ch;
+      line-height: 1.65;
+    }
+
+    .core-tags {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .core-tags span {
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #dbe6ff;
+      font-size: 12px;
+    }
+
+    .arrow {
+      display: grid;
+      place-items: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .arrow span {
+      display: inline-flex;
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(121, 184, 255, 0.28);
+      background: rgba(121, 184, 255, 0.08);
+      color: var(--accent);
+      font-size: 30px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .support {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .support .mini {
+      min-height: 100%;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .footer-note {
+      margin-top: 16px;
+      color: #7c8ab1;
+      font-size: 12px;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    .mini-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .mini {
+      border-radius: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .mini strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .mini span {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1100px) {
+      .diagram-grid,
+      .support {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        transform: rotate(90deg);
+        padding: 6px 0;
+      }
+
+      .lane-left,
+      .lane-mid,
+      .lane-right {
+        position: static;
+        transform: none;
+        display: inline-flex;
+        margin-bottom: 12px;
+      }
+
+      .diagram-grid {
+        padding-top: 24px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 16px;
+      }
+
+      .hero,
+      .diagram {
+        padding: 18px;
+        border-radius: 20px;
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">OmniLLM architecture overview</div>
+      <h1>One gateway, one coding client, one shared control plane.</h1>
+      <p class="lede">
+        OmniLLM and OmniProxy expose the same server-backed gateway surface, while OmniCode is the coding-focused CLI that consumes that server over HTTP.
+        This page shows the three layers as a single visual flow.
+      </p>
+      <div class="meta">
+        <div class="pill">Gateway: <strong>omnillm</strong> / <strong>omniproxy</strong></div>
+        <div class="pill">Coding CLI: <strong>omnicode</strong></div>
+        <div class="pill">Shared core: <strong>CIF</strong>, providers, sessions, admin APIs</div>
+      </div>
+    </section>
+
+    <section class="diagram" aria-label="architecture diagram">
+      <div class="diagram-header">
+        <div>
+          <h2>Architecture diagram</h2>
+          <p>Gateway binaries feed a shared control plane, and OmniCode sits on top as the interactive coding client.</p>
+        </div>
+      </div>
+
+      <div class="diagram-canvas">
+        <div class="lane-label lane-left">gateway binaries</div>
+        <div class="lane-label lane-mid">shared core</div>
+        <div class="lane-label lane-right">coding client</div>
+
+        <svg viewBox="0 0 1320 520" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="lineBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#79b8ff" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#7ef0c4" stop-opacity="0.9" />
+            </linearGradient>
+            <linearGradient id="lineGold" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#ffcc66" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#79b8ff" stop-opacity="0.9" />
+            </linearGradient>
+            <marker id="arrowHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#79b8ff" />
+            </marker>
+          </defs>
+          <path d="M 300 170 C 390 170, 430 170, 520 170" stroke="url(#lineBlue)" stroke-width="4" fill="none" marker-end="url(#arrowHead)" />
+          <path d="M 800 170 C 890 170, 930 170, 1020 170" stroke="url(#lineGold)" stroke-width="4" fill="none" marker-end="url(#arrowHead)" />
+          <path d="M 1020 290 C 920 355, 770 370, 660 355" stroke="rgba(126, 240, 196, 0.45)" stroke-width="3" fill="none" stroke-dasharray="8 10" marker-end="url(#arrowHead)" />
+          <path d="M 520 290 C 610 330, 710 332, 800 290" stroke="rgba(255, 204, 102, 0.35)" stroke-width="3" fill="none" stroke-dasharray="8 10" marker-end="url(#arrowHead)" />
+        </svg>
+
+        <div class="diagram-grid">
+        <div class="diagram-box">
+          <div class="diagram-label">Gateway binaries</div>
+          <h2>omnillm / omniproxy</h2>
+          <p>Both entrypoints share the same Cobra command tree and start the same backend server.</p>
+          <div class="diagram-node">
+            <strong>Entry layer</strong>
+            <span>main.go or cmd/omniproxy/main.go</span>
+          </div>
+          <ul>
+            <li>Starts server + admin UI</li>
+            <li>Handles auth and config</li>
+            <li>Owns routing and persistence</li>
+          </ul>
+        </div>
+
+        <div class="arrow" aria-hidden="true"><span>→</span></div>
+
+        <div class="diagram-box alt center-core">
+          <div class="diagram-label">Shared core</div>
+          <div class="core-orbit"><span>CIF</span></div>
+          <h2 class="core-title">Gateway + CIF + providers</h2>
+          <p class="core-copy">The server normalizes requests into CIF, dispatches to providers, then serializes responses back out.</p>
+          <div class="diagram-node">
+            <strong>Control plane</strong>
+            <span>sessions, usage, models, virtual models, logs, admin API</span>
+          </div>
+          <div class="core-tags">
+            <span>Provider registry</span>
+            <span>Fallback routing</span>
+            <span>OpenAI + Anthropic endpoints</span>
+          </div>
+        </div>
+
+        <div class="arrow" aria-hidden="true"><span>→</span></div>
+
+        <div class="diagram-box">
+          <div class="diagram-label">Client binary</div>
+          <h2>omnicode</h2>
+          <p>OmniCode is a CLI client that connects to the running gateway and uses the shared API surface.</p>
+          <div class="diagram-node">
+            <strong>Entry layer</strong>
+            <span>cmd/omnicode/main.go → internal/omnicode/app.go</span>
+          </div>
+          <ul>
+            <li>Runs chat and agent loops</li>
+            <li>Creates or reuses sessions</li>
+            <li>Consumes the server, does not replace it</li>
+          </ul>
+        </div>
+        </div>
+
+      <div class="support">
+        <div class="mini">
+          <strong>Start point</strong>
+          <span>Launch omnillm or omniproxy first. They expose the backend contract that all clients consume.</span>
+        </div>
+        <div class="mini">
+          <strong>Interaction point</strong>
+          <span>OmniCode talks to the server over HTTP using the same API key and session flow as other clients.</span>
+        </div>
+        <div class="mini">
+          <strong>Why it matters</strong>
+          <span>The server remains reusable while the CLI stays specialized for coding workflows and agent behavior.</span>
+        </div>
+        <div class="mini">
+          <strong>One sentence</strong>
+          <span>OmniLLM/OmniProxy are the platform; OmniCode is the coding client on top of that platform.</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer-note">
+      Source anchors: README.md, main.go, cmd/omniproxy/main.go, cmd/omnicode/main.go, internal/server/server.go, internal/omnicode/app.go.
+    </div>
+  </main>
+</body>
+</html>
