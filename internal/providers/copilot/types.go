@@ -49,6 +49,7 @@ type GitHubCopilotProvider struct {
 	expiresAt    int64  // Copilot token expiry (unix timestamp)
 	baseURL      string
 	tokenFetcher func(string) (*ghservice.CopilotTokenResponse, error)
+	shapeCache   modelShapeCache // populated by GetModels(); nil means uncached
 }
 
 type CopilotAdapter struct {
@@ -59,6 +60,18 @@ const (
 	copilotMaxUserIDLength   = 64
 	copilotMaxToolNameLength = 64
 )
+
+// copilotAPIShape identifies which upstream wire format to use for a model.
+type copilotAPIShape string
+
+const (
+	shapeChat      copilotAPIShape = "chat_completions" // POST /chat/completions
+	shapeResponses copilotAPIShape = "responses"        // POST /responses
+)
+
+// modelShapeCache maps a Copilot model ID to its preferred API shape.
+// Built from the supported_endpoints field returned by GET /models.
+type modelShapeCache map[string]copilotAPIShape
 
 var copilotToolNamePattern = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
