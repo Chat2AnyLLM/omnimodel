@@ -89,6 +89,8 @@ func NewRootCmd() *cobra.Command {
 				return runOneShot(cmd, prompt)
 			}
 
+			PrintBanner()
+
 			saveCb := func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int) {
 				if cfg == nil {
 					return
