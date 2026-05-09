@@ -10,6 +10,7 @@ import (
 	"time"
 	"bytes"
 	"context"
+	"strings"
 
 	"omnillm/internal/ingestion"
 	"omnillm/internal/serialization"
@@ -265,10 +266,10 @@ func shapeFromEndpoints(endpoints []string) copilotAPIShape {
 	hasResponses := false
 	hasChat := false
 	for _, ep := range endpoints {
-		switch ep {
-		case "/responses":
+		if strings.HasSuffix(ep, "/responses") {
 			hasResponses = true
-		case "/chat/completions":
+		}
+		if strings.HasSuffix(ep, "/chat/completions") {
 			hasChat = true
 		}
 	}
