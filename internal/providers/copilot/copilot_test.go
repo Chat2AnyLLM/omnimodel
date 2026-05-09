@@ -1,6 +1,8 @@
 package copilot
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -111,5 +113,76 @@ func TestSelectShape_GPT5MiniDoesNotUseResponses(t *testing.T) {
 
 	if got := adapter.selectShape("gpt-5-mini", nil); got != shapeChat {
 		t.Errorf("expected shapeChat for gpt-5-mini, got %q", got)
+	}
+}
+
+func TestCopilotAdapter_ShapeCacheDrivesRouting(t *testing.T) {
+	// Verify that a model explicitly listed as responses-only in the cache
+	// routes to /responses, and a model listed as chat routes to /chat/completions,
+	// regardless of the model name's GPT-5 heuristic.
+
+	cases := []struct {
+		name         string
+		model        string
+		shape        copilotAPIShape
+		expectedPath string
+		serverResp   string
+	}{
+		{
+			name:         "cache says responses",
+			model:        "some-future-model",
+			shape:        shapeResponses,
+			expectedPath: "/responses",
+			serverResp:   `{"id":"resp_cache","model":"some-future-model","status":"completed","output":[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`,
+		},
+		{
+			name:         "cache says chat",
+			model:        "gpt-5.5", // would normally route to /responses by heuristic
+			shape:        shapeChat,
+			expectedPath: "/chat/completions",
+			serverResp: func() string {
+				b, _ := json.Marshal(map[string]interface{}{
+					"id":    "chatcmpl_cache",
+					"model": "gpt-5.5",
+					"choices": []map[string]interface{}{{
+						"index":         0,
+						"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+						"finish_reason": "stop",
+					}},
+				})
+				return string(b)
+			}(),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var capturedPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedPath = r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.serverResp))
+			}))
+			defer server.Close()
+
+			provider := NewGitHubCopilotProvider("test", "")
+			provider.baseURL = server.URL
+			provider.token = "test-token"
+			provider.shapeCache = modelShapeCache{tc.model: tc.shape}
+			adapter := provider.GetAdapter().(*CopilotAdapter)
+
+			_, err := adapter.Execute(context.Background(), &cif.CanonicalRequest{
+				Model: tc.model,
+				Messages: []cif.CIFMessage{
+					cif.CIFUserMessage{Role: "user", Content: []cif.CIFContentPart{cif.CIFTextPart{Type: "text", Text: "ping"}}},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if capturedPath != tc.expectedPath {
+				t.Errorf("expected path %q, got %q", tc.expectedPath, capturedPath)
+			}
+		})
 	}
 }

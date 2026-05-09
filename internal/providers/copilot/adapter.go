@@ -31,10 +31,12 @@ func (a *CopilotAdapter) Execute(ctx context.Context, request *cif.CanonicalRequ
 	if request != nil {
 		model = a.RemapModel(request.Model)
 	}
-	if a.shouldUseResponsesAPI(model, request) {
+	switch a.selectShape(model, request) {
+	case shapeResponses:
 		return a.executeResponses(ctx, request)
+	default:
+		return a.executeOpenAI(ctx, request)
 	}
-	return a.executeOpenAI(ctx, request)
 }
 
 func (a *CopilotAdapter) ExecuteStream(ctx context.Context, request *cif.CanonicalRequest) (<-chan cif.CIFStreamEvent, error) {
@@ -50,10 +52,12 @@ func (a *CopilotAdapter) ExecuteStream(ctx context.Context, request *cif.Canonic
 	if request != nil {
 		model = a.RemapModel(request.Model)
 	}
-	if a.shouldUseResponsesAPI(model, request) {
+	switch a.selectShape(model, request) {
+	case shapeResponses:
 		return a.executeResponsesStream(ctx, request)
+	default:
+		return a.executeOpenAIStream(ctx, request)
 	}
-	return a.executeOpenAIStream(ctx, request)
 }
 
 func (a *CopilotAdapter) shouldBufferAnthropicStreaming(request *cif.CanonicalRequest) bool {
@@ -77,15 +81,6 @@ func (a *CopilotAdapter) forceChatCompletions(request *cif.CanonicalRequest) boo
 		request.Extensions != nil &&
 		request.Extensions.ForceChatCompletions != nil &&
 		*request.Extensions.ForceChatCompletions
-}
-
-func (a *CopilotAdapter) shouldUseResponsesAPI(model string, request *cif.CanonicalRequest) bool {
-	if a.forceChatCompletions(request) {
-		return false
-	}
-
-	lower := strings.ToLower(strings.TrimSpace(model))
-	return shared.IsGPT5Family(lower) && !strings.Contains(lower, "-mini")
 }
 
 // isUnsupportedChatCompletionsModel detects Copilot's
@@ -302,4 +297,3 @@ func (a *CopilotAdapter) refreshTokenForRetry(endpoint string) bool {
 		Msg("Refreshed Copilot token after upstream auth error, retrying request")
 	return true
 }
-
