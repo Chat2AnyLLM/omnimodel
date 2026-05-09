@@ -16,6 +16,7 @@ import (
 	"time"
 
 	agentpkg "omnillm/internal/agent"
+	"omnillm/internal/branding"
 	toolspkg "omnillm/internal/tools"
 
 	"github.com/atotto/clipboard"
@@ -1354,6 +1355,11 @@ func (m *chatTUIModel) appendEntry(kind transcriptEntryType, content string) {
 }
 
 func (m chatTUIModel) renderTranscript() string {
+	// Show welcome banner when transcript is empty and not streaming.
+	if len(m.entries) == 0 && !m.streamActive && strings.TrimSpace(m.streamBuf) == "" {
+		return m.renderWelcomeBanner()
+	}
+
 	blocks := make([]string, 0, len(m.entries)+1)
 	layout := make([]transcriptLayoutEntry, 0, len(m.entries)+1)
 	lineOffset := 0
@@ -1389,6 +1395,38 @@ func (m chatTUIModel) renderTranscript() string {
 		return transcript
 	}
 	return m.renderSelectionHighlight(transcript)
+}
+
+func (m chatTUIModel) renderWelcomeBanner() string {
+	logo := branding.Logo
+	cwd, _ := os.Getwd()
+	version := "v0.0.1"
+	if data, err := os.ReadFile("VERSION"); err == nil {
+		if v := strings.TrimSpace(string(data)); v != "" {
+			version = v
+		}
+	}
+
+	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Bold(true)
+	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	metaAccent := lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
+
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(logo, "\n"), "\n") {
+		centered := lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, logoStyle.Render(line))
+		b.WriteString(centered)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	info := metaAccent.Render(version) + metaStyle.Render("  •  ") + metaStyle.Render(cwd)
+	if m.model != "" {
+		info += metaStyle.Render("  •  ") + metaAccent.Render(m.model)
+	}
+	b.WriteString(lipgloss.PlaceHorizontal(m.mainWidth, lipgloss.Center, info))
+	b.WriteString("\n")
+
+	return b.String()
 }
 
 func (m chatTUIModel) renderSelectionHighlight(transcript string) string {
