@@ -60,6 +60,9 @@ type copilotResponsesUsage struct {
 
 // buildResponsesPayload converts a CIF request into the Responses API payload map.
 func (a *CopilotAdapter) buildResponsesPayload(request *cif.CanonicalRequest, stream bool) map[string]any {
+	if request == nil {
+		request = &cif.CanonicalRequest{}
+	}
 	model := a.RemapModel(request.Model)
 
 	payload := map[string]any{
@@ -443,7 +446,7 @@ func shouldRetryCopilotResponsesTimeout(err error) bool {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "client.timeout exceeded while awaiting headers")
+	return strings.Contains(strings.ToLower(err.Error()), "client.timeout exceeded")
 }
 
 // ---------------------------------------------------------------------------
@@ -496,12 +499,12 @@ func parseResponsesSSE(body io.ReadCloser, eventCh chan cif.CIFStreamEvent) {
 		if strings.HasPrefix(line, ":") {
 			continue
 		}
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+		if val, ok := strings.CutPrefix(line, "event:"); ok {
+			eventType = strings.TrimSpace(val)
 			continue
 		}
-		if strings.HasPrefix(line, "data: ") {
-			dataLines = append(dataLines, strings.TrimPrefix(line, "data: "))
+		if val, ok := strings.CutPrefix(line, "data:"); ok {
+			dataLines = append(dataLines, strings.TrimSpace(val))
 		}
 	}
 	flush()
