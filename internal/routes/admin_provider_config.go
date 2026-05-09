@@ -15,6 +15,7 @@ type providerModelView struct {
 	Name         string                 `json:"name,omitempty"`
 	Description  string                 `json:"description,omitempty"`
 	MaxTokens    int                    `json:"max_tokens,omitempty"`
+	OutputTokens int                    `json:"output_tokens,omitempty"`
 	Enabled      bool                   `json:"enabled"`
 	Capabilities map[string]interface{} `json:"capabilities,omitempty"`
 }
@@ -238,6 +239,7 @@ func loadProviderModels(provider types.Provider, forceRefresh bool) ([]providerM
 			Name:         model.Name,
 			Description:  model.Description,
 			MaxTokens:    model.MaxTokens,
+			OutputTokens: model.OutputTokens,
 			Enabled:      enabled,
 			Capabilities: model.Capabilities,
 		})

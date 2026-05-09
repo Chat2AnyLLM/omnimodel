@@ -81,6 +81,7 @@ type Model struct {
 	Description  string                 `json:"description,omitempty"`
 	Capabilities map[string]interface{} `json:"capabilities,omitempty"`
 	MaxTokens    int                    `json:"max_tokens,omitempty"`
+	OutputTokens int                    `json:"output_tokens,omitempty"`
 	Provider     string                 `json:"provider,omitempty"`
 }
 

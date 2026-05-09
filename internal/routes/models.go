@@ -79,6 +79,21 @@ func handleModels(c *gin.Context) {
 			}
 			seen[model.ID] = struct{}{}
 
+			// Enrich context/output limits from models.dev when the provider
+			// didn't supply them or models.dev has better data.
+			meta := modelMetadataService.LookupModel(c.Request.Context(), model.ID)
+
+			maxTokens := model.MaxTokens
+			outputTokens := model.OutputTokens
+			if meta != nil {
+				if meta.ContextLimitTokens != nil && *meta.ContextLimitTokens > maxTokens {
+					maxTokens = *meta.ContextLimitTokens
+				}
+				if meta.OutputLimitTokens != nil && *meta.OutputLimitTokens > outputTokens {
+					outputTokens = *meta.OutputLimitTokens
+				}
+			}
+
 			openaiModel := map[string]interface{}{
 				"id":        model.ID,
 				"object":    "model",
@@ -88,8 +103,11 @@ func handleModels(c *gin.Context) {
 			}
 
 			// Add optional fields if available
-			if model.MaxTokens > 0 {
-				openaiModel["max_tokens"] = model.MaxTokens
+			if maxTokens > 0 {
+				openaiModel["max_tokens"] = maxTokens
+			}
+			if outputTokens > 0 {
+				openaiModel["max_output_tokens"] = outputTokens
 			}
 			if model.Description != "" {
 				openaiModel["description"] = model.Description

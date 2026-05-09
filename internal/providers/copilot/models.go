@@ -116,14 +116,16 @@ func (p *GitHubCopilotProvider) GetModels() (*types.ModelsResponse, error) {
 						}
 
 						maxTokens := model.Capabilities.Limits.MaxContextWindowTokens
+						outputTokens := model.Capabilities.Limits.MaxOutputTokens
 						if maxTokens == 0 {
-							maxTokens = model.Capabilities.Limits.MaxOutputTokens
+							maxTokens = outputTokens
 						}
 
 						models = append(models, types.Model{
 							ID:           model.ID,
 							Name:         firstNonEmpty(model.Name, model.ID),
 							MaxTokens:    maxTokens,
+							OutputTokens: outputTokens,
 							Provider:     p.instanceID,
 							Capabilities: capabilities,
 						})
