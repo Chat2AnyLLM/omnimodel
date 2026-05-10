@@ -51,7 +51,7 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
 	switch normalizeAPIShape(apiShape) {
 	case "openai":
-		return OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c))
+		return OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c), model)
 	default:
 		return NewDispatch(c, model, DefaultAPIShape)
 	}

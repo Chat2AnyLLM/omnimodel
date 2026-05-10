@@ -42,7 +42,7 @@ func TestOpenAISDKDispatchConvertsRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dispatch := OpenAISDKDispatch("test-openai-key", server.URL)
+	dispatch := OpenAISDKDispatch("test-openai-key", server.URL, "gpt-4o-mini")
 	req := testMessagesRequest("gpt-4o-mini", testUserMessage("Hello"))
 	req.System = []ContentBlock{TextBlock("You are concise.")}
 	req.Tools = []tools.ToolDefinition{testToolDefinition("lookup", stringPtr("Look up data"), map[string]any{
@@ -134,7 +134,7 @@ func TestOpenAISDKDispatchConvertsToolCalls(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dispatch := OpenAISDKDispatch("test-openai-key", server.URL)
+	dispatch := OpenAISDKDispatch("test-openai-key", server.URL, "gpt-4o-mini")
 	respCh, err := dispatch(context.Background(), testMessagesRequest("gpt-4o-mini", testUserMessage("call a tool")))
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)

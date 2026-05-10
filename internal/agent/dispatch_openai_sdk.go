@@ -13,7 +13,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 )
 
-func OpenAISDKDispatch(apiKey, baseURL string) DispatchFn {
+func OpenAISDKDispatch(apiKey, baseURL, model string) DispatchFn {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
@@ -24,6 +24,9 @@ func OpenAISDKDispatch(apiKey, baseURL string) DispatchFn {
 	client := openai.NewClient(opts...)
 
 	return func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error) {
+		if req.Model == "" {
+			req.Model = model
+		}
 		params, err := openAIParamsFromRequest(req)
 		if err != nil {
 			return nil, fmt.Errorf("openai-sdk: build params: %w", err)
