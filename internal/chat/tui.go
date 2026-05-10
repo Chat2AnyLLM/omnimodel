@@ -618,6 +618,15 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vpH := max(msg.Height-10, 3)
 		if !m.ready {
 			m.viewport = viewport.New(m.mainWidth, vpH)
+			// Disable single-letter viewport keybindings (b, u, d, f, j, k, h, l)
+			// that conflict with text input in the textarea.
+			m.viewport.KeyMap.PageUp.SetKeys("pgup")
+			m.viewport.KeyMap.HalfPageUp.SetKeys("ctrl+u")
+			m.viewport.KeyMap.HalfPageDown.SetKeys("ctrl+d")
+			m.viewport.KeyMap.Down.SetKeys("down")
+			m.viewport.KeyMap.Up.SetKeys("up")
+			m.viewport.KeyMap.Left.SetKeys("left")
+			m.viewport.KeyMap.Right.SetKeys("right")
 			m.ready = true
 		} else {
 			m.viewport.Width = m.mainWidth
