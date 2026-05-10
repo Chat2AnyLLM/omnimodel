@@ -794,24 +794,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 			m.syncViewport()
 			return m, nil
-		case tea.KeySpace:
-			// Toggle expand/collapse on a hovered tool-result entry.
-			if m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
-				if m.entries[m.hoveredEntry].kind == transcriptToolResult {
-					m.expandedEntries[m.hoveredEntry] = !m.expandedEntries[m.hoveredEntry]
-					m.syncViewport()
-					return m, nil
-				}
-			}
 		case tea.KeyRunes:
-			// Space or Enter on a hovered tool-result entry toggles expand/collapse.
-			if len(msg.Runes) == 1 && msg.Runes[0] == ' ' && m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
-				if m.entries[m.hoveredEntry].kind == transcriptToolResult {
-					m.expandedEntries[m.hoveredEntry] = !m.expandedEntries[m.hoveredEntry]
-					m.syncViewport()
-					return m, nil
-				}
-			}
 			if (msg.Paste || len(msg.Runes) > 1) && m.textarea.Focused() {
 				if !m.streamActive {
 					m.textarea.InsertString(string(msg.Runes))
@@ -1703,9 +1686,9 @@ func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded
 	hint := ""
 	if overflow {
 		if expanded {
-			hint = tuiHelpStyle.Render("(click or press space/enter to collapse)")
+			hint = tuiHelpStyle.Render("(click to collapse)")
 		} else {
-			hint = tuiHelpStyle.Render(fmt.Sprintf("(+%d lines hidden — click or press space/enter to expand)", len(lines)-toolResultMaxLines))
+			hint = tuiHelpStyle.Render(fmt.Sprintf("(+%d lines hidden — click to expand)", len(lines)-toolResultMaxLines))
 		}
 	}
 	rendered := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
