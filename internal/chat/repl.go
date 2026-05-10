@@ -120,11 +120,7 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 					_, _ = fmt.Fprintf(out, "  [tool: %s]\n", event.Tool)
 				case agentpkg.EventToolResult:
 					sawToolActivity = true
-					result := event.Content
-					if len(result) > 200 {
-						result = result[:200] + "..."
-					}
-					_, _ = fmt.Fprintf(out, "  [result: %s]\n", result)
+					_, _ = fmt.Fprintf(out, "  [result: %s]\n", event.Content)
 				case agentpkg.EventError:
 					err = fmt.Errorf("%s", event.Content)
 				}

@@ -127,11 +127,16 @@ const (
 	transcriptInfo       transcriptEntryType = "info"
 	transcriptError      transcriptEntryType = "error"
 	transcriptPermission transcriptEntryType = "permission"
+	transcriptToolResult transcriptEntryType = "tool_result"
 )
 
+// toolResultMaxLines is the number of output lines shown before collapsing.
+const toolResultMaxLines = 10
+
 type transcriptEntry struct {
-	kind    transcriptEntryType
-	content string
+	kind     transcriptEntryType
+	content  string
+	toolName string // only set for transcriptToolResult entries
 }
 
 type transcriptLayoutEntry struct {
@@ -198,6 +203,11 @@ type agentDoneMsg struct {
 
 type agentProgressMsg struct {
 	text string
+}
+
+type agentToolResultMsg struct {
+	tool    string
+	content string
 }
 
 type pendingPermissionState struct {
@@ -462,6 +472,7 @@ type chatTUIModel struct {
 	spinning bool
 
 	entries              []transcriptEntry
+	expandedEntries      map[int]bool
 	transcriptLayout     []transcriptLayoutEntry
 	hoveredEntry         int
 	selectionMessage     string
@@ -542,6 +553,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 		maxTurns:            max(InitialConfig.MaxTurns, 1),
 		clipboard:           systemClipboard{},
 		hoveredEntry:        -1,
+		expandedEntries:     make(map[int]bool),
 		selectionMessage:    "",
 	}
 	for _, msg := range history {
@@ -782,7 +794,24 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 			m.syncViewport()
 			return m, nil
+		case tea.KeySpace:
+			// Toggle expand/collapse on a hovered tool-result entry.
+			if m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
+				if m.entries[m.hoveredEntry].kind == transcriptToolResult {
+					m.expandedEntries[m.hoveredEntry] = !m.expandedEntries[m.hoveredEntry]
+					m.syncViewport()
+					return m, nil
+				}
+			}
 		case tea.KeyRunes:
+			// Space or Enter on a hovered tool-result entry toggles expand/collapse.
+			if len(msg.Runes) == 1 && msg.Runes[0] == ' ' && m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
+				if m.entries[m.hoveredEntry].kind == transcriptToolResult {
+					m.expandedEntries[m.hoveredEntry] = !m.expandedEntries[m.hoveredEntry]
+					m.syncViewport()
+					return m, nil
+				}
+			}
 			if (msg.Paste || len(msg.Runes) > 1) && m.textarea.Focused() {
 				if !m.streamActive {
 					m.textarea.InsertString(string(msg.Runes))
@@ -970,6 +999,15 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case agentProgressMsg:
 		m.appendEntry(transcriptInfo, msg.text)
+		m.syncViewport()
+		return m, nil
+	case agentToolResultMsg:
+		m.entries = append(m.entries, transcriptEntry{
+			kind:     transcriptToolResult,
+			content:  strings.TrimSpace(msg.content),
+			toolName: msg.tool,
+		})
+		m.autoFollow = true
 		m.syncViewport()
 		return m, nil
 	case appendLineMsg:
@@ -1403,6 +1441,9 @@ func (m chatTUIModel) renderTranscript() string {
 			block = tuiErrorStyle.Render(entry.content)
 		case transcriptPermission:
 			block = m.renderPermissionSection(entry.content)
+		case transcriptToolResult:
+			expanded := m.expandedEntries[idx]
+			block = m.renderToolResultSection(entry.toolName, entry.content, expanded, idx == m.hoveredEntry)
 		default:
 			block = m.renderInfoSection(entry.content)
 		}
@@ -1649,6 +1690,32 @@ func (m chatTUIModel) renderInfoSection(text string) string {
 	return tuiStatusStyle.Width(tuiMax(8, m.transcriptBlockMaxWidth())).Render(text)
 }
 
+func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded, hovered bool) string {
+	label := tuiThinkingLabelStyle.Render(fmt.Sprintf("✅ Tool `%s` returned", toolName))
+	lines := strings.Split(content, "\n")
+	overflow := len(lines) > toolResultMaxLines
+	var body string
+	if expanded || !overflow {
+		body = content
+	} else {
+		body = strings.Join(lines[:toolResultMaxLines], "\n") + "\n…"
+	}
+	hint := ""
+	if overflow {
+		if expanded {
+			hint = tuiHelpStyle.Render("(click or press space/enter to collapse)")
+		} else {
+			hint = tuiHelpStyle.Render(fmt.Sprintf("(+%d lines hidden — click or press space/enter to expand)", len(lines)-toolResultMaxLines))
+		}
+	}
+	rendered := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
+	parts := []string{label, rendered}
+	if hint != "" {
+		parts = append(parts, hint)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
 func (m chatTUIModel) renderPermissionSection(text string) string {
 	label := tuiPermissionLabelStyle.Render("Permission required")
 	body := tuiPermissionBlockStyle.Width(m.transcriptBlockMaxWidth()).MaxWidth(m.transcriptBlockMaxWidth()).Render(text)
@@ -1819,7 +1886,7 @@ func (m *chatTUIModel) hoveredTranscriptEntry(localY int) int {
 	for idx, entry := range m.transcriptLayout {
 		if lineIdx >= entry.startLine && lineIdx <= entry.endLine {
 			switch entry.kind {
-			case transcriptUser, transcriptAssistant:
+			case transcriptUser, transcriptAssistant, transcriptToolResult:
 				return idx
 			}
 			return -1
@@ -1924,6 +1991,13 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 	selected := m.selectedTranscriptText()
 	if selected == "" {
 		m.clearSelection()
+		// Toggle expand/collapse for tool-result entries on a plain click.
+		if insideViewport {
+			clickedIdx := m.hoveredTranscriptEntry(mouseY)
+			if clickedIdx >= 0 && clickedIdx < len(m.entries) && m.entries[clickedIdx].kind == transcriptToolResult {
+				m.expandedEntries[clickedIdx] = !m.expandedEntries[clickedIdx]
+			}
+		}
 		m.syncViewport()
 		return
 	}
@@ -2339,7 +2413,7 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 					}
 				case agentpkg.EventToolResult:
 					if prog != nil {
-						prog.Send(agentProgressMsg{text: fmt.Sprintf("✅ Tool `%s` returned: %s", event.Tool, truncateString(event.Content, 120))})
+						prog.Send(agentToolResultMsg{tool: event.Tool, content: event.Content})
 					}
 				case agentpkg.EventError:
 					return agentDoneMsg{content: finalContent, err: fmt.Errorf("%s", event.Content)}
