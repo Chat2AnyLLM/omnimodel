@@ -1404,7 +1404,7 @@ func (m *chatTUIModel) appendEntry(kind transcriptEntryType, content string) {
 	m.autoFollow = true
 }
 
-func (m chatTUIModel) renderTranscript() string {
+func (m *chatTUIModel) renderTranscript() string {
 	// Show welcome banner when transcript is empty and not streaming.
 	if len(m.entries) == 0 && !m.streamActive && strings.TrimSpace(m.streamBuf) == "" {
 		return m.renderWelcomeBanner()
@@ -1971,16 +1971,21 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 		m.selection.endX = mouseX
 		m.selection.endY = mouseY
 	}
-	selected := m.selectedTranscriptText()
-	if selected == "" {
+	plainClick := m.selection.startX == m.selection.endX && m.selection.startY == m.selection.endY
+	if plainClick {
 		m.clearSelection()
-		// Toggle expand/collapse for tool-result entries on a plain click.
 		if insideViewport {
 			clickedIdx := m.hoveredTranscriptEntry(mouseY)
 			if clickedIdx >= 0 && clickedIdx < len(m.entries) && m.entries[clickedIdx].kind == transcriptToolResult {
 				m.expandedEntries[clickedIdx] = !m.expandedEntries[clickedIdx]
 			}
 		}
+		m.syncViewport()
+		return
+	}
+	selected := m.selectedTranscriptText()
+	if selected == "" {
+		m.clearSelection()
 		m.syncViewport()
 		return
 	}
