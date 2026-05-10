@@ -779,6 +779,29 @@ func TestTUILeftMouseClickExpandsToolResult(t *testing.T) {
 	}
 }
 
+func TestFormatToolCallProgressShowsPayloadInline(t *testing.T) {
+	got := formatToolCallProgress("powershell", "Get-NetIPAddress -AddressFamily IPv4")
+	want := "🔧 Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"
+	if got != want {
+		t.Fatalf("formatToolCallProgress() = %q, want %q", got, want)
+	}
+}
+
+func TestTUIAgentToolCallProgressShowsPayloadInline(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 120
+	m.viewport = viewport.New(120, 10)
+
+	model, _ := m.Update(agentProgressMsg{text: "🔧 Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"})
+	updated := model.(chatTUIModel)
+	rendered := updated.renderTranscript()
+
+	if !strings.Contains(rendered, "Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4") {
+		t.Fatalf("rendered transcript missing inline payload:\n%s", rendered)
+	}
+}
+
 func TestTUISelectionHighlightStripsNestedANSICodes(t *testing.T) {
 	line := "prefix \x1b[31mred\x1b[0m suffix"
 	highlighted := highlightVisibleRange(line, 7, 10)
@@ -1287,12 +1310,14 @@ func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(
 
 	var finalContent string
 	var toolCalls, toolResults, doneCount int
+	var toolCallContent string
 	for event := range eventCh {
 		switch event.Type {
 		case "token":
 			finalContent += event.Content
 		case "tool_call":
 			toolCalls++
+			toolCallContent = event.Content
 			finalContent = ""
 		case "tool_result":
 			toolResults++
@@ -1308,6 +1333,9 @@ func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(
 	}
 	if toolCalls != 1 {
 		t.Fatalf("toolCalls = %d, want 1", toolCalls)
+	}
+	if toolCallContent != "Write-Output disk-ok" {
+		t.Fatalf("tool call content = %q, want command payload", toolCallContent)
 	}
 	if toolResults != 1 {
 		t.Fatalf("toolResults = %d, want 1", toolResults)

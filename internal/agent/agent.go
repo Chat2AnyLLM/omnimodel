@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -127,7 +128,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 
 			for _, tc := range toolCalls {
-				events <- Event{Type: EventToolCall, Tool: tc.Name, Content: tc.ID}
+				events <- Event{Type: EventToolCall, Tool: tc.Name, Content: formatToolCallPayload(tc)}
 			}
 
 			toolResults := a.registry.ExecuteCalls(ctx, sessionID, toolCalls)
@@ -193,7 +194,6 @@ func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string)
 	return response, nil
 }
 
-
 func (a *Agent) buildRequest(step int, prompt string) *MessagesRequest {
 	messages := a.memory.Messages()
 	toolDefs := a.registry.Definitions()
@@ -216,9 +216,9 @@ func (a *Agent) buildRequest(step int, prompt string) *MessagesRequest {
 
 	req := &MessagesRequest{
 		MaxTokens: 4096,
-		Messages: filtered,
-		Tools:    toolDefs,
-		Stream:   false,
+		Messages:  filtered,
+		Tools:     toolDefs,
+		Stream:    false,
 	}
 	if systemPrompt != "" {
 		req.System = []ContentBlock{TextBlock(systemPrompt)}
@@ -292,6 +292,17 @@ func extractToolCalls(content []ContentBlock) []tools.ToolCall {
 		}
 	}
 	return calls
+}
+
+func formatToolCallPayload(call tools.ToolCall) string {
+	if command, ok := call.Arguments["command"].(string); ok && command != "" {
+		return command
+	}
+	encoded, err := json.Marshal(call.Arguments)
+	if err != nil {
+		return call.ID
+	}
+	return string(encoded)
 }
 
 func extractTextContent(content []ContentBlock) string {

@@ -2397,7 +2397,7 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 				case agentpkg.EventToolCall:
 					finalContent = ""
 					if prog != nil {
-						prog.Send(agentProgressMsg{text: fmt.Sprintf("🔧 Calling tool `%s`…", event.Tool)})
+						prog.Send(agentProgressMsg{text: formatToolCallProgress(event.Tool, event.Content)})
 					}
 				case agentpkg.EventToolResult:
 					if prog != nil {
@@ -2428,6 +2428,13 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 		go m.runStream(messages)
 		return nil
 	}
+}
+
+func formatToolCallProgress(toolName, payload string) string {
+	if strings.TrimSpace(payload) == "" {
+		return fmt.Sprintf("🔧 Calling tool `%s`…", toolName)
+	}
+	return fmt.Sprintf("🔧 Calling tool `%s`: %s", toolName, payload)
 }
 
 func (m *chatTUIModel) makeTUIPermissionChecker() toolspkg.PermissionChecker {
