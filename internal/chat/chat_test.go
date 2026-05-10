@@ -752,6 +752,33 @@ func TestTUILeftMouseCopiesVisibleTranscriptTextOnRelease(t *testing.T) {
 	}
 }
 
+func TestTUILeftMouseClickExpandsToolResult(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 10)
+	m.entries = append(m.entries, transcriptEntry{
+		kind:     transcriptToolResult,
+		toolName: "Read",
+		content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+	})
+	m.syncViewport()
+	if len(m.transcriptLayout) != 1 {
+		t.Fatalf("transcript layout entries = %d, want 1", len(m.transcriptLayout))
+	}
+	_, viewportTop, _, _ := m.viewportBounds()
+	hintY := viewportTop + m.transcriptLayout[0].endLine - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: hintY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: hintY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if !updated.expandedEntries[0] {
+		t.Fatal("expected clicking tool result hint to expand it")
+	}
+}
+
 func TestTUISelectionHighlightStripsNestedANSICodes(t *testing.T) {
 	line := "prefix \x1b[31mred\x1b[0m suffix"
 	highlighted := highlightVisibleRange(line, 7, 10)
