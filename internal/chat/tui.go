@@ -807,14 +807,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 			m.syncViewport()
 			return m, nil
-		case tea.KeyCtrlO:
-			if !m.textarea.Focused() || m.streamActive {
-				break
-			}
-			if m.toggleAllExpandableEntries() {
-				m.syncViewport()
-			}
-			return m, nil
 		case tea.KeyRunes:
 			if (msg.Paste || len(msg.Runes) > 1) && m.textarea.Focused() {
 				if !m.streamActive {
@@ -832,6 +824,18 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == '?' && strings.TrimSpace(m.textarea.Value()) == "" {
 				m.showInlineHelp = !m.showInlineHelp
 				return m, nil
+			}
+			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == ' ' && m.textarea.Value() == "" && m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
+				entry := m.entries[m.hoveredEntry]
+				if entry.kind == transcriptToolResult && len(strings.Split(entry.content, "\n")) > toolResultMaxLines {
+					if m.expandedEntries[entry.id] {
+						delete(m.expandedEntries, entry.id)
+					} else {
+						m.expandedEntries[entry.id] = true
+					}
+					m.syncViewport()
+					return m, nil
+				}
 			}
 		case tea.KeyUp, tea.KeyCtrlP:
 			if !m.textarea.Focused() || m.streamActive {
@@ -1609,7 +1613,7 @@ func (m chatTUIModel) renderFooterStatus() string {
 		return status
 	}
 	if m.showInlineHelp {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+O expand/collapse tool results · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Space expand focused tool result · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
 	}
 	status := "Enter send · Ctrl+J newline · ? help"
 	if m.streamActive {
@@ -1715,9 +1719,15 @@ func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded
 	hint := ""
 	if overflow {
 		if expanded {
-			hint = tuiHelpStyle.Render("▾ (expanded)")
+			if hovered {
+				hint = tuiHelpStyle.Render("▾ (click or space to collapse)")
+			}
 		} else {
-			hint = tuiHelpStyle.Render(fmt.Sprintf("▸ (+%d lines hidden — Ctrl+O expand all)", len(lines)-toolResultMaxLines))
+			if hovered {
+				hint = tuiHelpStyle.Render(fmt.Sprintf("… (%d lines hidden) [click or space to expand]", len(lines)-toolResultMaxLines))
+			} else {
+				hint = tuiHelpStyle.Render(fmt.Sprintf("… (%d lines hidden)", len(lines)-toolResultMaxLines))
+			}
 		}
 	}
 	rendered := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
@@ -1726,31 +1736,6 @@ func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded
 		parts = append(parts, hint)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (m *chatTUIModel) toggleAllExpandableEntries() bool {
-	ids := make([]int64, 0)
-	expand := false
-	for _, entry := range m.entries {
-		if entry.kind != transcriptToolResult || len(strings.Split(entry.content, "\n")) <= toolResultMaxLines {
-			continue
-		}
-		ids = append(ids, entry.id)
-		if !m.expandedEntries[entry.id] {
-			expand = true
-		}
-	}
-	if len(ids) == 0 {
-		return false
-	}
-	for _, id := range ids {
-		if expand {
-			m.expandedEntries[id] = true
-		} else {
-			delete(m.expandedEntries, id)
-		}
-	}
-	return true
 }
 
 func (m chatTUIModel) renderPermissionSection(text string) string {
@@ -2028,6 +2013,19 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 	plainClick := m.selection.startX == m.selection.endX && m.selection.startY == m.selection.endY
 	if plainClick {
 		m.clearSelection()
+		if insideViewport {
+			idx := m.hoveredTranscriptEntry(mouseY)
+			if idx >= 0 && idx < len(m.entries) {
+				entry := m.entries[idx]
+				if entry.kind == transcriptToolResult && len(strings.Split(entry.content, "\n")) > toolResultMaxLines {
+					if m.expandedEntries[entry.id] {
+						delete(m.expandedEntries, entry.id)
+					} else {
+						m.expandedEntries[entry.id] = true
+					}
+				}
+			}
+		}
 		m.syncViewport()
 		return
 	}
