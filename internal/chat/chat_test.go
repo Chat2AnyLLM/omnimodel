@@ -153,16 +153,10 @@ func TestRenderFooterStatusPrefersContextualState(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.mainWidth = 80
 
-	if got := m.renderFooterStatus(); !strings.Contains(got, "? help") {
+	if got := m.renderFooterStatus(); !strings.Contains(got, "Ctrl+O toggle all blocks") {
 		t.Fatalf("default footer = %q", got)
 	}
 
-	m.showInlineHelp = true
-	if got := m.renderFooterStatus(); !strings.Contains(got, "Space expand focused tool result") {
-		t.Fatalf("inline help footer = %q", got)
-	}
-
-	m.showInlineHelp = false
 	m.streamActive = true
 	if got := m.renderFooterStatus(); !strings.Contains(got, "Streaming response") {
 		t.Fatalf("stream footer = %q", got)

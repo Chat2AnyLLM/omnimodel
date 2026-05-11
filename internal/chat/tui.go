@@ -517,7 +517,6 @@ type chatTUIModel struct {
 	onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
 
 	textareaExpanded bool
-	showInlineHelp   bool
 	ctrlCPrimed      bool
 
 	width                 int
@@ -830,10 +829,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.syncViewport()
 					return m, textarea.Blink
 				}
-			}
-			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == '?' && strings.TrimSpace(m.textarea.Value()) == "" {
-				m.showInlineHelp = !m.showInlineHelp
-				return m, nil
 			}
 		case tea.KeyCtrlO:
 			if m.textarea.Focused() && strings.TrimSpace(m.textarea.Value()) == "" {
@@ -1643,16 +1638,13 @@ func (m chatTUIModel) renderFooterStatus() string {
 	if status := m.selectionStatus(); status != "" {
 		return status
 	}
-	if m.showInlineHelp {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Space expand focused tool result · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
-	}
-	status := "Enter send · Ctrl+J newline · ? help"
 	if m.streamActive {
-		status = "Streaming response… Esc cancels"
-	} else if m.queuedPrompt != "" {
-		status = "Queued prompt ready"
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Streaming response… Esc cancels")
 	}
-	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render(status)
+	if m.queuedPrompt != "" {
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Queued prompt ready")
+	}
+	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+O toggle all blocks · Ctrl+R search · Shift+Tab autopilot · /help commands")
 }
 
 func (m chatTUIModel) renderPermissionChip() string {
