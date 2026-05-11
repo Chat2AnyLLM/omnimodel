@@ -860,9 +860,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyHistorySearchResult()
 				return m, nil
 			}
-			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(-1) {
-				return m, nil
-			}
 			m.setAutoFollow(false)
 			m.cyclePromptHistory(-1)
 			return m, nil
@@ -880,9 +877,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 				}
-				return m, nil
-			}
-			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(1) {
 				return m, nil
 			}
 			m.updateAutoFollowFromViewport()
@@ -1977,49 +1971,6 @@ func (m *chatTUIModel) updateHoveredEntry(localY int, insideViewport bool) bool 
 
 func (m *chatTUIModel) toolResultIsExpandable(entry transcriptEntry) bool {
 	return entry.kind == transcriptToolResult
-}
-
-func (m *chatTUIModel) cycleExpandableToolResultFocus(direction int) bool {
-	if direction == 0 {
-		direction = 1
-	}
-	indices := make([]int, 0)
-	for i, entry := range m.entries {
-		if m.toolResultIsExpandable(entry) {
-			indices = append(indices, i)
-		}
-	}
-	if len(indices) == 0 {
-		return false
-	}
-
-	currentPos := -1
-	for pos, idx := range indices {
-		if idx == m.hoveredEntry {
-			currentPos = pos
-			break
-		}
-	}
-
-	var next int
-	if currentPos == -1 {
-		if direction > 0 {
-			next = indices[0]
-		} else {
-			next = indices[len(indices)-1]
-		}
-	} else {
-		if direction > 0 {
-			next = indices[(currentPos+1)%len(indices)]
-		} else {
-			next = indices[(currentPos-1+len(indices))%len(indices)]
-		}
-	}
-
-	m.hoveredEntry = next
-	m.scrollEntryIntoView(next)
-	m.syncViewport()
-	return true
 }
 
 func (m *chatTUIModel) scrollEntryIntoView(entryIdx int) {
