@@ -158,7 +158,7 @@ func TestRenderFooterStatusPrefersContextualState(t *testing.T) {
 	}
 
 	m.showInlineHelp = true
-	if got := m.renderFooterStatus(); !strings.Contains(got, "Ctrl+R search") {
+	if got := m.renderFooterStatus(); !strings.Contains(got, "Ctrl+O expand/collapse") {
 		t.Fatalf("inline help footer = %q", got)
 	}
 
@@ -752,12 +752,13 @@ func TestTUILeftMouseCopiesVisibleTranscriptTextOnRelease(t *testing.T) {
 	}
 }
 
-func TestTUILeftMouseClickExpandsToolResult(t *testing.T) {
+func TestTUILeftMouseClickDoesNotExpandToolResultHint(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
 	m.viewport = viewport.New(80, 10)
 	m.entries = append(m.entries, transcriptEntry{
+		id:       1,
 		kind:     transcriptToolResult,
 		toolName: "Read",
 		content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
@@ -774,8 +775,275 @@ func TestTUILeftMouseClickExpandsToolResult(t *testing.T) {
 	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: hintY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
 	updated = model.(chatTUIModel)
 
-	if !updated.expandedEntries[0] {
-		t.Fatal("expected clicking tool result hint to expand it")
+	if updated.expandedEntries[1] {
+		t.Fatal("clicking tool result hint should not expand it")
+	}
+}
+
+func TestTUILeftMouseClickDoesNotExpandToolResultWhenHoverIsStale(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.entries = append(m.entries,
+		transcriptEntry{
+			id:      1,
+			kind:    transcriptAssistant,
+			content: strings.Join([]string{"assistant", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30"}, "\n"),
+		},
+		transcriptEntry{
+			id:       2,
+			kind:     transcriptToolResult,
+			toolName: "Read",
+			content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+		},
+	)
+	m.syncViewport()
+	if len(m.transcriptLayout) != 2 {
+		t.Fatalf("transcript layout entries = %d, want 2", len(m.transcriptLayout))
+	}
+	m.hoveredEntry = 0
+	_, viewportTop, _, _ := m.viewportBounds()
+	toolY := viewportTop + m.transcriptLayout[1].clickableStartLine - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: toolY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: toolY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] {
+		t.Fatal("did not expect stale hovered assistant entry to expand")
+	}
+	if updated.expandedEntries[2] {
+		t.Fatal("clicking tool result should not expand it")
+	}
+}
+
+func TestTUILeftMouseClickDoesNotExpandToolResultBody(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.entries = append(m.entries, transcriptEntry{
+		id:       1,
+		kind:     transcriptToolResult,
+		toolName: "Read",
+		content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+	})
+	m.syncViewport()
+	if len(m.transcriptLayout) != 1 {
+		t.Fatalf("transcript layout entries = %d, want 1", len(m.transcriptLayout))
+	}
+	_, viewportTop, _, _ := m.viewportBounds()
+	bodyY := viewportTop + m.transcriptLayout[0].startLine + 1 - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: bodyY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: bodyY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] {
+		t.Fatal("clicking tool result body should not expand it")
+	}
+}
+
+func TestTUILeftMouseClickToolResultLabelDoesNotExpand(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.entries = append(m.entries, transcriptEntry{
+		id:       1,
+		kind:     transcriptToolResult,
+		toolName: "Read",
+		content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+	})
+	m.syncViewport()
+	_, viewportTop, _, _ := m.viewportBounds()
+	labelY := viewportTop + m.transcriptLayout[0].startLine - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: labelY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: labelY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] {
+		t.Fatal("tool result label click should not expand the result")
+	}
+}
+
+func TestTUILeftMouseClickBetweenToolResultsDoesNotExpand(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 30)
+	content := strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n")
+	m.entries = append(m.entries,
+		transcriptEntry{id: 1, kind: transcriptToolResult, toolName: "first", content: content},
+		transcriptEntry{id: 2, kind: transcriptToolResult, toolName: "second", content: content},
+	)
+	m.syncViewport()
+	_, viewportTop, _, _ := m.viewportBounds()
+	betweenY := viewportTop + m.transcriptLayout[0].endLine + 1 - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: betweenY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: betweenY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] || updated.expandedEntries[2] {
+		t.Fatal("clicking between tool results should not expand either result")
+	}
+}
+
+func TestTUIAssistantResponseDoesNotCollapseLongMessages(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 50)
+	lines := make([]string, 35)
+	for i := range lines {
+		lines[i] = "assistant line"
+	}
+	m.entries = append(m.entries, transcriptEntry{
+		id:      1,
+		kind:    transcriptAssistant,
+		content: strings.Join(lines, "\n"),
+	})
+	m.syncViewport()
+
+	rendered := m.renderTranscript()
+	if strings.Contains(rendered, "lines hidden") {
+		t.Fatalf("assistant response should not render an expansion hint:\n%s", rendered)
+	}
+	if strings.Count(xansi.Strip(rendered), "assistant line") != 35 {
+		t.Fatalf("assistant response should render all lines, got:\n%s", rendered)
+	}
+}
+
+func TestTUIAssistantResponseClickDoesNotToggleExpansion(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 50)
+	m.entries = append(m.entries, transcriptEntry{
+		id:      1,
+		kind:    transcriptAssistant,
+		content: strings.Repeat("assistant response\n", 35),
+	})
+	m.syncViewport()
+	_, viewportTop, _, _ := m.viewportBounds()
+	bodyY := viewportTop + m.transcriptLayout[0].startLine + 1 - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: bodyY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: bodyY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] {
+		t.Fatal("assistant response click should not toggle expansion")
+	}
+}
+
+func TestTUICtrlODoesNotToggleAssistantResponse(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 50)
+	m.entries = append(m.entries, transcriptEntry{
+		id:      1,
+		kind:    transcriptAssistant,
+		content: strings.Repeat("assistant response\n", 35),
+	})
+	m.syncViewport()
+	m.hoveredEntry = 0
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	updated := model.(chatTUIModel)
+	if updated.expandedEntries[1] {
+		t.Fatal("Ctrl+O should not toggle assistant response expansion")
+	}
+}
+
+func TestTUILeftMouseClickDoesNotToggleToolResultAfterEntryIndexShift(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 30)
+	m.entries = append(m.entries,
+		transcriptEntry{
+			id:       1,
+			kind:     transcriptToolResult,
+			toolName: "first",
+			content:  strings.Join([]string{"first", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+		},
+		transcriptEntry{
+			id:       2,
+			kind:     transcriptToolResult,
+			toolName: "second",
+			content:  strings.Join([]string{"second", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+		},
+	)
+	m.syncViewport()
+	_, viewportTop, _, _ := m.viewportBounds()
+	secondY := viewportTop + m.transcriptLayout[1].clickableStartLine - m.viewport.YOffset
+
+	model, _ := m.Update(tea.MouseMsg{X: 3, Y: secondY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	updated := model.(chatTUIModel)
+	updated.entries = append([]transcriptEntry{{id: 3, kind: transcriptInfo, content: "inserted"}}, updated.entries...)
+	updated.syncViewport()
+	model, _ = updated.Update(tea.MouseMsg{X: 3, Y: secondY, Action: tea.MouseActionRelease, Button: tea.MouseButtonNone})
+	updated = model.(chatTUIModel)
+
+	if updated.expandedEntries[1] {
+		t.Fatal("first tool result expanded after clicking second tool result")
+	}
+	if updated.expandedEntries[2] {
+		t.Fatal("clicking second tool result should not expand after entry index shifted")
+	}
+}
+
+func TestTUICtrlOTogglesAllToolResultExpansion(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 50)
+	m.entries = append(m.entries,
+		transcriptEntry{
+			id:       1,
+			kind:     transcriptToolResult,
+			toolName: "Read",
+			content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+		},
+		transcriptEntry{
+			id:       2,
+			kind:     transcriptToolResult,
+			toolName: "Write",
+			content:  strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n"),
+		},
+		transcriptEntry{
+			id:       3,
+			kind:     transcriptToolResult,
+			toolName: "Short",
+			content:  "short output",
+		},
+	)
+	m.syncViewport()
+	m.hoveredEntry = 0
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	updated := model.(chatTUIModel)
+	if !updated.expandedEntries[1] || !updated.expandedEntries[2] {
+		t.Fatal("expected Ctrl+O to expand all expandable tool results")
+	}
+	if updated.expandedEntries[3] {
+		t.Fatal("Ctrl+O should not mark non-overflowing tool results as expanded")
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	updated = model.(chatTUIModel)
+	if updated.expandedEntries[1] || updated.expandedEntries[2] {
+		t.Fatal("expected second Ctrl+O to collapse all expandable tool results")
 	}
 }
 

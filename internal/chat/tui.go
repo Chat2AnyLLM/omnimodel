@@ -134,15 +134,18 @@ const (
 const toolResultMaxLines = 10
 
 type transcriptEntry struct {
+	id       int64
 	kind     transcriptEntryType
 	content  string
 	toolName string // only set for transcriptToolResult entries
 }
 
 type transcriptLayoutEntry struct {
-	kind      transcriptEntryType
-	startLine int
-	endLine   int
+	kind               transcriptEntryType
+	startLine          int
+	endLine            int
+	clickableStartLine int
+	clickableEndLine   int
 }
 
 type clipboardWriter interface {
@@ -472,7 +475,8 @@ type chatTUIModel struct {
 	spinning bool
 
 	entries              []transcriptEntry
-	expandedEntries      map[int]bool
+	nextEntryID          int64
+	expandedEntries      map[int64]bool
 	transcriptLayout     []transcriptLayoutEntry
 	hoveredEntry         int
 	selectionMessage     string
@@ -553,7 +557,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 		maxTurns:            max(InitialConfig.MaxTurns, 1),
 		clipboard:           systemClipboard{},
 		hoveredEntry:        -1,
-		expandedEntries:     make(map[int]bool),
+		expandedEntries:     make(map[int64]bool),
 		selectionMessage:    "",
 	}
 	for _, msg := range history {
@@ -803,6 +807,14 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveConfig()
 			m.syncViewport()
 			return m, nil
+		case tea.KeyCtrlO:
+			if !m.textarea.Focused() || m.streamActive {
+				break
+			}
+			if m.toggleAllExpandableEntries() {
+				m.syncViewport()
+			}
+			return m, nil
 		case tea.KeyRunes:
 			if (msg.Paste || len(msg.Runes) > 1) && m.textarea.Focused() {
 				if !m.streamActive {
@@ -994,7 +1006,9 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case agentToolResultMsg:
+		m.nextEntryID++
 		m.entries = append(m.entries, transcriptEntry{
+			id:       m.nextEntryID,
 			kind:     transcriptToolResult,
 			content:  strings.TrimSpace(msg.content),
 			toolName: msg.tool,
@@ -1409,7 +1423,8 @@ func (m *chatTUIModel) appendEntry(kind transcriptEntryType, content string) {
 	if content == "" {
 		return
 	}
-	m.entries = append(m.entries, transcriptEntry{kind: kind, content: content})
+	m.nextEntryID++
+	m.entries = append(m.entries, transcriptEntry{id: m.nextEntryID, kind: kind, content: content})
 	m.autoFollow = true
 }
 
@@ -1434,14 +1449,19 @@ func (m *chatTUIModel) renderTranscript() string {
 		case transcriptPermission:
 			block = m.renderPermissionSection(entry.content)
 		case transcriptToolResult:
-			expanded := m.expandedEntries[idx]
+			expanded := m.expandedEntries[entry.id]
 			block = m.renderToolResultSection(entry.toolName, entry.content, expanded, idx == m.hoveredEntry)
 		default:
 			block = m.renderInfoSection(entry.content)
 		}
 		blocks = append(blocks, block)
 		lineCount := strings.Count(block, "\n") + 1
-		layout = append(layout, transcriptLayoutEntry{kind: entry.kind, startLine: lineOffset, endLine: lineOffset + lineCount - 1})
+		layoutEntry := transcriptLayoutEntry{kind: entry.kind, startLine: lineOffset, endLine: lineOffset + lineCount - 1}
+		if entry.kind == transcriptToolResult {
+			layoutEntry.clickableStartLine = lineOffset + 1
+			layoutEntry.clickableEndLine = lineOffset + lineCount - 1
+		}
+		layout = append(layout, layoutEntry)
 		lineOffset += lineCount + 2
 	}
 	if m.streamActive || strings.TrimSpace(m.streamBuf) != "" {
@@ -1589,7 +1609,7 @@ func (m chatTUIModel) renderFooterStatus() string {
 		return status
 	}
 	if m.showInlineHelp {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+O expand/collapse tool results · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
 	}
 	status := "Enter send · Ctrl+J newline · ? help"
 	if m.streamActive {
@@ -1695,9 +1715,9 @@ func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded
 	hint := ""
 	if overflow {
 		if expanded {
-			hint = tuiHelpStyle.Render("(click to collapse)")
+			hint = tuiHelpStyle.Render("▾ (expanded)")
 		} else {
-			hint = tuiHelpStyle.Render(fmt.Sprintf("(+%d lines hidden — click to expand)", len(lines)-toolResultMaxLines))
+			hint = tuiHelpStyle.Render(fmt.Sprintf("▸ (+%d lines hidden — Ctrl+O expand all)", len(lines)-toolResultMaxLines))
 		}
 	}
 	rendered := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
@@ -1706,6 +1726,31 @@ func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded
 		parts = append(parts, hint)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m *chatTUIModel) toggleAllExpandableEntries() bool {
+	ids := make([]int64, 0)
+	expand := false
+	for _, entry := range m.entries {
+		if entry.kind != transcriptToolResult || len(strings.Split(entry.content, "\n")) <= toolResultMaxLines {
+			continue
+		}
+		ids = append(ids, entry.id)
+		if !m.expandedEntries[entry.id] {
+			expand = true
+		}
+	}
+	if len(ids) == 0 {
+		return false
+	}
+	for _, id := range ids {
+		if expand {
+			m.expandedEntries[id] = true
+		} else {
+			delete(m.expandedEntries, id)
+		}
+	}
+	return true
 }
 
 func (m chatTUIModel) renderPermissionSection(text string) string {
@@ -1983,12 +2028,6 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 	plainClick := m.selection.startX == m.selection.endX && m.selection.startY == m.selection.endY
 	if plainClick {
 		m.clearSelection()
-		if insideViewport {
-			clickedIdx := m.hoveredTranscriptEntry(mouseY)
-			if clickedIdx >= 0 && clickedIdx < len(m.entries) && m.entries[clickedIdx].kind == transcriptToolResult {
-				m.expandedEntries[clickedIdx] = !m.expandedEntries[clickedIdx]
-			}
-		}
 		m.syncViewport()
 		return
 	}
@@ -2573,7 +2612,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Ctrl+O` — toggle expand/collapse for all tool results\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
