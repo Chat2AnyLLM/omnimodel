@@ -49,7 +49,7 @@ func MakeSubAgentFn(opts SubAgentOptions) func(ctx context.Context, to, message 
 
 		// Fresh memory + persistent context for the sub-agent.
 		memory := NewBufferMemory(64)
-		sysPrompt := buildSystemPrompt()
+		sysPrompt := buildSystemPrompt(detectHostOS())
 		memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
 		wsDir := workspaceDir()
 		if pc := LoadWorkspaceContext(wsDir); !pc.IsEmpty() {

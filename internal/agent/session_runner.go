@@ -18,6 +18,9 @@ type HistoryMessage struct {
 
 // RunTurn runs one interactive agent turn using the native internal/agent runtime.
 func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error), maxTurns int) (*RunResult, error) {
+	osName := detectHostOS()
+	sysPrompt := buildSystemPrompt(osName)
+
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
@@ -41,7 +44,6 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape,
 	}
 
 	memory := NewBufferMemory(64)
-	sysPrompt := buildSystemPrompt()
 	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
 	if pc := LoadWorkspaceContext(wsDir); !pc.IsEmpty() {
 		injectPersistentContext(memory, pc)
@@ -63,6 +65,9 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape,
 // StreamTurn runs one interactive agent turn using streaming, emitting events on the returned channel.
 // The caller must drain the channel until it is closed.
 func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape, prompt string, history []HistoryMessage, checker tools.PermissionChecker, askUser func(context.Context, string, []string) (string, error), maxTurns int) (<-chan Event, error) {
+	osName := detectHostOS()
+	sysPrompt := buildSystemPrompt(osName)
+
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
@@ -86,7 +91,6 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 	}
 
 	memory := NewBufferMemory(64)
-	sysPrompt := buildSystemPrompt()
 	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
 	if pc := LoadWorkspaceContext(wsDir); !pc.IsEmpty() {
 		injectPersistentContext(memory, pc)
@@ -156,19 +160,33 @@ func omniLLMAPIKey(c Client) string {
 	return strings.TrimSpace(config.GetAPIKey())
 }
 
+func detectHostOS() string {
+	osName := strings.TrimSpace(runtime.GOOS)
+	if osName == "" {
+		return "linux"
+	}
+	return osName
+}
+
 // buildSystemPrompt returns an OS-aware system prompt so the LLM generates
 // shell commands appropriate for the host platform.
-func buildSystemPrompt() string {
-	osName := runtime.GOOS
+func buildSystemPrompt(osName string) string {
+	osName = strings.TrimSpace(osName)
+	if osName == "" {
+		osName = detectHostOS()
+	}
 	shellTool := "bash"
 	shellSyntax := "bash/sh"
+	wrongShellRule := "Do not use the powershell tool unless the OS is windows."
 	if osName == "windows" {
 		shellTool = "powershell"
 		shellSyntax = "PowerShell"
+		wrongShellRule = "Do not use the bash tool on Windows."
 	}
 	return fmt.Sprintf(
 		"You are a software engineering agent running inside OmniCode. The current operating system is %s. "+
 			"Use the %q tool to execute shell commands — all commands must use %s syntax. "+
+			"%s "+
 			"When presenting output for the OmniCode conversation UI, prefer structured sections so content reads cleanly in separate blocks. "+
 			"When useful, organize content with short headings such as User message, Assistant thinking, and Assistant response. "+
 			"When information is tabular or comparative, format it as a compact, readable markdown table whenever practical. "+
@@ -178,7 +196,7 @@ func buildSystemPrompt() string {
 			"For conceptual or advisory requests that do not require inspection, answer directly without unnecessary tool use. "+
 			"When a task is multi-step, gather the needed context with tools, take the next concrete action, and then report the result briefly. "+
 			"Do not merely promise tool use — actually execute the relevant tools when they are needed.",
-		osName, shellTool, shellSyntax,
+		osName, shellTool, shellSyntax, wrongShellRule,
 	)
 }
 

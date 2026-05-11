@@ -13,7 +13,8 @@ func Bash() Tool { return &bashTool{} }
 func (t *bashTool) Name() string { return "bash" }
 
 func (t *bashTool) Description() string {
-	return "Execute a shell command and return its combined stdout+stderr output."
+	return "Execute a POSIX shell command and return its combined stdout+stderr output. " +
+		"Prefer this tool on Linux/macOS. On Windows, use the powershell tool unless the task explicitly needs bash semantics."
 }
 
 func (t *bashTool) InputSchema() map[string]any {
