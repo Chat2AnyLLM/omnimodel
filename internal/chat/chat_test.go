@@ -752,7 +752,7 @@ func TestTUILeftMouseCopiesVisibleTranscriptTextOnRelease(t *testing.T) {
 	}
 }
 
-func TestTUILeftMouseClickExpandsToolResultHint(t *testing.T) {
+func TestTUILeftMouseClickToolResultHintExpands(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -769,6 +769,7 @@ func TestTUILeftMouseClickExpandsToolResultHint(t *testing.T) {
 	}
 	_, viewportTop, _, _ := m.viewportBounds()
 	hintY := viewportTop + m.transcriptLayout[0].endLine - m.viewport.YOffset
+	hintY -= tuiToolResultHitRowOffset
 
 	model, _ := m.Update(tea.MouseMsg{X: 3, Y: hintY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	updated := model.(chatTUIModel)
@@ -988,6 +989,7 @@ func TestTUILeftMouseClickDoesNotToggleToolResultAfterEntryIndexShift(t *testing
 	m.syncViewport()
 	_, viewportTop, _, _ := m.viewportBounds()
 	secondY := viewportTop + m.transcriptLayout[1].clickableStartLine - m.viewport.YOffset
+	secondY -= tuiToolResultHitRowOffset
 
 	model, _ := m.Update(tea.MouseMsg{X: 3, Y: secondY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	updated := model.(chatTUIModel)
@@ -1049,13 +1051,13 @@ func TestTUISpaceTogglesFocusedToolResultExpansion(t *testing.T) {
 		t.Fatal("expected second Space to collapse focused tool result")
 	}
 
-	// Space on a non-overflowing tool result is a no-op (and falls through to textarea).
+	// Space on a non-overflowing tool result still toggles item expansion state.
 	updated.textarea.Reset()
 	updated.hoveredEntry = 2
 	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	updated = model.(chatTUIModel)
-	if updated.expandedEntries[3] {
-		t.Fatal("Space should not mark non-overflowing tool result as expanded")
+	if !updated.expandedEntries[3] {
+		t.Fatal("Space should toggle non-overflowing tool result item state")
 	}
 
 	// Space with no hovered entry falls through to the textarea.
@@ -1065,6 +1067,73 @@ func TestTUISpaceTogglesFocusedToolResultExpansion(t *testing.T) {
 	updated = model.(chatTUIModel)
 	if updated.textarea.Value() != " " {
 		t.Fatalf("Space with no hovered entry should reach textarea; got %q", updated.textarea.Value())
+	}
+}
+
+func TestTUIUpDownCyclesAllToolResultsWhenInputEmpty(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 40)
+	m.entries = append(m.entries,
+		transcriptEntry{id: 1, kind: transcriptAssistant, content: "assistant"},
+		transcriptEntry{id: 2, kind: transcriptToolResult, toolName: "Read", content: strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, "\n")},
+		transcriptEntry{id: 3, kind: transcriptToolResult, toolName: "Short", content: "short"},
+		transcriptEntry{id: 4, kind: transcriptToolResult, toolName: "Write", content: strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n")},
+	)
+	m.syncViewport()
+	m.textarea.Reset()
+	m.hoveredEntry = -1
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated := model.(chatTUIModel)
+	if updated.hoveredEntry != 1 {
+		t.Fatalf("first KeyDown hoveredEntry = %d, want 1", updated.hoveredEntry)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = model.(chatTUIModel)
+	if updated.hoveredEntry != 2 {
+		t.Fatalf("second KeyDown hoveredEntry = %d, want 2", updated.hoveredEntry)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = model.(chatTUIModel)
+	if updated.hoveredEntry != 3 {
+		t.Fatalf("third KeyDown hoveredEntry = %d, want 3", updated.hoveredEntry)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated = model.(chatTUIModel)
+	if updated.hoveredEntry != 2 {
+		t.Fatalf("KeyUp should move hoveredEntry back to 2, got %d", updated.hoveredEntry)
+	}
+
+	if updated.textarea.Value() != "" {
+		t.Fatalf("textarea should stay empty while cycling tool result focus, got %q", updated.textarea.Value())
+	}
+}
+
+func TestTUIUpDownPrefersToolResultFocusOverPromptHistory(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
+	m.ready = true
+	m.mainWidth = 80
+	m.viewport = viewport.New(80, 20)
+	m.entries = append(m.entries,
+		transcriptEntry{id: 1, kind: transcriptToolResult, toolName: "Short", content: "short output"},
+	)
+	m.syncViewport()
+	m.textarea.Reset()
+	m.promptHistory = []string{"alpha", "beta"}
+	m.hoveredEntry = -1
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated := model.(chatTUIModel)
+	if got := updated.textarea.Value(); got != "" {
+		t.Fatalf("textarea after KeyUp = %q, want empty", got)
+	}
+	if updated.hoveredEntry != 0 {
+		t.Fatalf("hoveredEntry after KeyUp = %d, want 0", updated.hoveredEntry)
 	}
 }
 

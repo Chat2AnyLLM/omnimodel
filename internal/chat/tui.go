@@ -30,41 +30,46 @@ import (
 )
 
 var (
-	tuiTitleStyle           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Padding(0, 1)
-	tuiUserLabelStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#67E8F9"))
-	tuiAssistantLabelStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D8B4FE"))
-	tuiThinkingLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A78BFA"))
-	tuiErrorStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
-	tuiHelpStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Padding(0, 1)
-	tuiStatusStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
-	tuiStatusAccentStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
-	tuiInputMetaStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
-	tuiPermManualChipStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FDE68A")).Background(lipgloss.Color("#3A2A10")).Padding(0, 1)
-	tuiPermAutoChipStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1FAE5")).Background(lipgloss.Color("#123225")).Padding(0, 1)
-	tuiPermPendingChipStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFE7B3")).Background(lipgloss.Color("#4A3415")).Padding(0, 1)
-	tuiDivStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	tuiUserBlockStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#10161B")).Foreground(lipgloss.Color("#E6F7FB")).Padding(0, 1)
-	tuiAssistantBlockStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#17141D")).Foreground(lipgloss.Color("#F0EAF7")).Padding(0, 1)
-	tuiThinkingBlockStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#141723")).Foreground(lipgloss.Color("#D6CCFF")).Padding(0, 1)
-	tuiUserHoverStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#17232A")).Foreground(lipgloss.Color("#ECFBFF")).Padding(0, 1)
-	tuiAssistantHoverStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#211A2B")).Foreground(lipgloss.Color("#F7F1FF")).Padding(0, 1)
-	tuiThinkingHoverStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#1A1E2E")).Foreground(lipgloss.Color("#E6DEFF")).Padding(0, 1)
-	tuiThinkingStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Italic(true)
-	tuiSidebarStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#101014")).Foreground(lipgloss.Color("#E5E7EB")).Padding(1, 2)
-	tuiSidebarHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB"))
-	tuiSidebarLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	tuiSidebarValueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6"))
-	tuiPermissionLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
-	tuiPermissionBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color("#2A1F0F")).Foreground(lipgloss.Color("#FDE68A")).Padding(0, 1)
-	tuiSelectionStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#E8E8E8")).Foreground(lipgloss.Color("#111111"))
-	tuiInputShellStyle      = lipgloss.NewStyle().Background(lipgloss.Color("#1C1C1C")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#3B82F6"))
-	tuiInputAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
-	tuiTableBorderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	tuiTableHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#C084FC")).Bold(true).Padding(0, 1)
-	tuiTableCellStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
-	tuiTableAccentStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
-	ansiPrefixPattern       = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*`)
-	omnicodeLogoLeft        = []string{
+	tuiTitleStyle             = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Padding(0, 1)
+	tuiUserLabelStyle         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#67E8F9"))
+	tuiAssistantLabelStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D8B4FE"))
+	tuiThinkingLabelStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A78BFA"))
+	tuiErrorStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
+	tuiHelpStyle              = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Padding(0, 1)
+	tuiStatusStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
+	tuiStatusAccentStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
+	tuiInputMetaStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 1)
+	tuiPermManualChipStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FDE68A")).Background(lipgloss.Color("#3A2A10")).Padding(0, 1)
+	tuiPermAutoChipStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1FAE5")).Background(lipgloss.Color("#123225")).Padding(0, 1)
+	tuiPermPendingChipStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFE7B3")).Background(lipgloss.Color("#4A3415")).Padding(0, 1)
+	tuiDivStyle               = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
+	tuiUserBlockStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#10161B")).Foreground(lipgloss.Color("#E6F7FB")).Padding(0, 1)
+	tuiAssistantBlockStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#17141D")).Foreground(lipgloss.Color("#F0EAF7")).Padding(0, 1)
+	tuiThinkingBlockStyle     = lipgloss.NewStyle().Background(lipgloss.Color("#141723")).Foreground(lipgloss.Color("#D6CCFF")).Padding(0, 1)
+	tuiUserHoverStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#17232A")).Foreground(lipgloss.Color("#ECFBFF")).Padding(0, 1)
+	tuiAssistantHoverStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#211A2B")).Foreground(lipgloss.Color("#F7F1FF")).Padding(0, 1)
+	tuiThinkingHoverStyle     = lipgloss.NewStyle().Background(lipgloss.Color("#1A1E2E")).Foreground(lipgloss.Color("#E6DEFF")).Padding(0, 1)
+	tuiToolResultLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9AD5A0"))
+	tuiToolResultNameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#8FA3B8"))
+	tuiToolResultLineStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#151917")).Foreground(lipgloss.Color("#9CAAA0"))
+	tuiToolResultFocusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CAAA0")).PaddingLeft(1).BorderStyle(lipgloss.Border{Left: "▌"}).BorderLeft(true).BorderForeground(lipgloss.Color("#4E8A57"))
+	tuiToolResultBlurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CAAA0")).PaddingLeft(2)
+	tuiThinkingStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Italic(true)
+	tuiSidebarStyle           = lipgloss.NewStyle().Background(lipgloss.Color("#101014")).Foreground(lipgloss.Color("#E5E7EB")).Padding(1, 2)
+	tuiSidebarHeaderStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB"))
+	tuiSidebarLabelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	tuiSidebarValueStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6"))
+	tuiPermissionLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
+	tuiPermissionBlockStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#2A1F0F")).Foreground(lipgloss.Color("#FDE68A")).Padding(0, 1)
+	tuiSelectionStyle         = lipgloss.NewStyle().Background(lipgloss.Color("#E8E8E8")).Foreground(lipgloss.Color("#111111"))
+	tuiInputShellStyle        = lipgloss.NewStyle().Background(lipgloss.Color("#1C1C1C")).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#3B82F6"))
+	tuiInputAccentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
+	tuiTableBorderStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	tuiTableHeaderStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#C084FC")).Bold(true).Padding(0, 1)
+	tuiTableCellStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Padding(0, 1)
+	tuiTableAccentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
+	ansiPrefixPattern         = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*`)
+	omnicodeLogoLeft          = []string{
 		"                    ",
 		"█▀▀█ █▄  ▄█ █▄  █  █ ",
 		"█  █ █ ▀▀ █ █ ▀▄█  █ ",
@@ -108,6 +113,8 @@ var InitialConfig struct {
 const (
 	tuiSidebarWidth    = 30
 	tuiMinSidebarWidth = 60
+	// Align tool-result click hit-testing with perceived terminal row placement.
+	tuiToolResultHitRowOffset = 4
 )
 
 type logoStyle struct {
@@ -170,6 +177,9 @@ type transcriptSelection struct {
 	startY    int
 	endX      int
 	endY      int
+	pressLine int
+	pressIdx  int
+	pressID   int64
 }
 
 type progReadyMsg struct{ p *tea.Program }
@@ -827,7 +837,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == ' ' && m.textarea.Value() == "" && m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
 				entry := m.entries[m.hoveredEntry]
-				if entry.kind == transcriptToolResult && len(strings.Split(entry.content, "\n")) > toolResultMaxLines {
+				if entry.kind == transcriptToolResult {
 					if m.expandedEntries[entry.id] {
 						delete(m.expandedEntries, entry.id)
 					} else {
@@ -843,6 +853,9 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.historySearchMode {
 				m.applyHistorySearchResult()
+				return m, nil
+			}
+			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(-1) {
 				return m, nil
 			}
 			m.setAutoFollow(false)
@@ -862,6 +875,9 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 				}
+				return m, nil
+			}
+			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(1) {
 				return m, nil
 			}
 			m.updateAutoFollowFromViewport()
@@ -1154,13 +1170,7 @@ func (m chatTUIModel) View() string {
 		return "\n  Initializing…"
 	}
 
-	title := "OmniLLM Chat"
-	if m.mode != "" {
-		title += "  │  " + m.mode
-	}
-	if m.model != "" {
-		title += "  │  " + m.model
-	}
+	title := m.titleText()
 
 	div := tuiDivStyle.Render(strings.Repeat("─", tuiMax(0, m.mainWidth)))
 	var main strings.Builder
@@ -1188,6 +1198,17 @@ func (m chatTUIModel) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderSessionPickerModal())
 	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderPickerModal())
+}
+
+func (m chatTUIModel) titleText() string {
+	title := "OmniLLM Chat"
+	if m.mode != "" {
+		title += "  │  " + m.mode
+	}
+	if m.model != "" {
+		title += "  │  " + m.model
+	}
+	return title
 }
 
 func (m chatTUIModel) renderTextarea() string {
@@ -1462,8 +1483,8 @@ func (m *chatTUIModel) renderTranscript() string {
 		lineCount := strings.Count(block, "\n") + 1
 		layoutEntry := transcriptLayoutEntry{kind: entry.kind, startLine: lineOffset, endLine: lineOffset + lineCount - 1}
 		if entry.kind == transcriptToolResult {
-			layoutEntry.clickableStartLine = lineOffset + 1
-			layoutEntry.clickableEndLine = lineOffset + lineCount - 1
+			layoutEntry.clickableStartLine = layoutEntry.startLine
+			layoutEntry.clickableEndLine = layoutEntry.endLine
 		}
 		layout = append(layout, layoutEntry)
 		lineOffset += lineCount + 2
@@ -1707,35 +1728,56 @@ func (m chatTUIModel) renderInfoSection(text string) string {
 }
 
 func (m chatTUIModel) renderToolResultSection(toolName, content string, expanded, hovered bool) string {
-	label := tuiThinkingLabelStyle.Render(fmt.Sprintf("✅ Tool `%s` returned", toolName))
+	label := tuiToolResultLabelStyle.Render("●") + " " + tuiToolResultNameStyle.Render(fmt.Sprintf("Tool %s", toolName))
+	rendered := m.renderToolResultOutput(content, expanded)
+	return m.renderToolResultItem(lipgloss.JoinVertical(lipgloss.Left, label, rendered), hovered)
+}
+
+func (m chatTUIModel) renderToolResultOutput(content string, expanded bool) string {
+	content = normalizeToolResultContent(content)
 	lines := strings.Split(content, "\n")
-	overflow := len(lines) > toolResultMaxLines
-	var body string
-	if expanded || !overflow {
-		body = content
-	} else {
-		body = strings.Join(lines[:toolResultMaxLines], "\n") + "\n…"
+	maxLines := toolResultMaxLines
+	if expanded {
+		maxLines = len(lines)
 	}
-	hint := ""
-	if overflow {
-		if expanded {
-			if hovered {
-				hint = tuiHelpStyle.Render("▾ (click or space to collapse)")
-			}
-		} else {
-			if hovered {
-				hint = tuiHelpStyle.Render(fmt.Sprintf("… (%d lines hidden) [click or space to expand]", len(lines)-toolResultMaxLines))
-			} else {
-				hint = tuiHelpStyle.Render(fmt.Sprintf("… (%d lines hidden)", len(lines)-toolResultMaxLines))
-			}
+
+	width := tuiMax(8, m.transcriptBlockMaxWidth()-2)
+	out := make([]string, 0, minInt(len(lines), maxLines)+1)
+	for i, line := range lines {
+		if i >= maxLines {
+			break
 		}
+		line = " " + line
+		if xansi.StringWidth(line) > width {
+			line = xansi.Truncate(line, width, "…")
+		}
+		out = append(out, tuiToolResultLineStyle.Width(width).Render(line))
 	}
-	rendered := m.renderThinkingBody(tuiThinkingStyle.Render(body), hovered)
-	parts := []string{label, rendered}
-	if hint != "" {
-		parts = append(parts, hint)
+
+	if !expanded && len(lines) > toolResultMaxLines {
+		out = append(out, tuiToolResultLineStyle.Width(width).Render(fmt.Sprintf("… (%d lines hidden) [click or space to expand]", len(lines)-toolResultMaxLines)))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return strings.Join(out, "\n")
+}
+
+func (m chatTUIModel) renderToolResultItem(text string, focused bool) string {
+	style := tuiToolResultBlurredStyle
+	if focused {
+		style = tuiToolResultFocusStyle
+	}
+	prefix := style.Render("")
+	contentWidth := tuiMax(1, m.transcriptBlockMaxWidth()-lipgloss.Width(prefix))
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + xansi.Truncate(line, contentWidth, "…")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeToolResultContent(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "    ")
+	return strings.TrimSpace(content)
 }
 
 func (m chatTUIModel) renderPermissionSection(text string) string {
@@ -1854,7 +1896,7 @@ func (m *chatTUIModel) saveConfig() {
 }
 
 func (m *chatTUIModel) clearSelection() {
-	m.selection = transcriptSelection{}
+	m.selection = transcriptSelection{pressLine: -1, pressIdx: -1, pressID: -1}
 }
 
 func (m *chatTUIModel) copySelection() {
@@ -1885,7 +1927,8 @@ func (m *chatTUIModel) updateAutoFollowFromViewport() {
 
 func (m *chatTUIModel) viewportBounds() (left, top, right, bottom int) {
 	left = 0
-	top = 2
+	title := tuiTitleStyle.Width(m.mainWidth).Render(m.titleText())
+	top = lipgloss.Height(title) + 1
 	right = m.mainWidth
 	bottom = top + m.viewport.Height
 	return left, top, right, bottom
@@ -1928,6 +1971,74 @@ func (m *chatTUIModel) updateHoveredEntry(localY int, insideViewport bool) bool 
 	m.hoveredEntry = next
 	m.syncViewport()
 	return true
+}
+
+func (m *chatTUIModel) toolResultIsExpandable(entry transcriptEntry) bool {
+	return entry.kind == transcriptToolResult
+}
+
+func (m *chatTUIModel) cycleExpandableToolResultFocus(direction int) bool {
+	if direction == 0 {
+		direction = 1
+	}
+	indices := make([]int, 0)
+	for i, entry := range m.entries {
+		if m.toolResultIsExpandable(entry) {
+			indices = append(indices, i)
+		}
+	}
+	if len(indices) == 0 {
+		return false
+	}
+
+	currentPos := -1
+	for pos, idx := range indices {
+		if idx == m.hoveredEntry {
+			currentPos = pos
+			break
+		}
+	}
+
+	var next int
+	if currentPos == -1 {
+		if direction > 0 {
+			next = indices[0]
+		} else {
+			next = indices[len(indices)-1]
+		}
+	} else {
+		if direction > 0 {
+			next = indices[(currentPos+1)%len(indices)]
+		} else {
+			next = indices[(currentPos-1+len(indices))%len(indices)]
+		}
+	}
+
+	m.hoveredEntry = next
+	m.scrollEntryIntoView(next)
+	m.syncViewport()
+	return true
+}
+
+func (m *chatTUIModel) scrollEntryIntoView(entryIdx int) {
+	if entryIdx < 0 || entryIdx >= len(m.transcriptLayout) {
+		return
+	}
+	layout := m.transcriptLayout[entryIdx]
+	if layout.startLine < m.viewport.YOffset {
+		m.viewport.SetYOffset(layout.startLine)
+		m.setAutoFollow(false)
+		return
+	}
+	bottom := m.viewport.YOffset + m.viewport.Height - 1
+	if layout.endLine > bottom {
+		offset := layout.endLine - m.viewport.Height + 1
+		if offset < 0 {
+			offset = 0
+		}
+		m.viewport.SetYOffset(offset)
+		m.setAutoFollow(false)
+	}
 }
 
 func (m *chatTUIModel) handleMouseEvent(msg tea.MouseMsg) bool {
@@ -1990,12 +2101,20 @@ func (m *chatTUIModel) handleMouseEvent(msg tea.MouseMsg) bool {
 		m.setAutoFollow(false)
 		return true
 	case msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress:
+		pressIdx := m.hoveredTranscriptEntry(mouseY)
+		pressID := int64(-1)
+		if pressIdx >= 0 && pressIdx < len(m.entries) {
+			pressID = m.entries[pressIdx].id
+		}
 		m.selection.active = true
 		m.selection.selecting = true
 		m.selection.startX = mouseX
 		m.selection.startY = mouseY
 		m.selection.endX = mouseX
 		m.selection.endY = mouseY
+		m.selection.pressLine = m.viewport.YOffset + mouseY
+		m.selection.pressIdx = pressIdx
+		m.selection.pressID = pressID
 		m.syncViewport()
 		return true
 	default:
@@ -2012,12 +2131,31 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 	}
 	plainClick := m.selection.startX == m.selection.endX && m.selection.startY == m.selection.endY
 	if plainClick {
+		pressIdx := m.selection.pressIdx
+		pressLine := m.selection.pressLine
+		pressID := m.selection.pressID
 		m.clearSelection()
 		if insideViewport {
-			idx := m.hoveredTranscriptEntry(mouseY)
+			idx := m.transcriptEntryIndexByID(pressID)
+			if idx < 0 {
+				idx = pressIdx
+			}
+			if idx < 0 || idx >= len(m.entries) {
+				idx = m.hoveredTranscriptEntry(mouseY)
+			}
+			if pressIdx >= 0 && idx >= 0 && idx != pressIdx {
+				m.syncViewport()
+				return
+			}
 			if idx >= 0 && idx < len(m.entries) {
 				entry := m.entries[idx]
-				if entry.kind == transcriptToolResult && len(strings.Split(entry.content, "\n")) > toolResultMaxLines {
+				layout := m.transcriptLayout[idx]
+				if pressLine <= 0 {
+					pressLine = m.viewport.YOffset + mouseY
+				}
+				hitPressLine := pressLine + tuiToolResultHitRowOffset
+				if entry.kind == transcriptToolResult &&
+					hitPressLine >= layout.clickableStartLine && hitPressLine <= layout.clickableEndLine {
 					if m.expandedEntries[entry.id] {
 						delete(m.expandedEntries, entry.id)
 					} else {
@@ -2038,6 +2176,18 @@ func (m *chatTUIModel) finishTranscriptSelection(msg tea.MouseMsg) {
 	m.selection.active = true
 	m.copySelection()
 	m.syncViewport()
+}
+
+func (m *chatTUIModel) transcriptEntryIndexByID(id int64) int {
+	if id <= 0 {
+		return -1
+	}
+	for idx, entry := range m.entries {
+		if entry.id == id {
+			return idx
+		}
+	}
+	return -1
 }
 
 func (m chatTUIModel) selectedTranscriptText() string {
@@ -2610,7 +2760,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `Ctrl+O` — toggle expand/collapse for all tool results\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `↑`/`↓` — focus expandable tool results (when input is empty)\n- `Space` — expand/collapse the focused tool result\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
