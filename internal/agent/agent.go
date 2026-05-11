@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"omnillm/internal/tools"
@@ -26,7 +27,23 @@ type Agent struct {
 	memory   Memory
 	maxSteps int
 	dispatch DispatchFn
+	// Summarizer is an optional callback used by compactIfNeeded to compress
+	// old messages when the estimated token count exceeds the budget threshold.
+	// When nil, compaction is skipped and older messages are simply dropped
+	// by BufferMemory's sliding-window behaviour.
+	Summarizer SummarizerFn
 }
+
+const (
+	stuckToolCallWindow         = 3
+	maxConsecutiveAllErrorSteps = 3
+	// contextTokenBudget is the approximate model context window we target.
+	// We reserve 4K for the model's response, leaving this for the prompt.
+	contextTokenBudget = 28_000
+	// compactThresholdRatio triggers compaction when messages exceed this
+	// fraction of the context budget (70%).
+	compactThresholdRatio = 0.70
+)
 
 // NewAgent creates a new Agent with the given configuration.
 // If maxSteps <= 0, defaults to 10.
@@ -42,19 +59,50 @@ func NewAgent(registry *tools.Registry, memory Memory, maxSteps int, dispatch Di
 	}
 }
 
+// compactIfNeeded calls memory.Compact when the estimated token usage exceeds
+// the compaction threshold. It is a best-effort operation — errors are ignored
+// so a failing summarizer does not abort the run.
+func (a *Agent) compactIfNeeded(ctx context.Context) {
+	threshold := int(float64(contextTokenBudget) * compactThresholdRatio)
+	total := 0
+	for _, msg := range a.memory.Messages() {
+		total += estimateMessageTokens(msg)
+	}
+	if total >= threshold {
+		_ = a.memory.Compact(ctx, a.Summarizer)
+	}
+}
+
 // Run executes the agent loop synchronously, returning the full trace.
 func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunResult, error) {
-	a.appendUserMessage(prompt)
+	startStep := 0
+	if cp, err := loadCheckpoint(sessionID); err == nil && cp != nil {
+		// Resume from saved checkpoint: restore memory and fast-forward the loop counter.
+		a.memory.Reset(cp.Messages)
+		startStep = cp.Step
+	} else {
+		a.appendUserMessage(prompt)
+	}
 
 	var finalOutput string
+	toolCallSignatures := make([]string, 0, stuckToolCallWindow)
+	consecutiveAllErrorSteps := 0
 
-	for step := 0; step < a.maxSteps; step++ {
+	for step := startStep; step < a.maxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			return &RunResult{
 				Output:   finalOutput,
 				Steps:    step,
 				Messages: a.memory.Messages(),
 			}, err
+		}
+
+		a.compactIfNeeded(ctx)
+
+		// Abort if still over token budget after compaction attempt.
+		if totalBudgetTokens := a.estimateTotalTokens(); totalBudgetTokens > contextTokenBudget {
+			_ = saveCheckpoint(sessionID, step, a.memory.Messages())
+			return nil, fmt.Errorf("context token budget exceeded (%d > %d tokens); checkpoint saved, agent aborted", totalBudgetTokens, contextTokenBudget)
 		}
 
 		response, err := a.dispatchAndCollect(ctx, step, prompt)
@@ -67,6 +115,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 		toolCalls := extractToolCalls(response.Content)
 		if len(toolCalls) == 0 {
 			finalOutput = extractTextContent(response.Content)
+			clearCheckpoint(sessionID)
 			return &RunResult{
 				Output:   finalOutput,
 				Steps:    step + 1,
@@ -74,19 +123,45 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			}, nil
 		}
 
+		toolCallSignatures = append(toolCallSignatures, toolCallBatchSignature(toolCalls))
+		if len(toolCallSignatures) > stuckToolCallWindow {
+			toolCallSignatures = toolCallSignatures[len(toolCallSignatures)-stuckToolCallWindow:]
+		}
+		if hasRepeatedSignatures(toolCallSignatures, stuckToolCallWindow) {
+			return nil, errors.New("agent detected repeated identical tool calls and aborted")
+		}
+
 		toolResults := a.registry.ExecuteCalls(ctx, sessionID, toolCalls)
+		allErrors := len(toolResults) > 0
 		toolResultParts := make([]ContentBlock, 0, len(toolResults))
 		for _, r := range toolResults {
 			isErr := r.IsError
+			if !r.IsError {
+				allErrors = false
+			}
+			safeContent := sanitizeToolResultForModel(r.ToolName, r.Content, r.IsError)
 			toolResultParts = append(toolResultParts, ContentBlock{
 				Type:      "tool_result",
 				ToolUseID: r.ToolCallID,
 				Name:      r.ToolName,
-				Content:   r.Content,
+				Content:   safeContent,
 				IsError:   &isErr,
 			})
 		}
+		if allErrors {
+			consecutiveAllErrorSteps++
+			if consecutiveAllErrorSteps >= maxConsecutiveAllErrorSteps {
+				return nil, errors.New("agent aborted after consecutive tool-error steps")
+			}
+		} else {
+			consecutiveAllErrorSteps = 0
+		}
 		a.memory.Append(toToolResultMessage(toolResultParts))
+
+		// Checkpoint every N steps so long runs can be resumed after interruption.
+		if (step+1)%checkpointEveryNSteps == 0 {
+			_ = saveCheckpoint(sessionID, step+1, a.memory.Messages())
+		}
 	}
 
 	return nil, errors.New("agent loop exceeded maximum steps (" + fmt.Sprint(a.maxSteps) + ")")
@@ -99,11 +174,29 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 	go func() {
 		defer close(events)
 
-		a.appendUserMessage(prompt)
+		startStep := 0
+		if cp, err := loadCheckpoint(sessionID); err == nil && cp != nil {
+			a.memory.Reset(cp.Messages)
+			startStep = cp.Step
+		} else {
+			a.appendUserMessage(prompt)
+		}
 
-		for step := 0; step < a.maxSteps; step++ {
+		toolCallSignatures := make([]string, 0, stuckToolCallWindow)
+		consecutiveAllErrorSteps := 0
+
+		for step := startStep; step < a.maxSteps; step++ {
 			if err := ctx.Err(); err != nil {
 				events <- Event{Type: EventError, Content: err.Error()}
+				return
+			}
+
+			a.compactIfNeeded(ctx)
+
+			// Abort if still over token budget after compaction attempt.
+			if totalBudgetTokens := a.estimateTotalTokens(); totalBudgetTokens > contextTokenBudget {
+				_ = saveCheckpoint(sessionID, step, a.memory.Messages())
+				events <- Event{Type: EventError, Content: fmt.Sprintf("context token budget exceeded (%d > %d tokens); checkpoint saved, agent aborted", totalBudgetTokens, contextTokenBudget)}
 				return
 			}
 
@@ -123,7 +216,17 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 
 			toolCalls := extractToolCalls(response.Content)
 			if len(toolCalls) == 0 {
+				clearCheckpoint(sessionID)
 				events <- Event{Type: EventDone}
+				return
+			}
+
+			toolCallSignatures = append(toolCallSignatures, toolCallBatchSignature(toolCalls))
+			if len(toolCallSignatures) > stuckToolCallWindow {
+				toolCallSignatures = toolCallSignatures[len(toolCallSignatures)-stuckToolCallWindow:]
+			}
+			if hasRepeatedSignatures(toolCallSignatures, stuckToolCallWindow) {
+				events <- Event{Type: EventError, Content: "agent detected repeated identical tool calls and aborted"}
 				return
 			}
 
@@ -132,26 +235,55 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 
 			toolResults := a.registry.ExecuteCalls(ctx, sessionID, toolCalls)
+			allErrors := len(toolResults) > 0
 
 			toolResultParts := make([]ContentBlock, 0, len(toolResults))
 			for _, r := range toolResults {
 				events <- Event{Type: EventToolResult, Tool: r.ToolName, Content: r.Content}
 				isErr := r.IsError
+				if !r.IsError {
+					allErrors = false
+				}
+				safeContent := sanitizeToolResultForModel(r.ToolName, r.Content, r.IsError)
 				toolResultParts = append(toolResultParts, ContentBlock{
 					Type:      "tool_result",
 					ToolUseID: r.ToolCallID,
 					Name:      r.ToolName,
-					Content:   r.Content,
+					Content:   safeContent,
 					IsError:   &isErr,
 				})
 			}
+			if allErrors {
+				consecutiveAllErrorSteps++
+				if consecutiveAllErrorSteps >= maxConsecutiveAllErrorSteps {
+					events <- Event{Type: EventError, Content: "agent aborted after consecutive tool-error steps"}
+					return
+				}
+			} else {
+				consecutiveAllErrorSteps = 0
+			}
 			a.memory.Append(toToolResultMessage(toolResultParts))
+
+			// Checkpoint every N steps so long runs can be resumed after interruption.
+			if (step+1)%checkpointEveryNSteps == 0 {
+				_ = saveCheckpoint(sessionID, step+1, a.memory.Messages())
+			}
 		}
 
 		events <- Event{Type: EventError, Content: fmt.Sprintf("agent loop exceeded maximum steps (%d)", a.maxSteps)}
 	}()
 
 	return events, nil
+}
+
+// estimateTotalTokens returns the approximate token count for all messages
+// currently in memory. Used to enforce the context token budget guard.
+func (a *Agent) estimateTotalTokens() int {
+	total := 0
+	for _, msg := range a.memory.Messages() {
+		total += estimateMessageTokens(msg)
+	}
+	return total
 }
 
 func (a *Agent) appendUserMessage(prompt string) {
@@ -195,7 +327,9 @@ func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string)
 }
 
 func (a *Agent) buildRequest(step int, prompt string) *MessagesRequest {
-	messages := a.memory.Messages()
+	// Assemble messages within the context token budget before building the request.
+	assembler := NewContextAssembler(contextTokenBudget)
+	messages := assembler.Assemble(a.memory.Messages())
 	toolDefs := a.registry.Definitions()
 
 	// Extract system prompt from memory; send as SystemPrompt, not buried in history.
@@ -292,6 +426,39 @@ func extractToolCalls(content []ContentBlock) []tools.ToolCall {
 		}
 	}
 	return calls
+}
+
+func toolCallBatchSignature(calls []tools.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(calls))
+	for _, call := range calls {
+		argJSON, err := json.Marshal(call.Arguments)
+		if err != nil {
+			argJSON = []byte("{}")
+		}
+		parts = append(parts, call.Name+":"+string(argJSON))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+func hasRepeatedSignatures(signatures []string, window int) bool {
+	if window <= 0 || len(signatures) < window {
+		return false
+	}
+	start := len(signatures) - window
+	first := signatures[start]
+	if first == "" {
+		return false
+	}
+	for _, sig := range signatures[start+1:] {
+		if sig != first {
+			return false
+		}
+	}
+	return true
 }
 
 func formatToolCallPayload(call tools.ToolCall) string {

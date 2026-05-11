@@ -22,8 +22,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"omnillm/internal/cif"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -795,18 +793,18 @@ func TestRegistryListReturnsAll(t *testing.T) {
 	}
 }
 
-func TestRegistryToCIFTools(t *testing.T) {
+func TestRegistryDefinitions(t *testing.T) {
 	r := NewRegistry()
 	r.Register(Bash())
 	r.Register(Calculator())
 
-	cif := r.ToCIFTools()
-	if len(cif) != 2 {
-		t.Fatalf("expected 2 CIF tools, got %d", len(cif))
+	defs := r.Definitions()
+	if len(defs) != 2 {
+		t.Fatalf("expected 2 tool definitions, got %d", len(defs))
 	}
 	names := make(map[string]bool)
-	for _, c := range cif {
-		names[c.Name] = true
+	for _, d := range defs {
+		names[d.Name] = true
 	}
 	if !names["bash"] || !names["calculator"] {
 		t.Fatalf("missing expected tools: %v", names)
@@ -815,11 +813,11 @@ func TestRegistryToCIFTools(t *testing.T) {
 
 func TestRegistryExecuteToolCallsUnknownTool(t *testing.T) {
 	r := NewRegistry()
-	// No tools registered — call with unknown tool name via cif.CIFToolCallPart
-	calls := []cif.CIFToolCallPart{
-		{ToolCallID: "c1", ToolName: "ghost_tool", ToolArguments: map[string]any{}},
+	// No tools registered — call with unknown tool name.
+	calls := []ToolCall{
+		{ID: "c1", Name: "ghost_tool", Arguments: map[string]any{}},
 	}
-	results := r.ExecuteToolCalls(context.Background(), "sess1", calls)
+	results := r.ExecuteCalls(context.Background(), "sess1", calls)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -835,10 +833,10 @@ func TestRegistryExecuteToolCallsPanicRecovery(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&panicTool{})
 
-	calls := []cif.CIFToolCallPart{
-		{ToolCallID: "c1", ToolName: "panic_tool", ToolArguments: map[string]any{}},
+	calls := []ToolCall{
+		{ID: "c1", Name: "panic_tool", Arguments: map[string]any{}},
 	}
-	results := r.ExecuteToolCalls(context.Background(), "sess1", calls)
+	results := r.ExecuteCalls(context.Background(), "sess1", calls)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -857,10 +855,10 @@ func TestRegistryExecuteToolCallsPermissionDenied(t *testing.T) {
 		return false, nil // deny everything
 	})
 
-	calls := []cif.CIFToolCallPart{
-		{ToolCallID: "c1", ToolName: "bash", ToolArguments: map[string]any{"command": "echo hi"}},
+	calls := []ToolCall{
+		{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "echo hi"}},
 	}
-	results := r.ExecuteToolCalls(context.Background(), "sess1", calls)
+	results := r.ExecuteCalls(context.Background(), "sess1", calls)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -946,7 +944,7 @@ func TestRegisterCoreToolsCount(t *testing.T) {
 	// tool_search, config, todo_write, task_create, task_get, task_list,
 	// task_output, task_stop, task_update, enter_plan_mode, exit_plan_mode,
 	// enter_worktree, exit_worktree, schedule_cron, send_message, agent, batch
-	const wantCount = 36
+	const wantCount = 37 // includes load_skill
 	if len(tools) != wantCount {
 		names := make([]string, len(tools))
 		for i, t2 := range tools {

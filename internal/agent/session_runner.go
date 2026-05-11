@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	"omnillm/internal/tools"
 )
@@ -21,14 +22,42 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape,
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
 	registry.SetAskUserCallback(askUser)
+	registry.SendMessageFn = MakeSubAgentFn(SubAgentOptions{
+		Client:   c,
+		Model:    model,
+		Backend:  backend,
+		APIShape: apiShape,
+		MaxTurns: maxTurns / 2,
+		Checker:  checker,
+		AskUser:  askUser,
+	})
+	wsDir := workspaceDir()
+	_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] run_start model=%s prompt=%q", sessionID, model, trimForLog(prompt, 160)))
+
+	// Scan user prompt for injection patterns before processing.
+	safePrompt, injected := SanitizeUserInput(prompt)
+	if injected {
+		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] prompt_injection_detected prompt=%q", sessionID, trimForLog(prompt, 80)))
+	}
 
 	memory := NewBufferMemory(64)
 	sysPrompt := buildSystemPrompt()
 	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
-	seedHistory(memory, history, prompt)
+	if pc := LoadWorkspaceContext(wsDir); !pc.IsEmpty() {
+		injectPersistentContext(memory, pc)
+	}
+	seedHistory(memory, history, safePrompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
-	return ag.Run(ctx, sessionID, prompt)
+	result, err := ag.Run(ctx, sessionID, safePrompt)
+	if err != nil {
+		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] run_error model=%s err=%q", sessionID, model, trimForLog(err.Error(), 200)))
+		return nil, err
+	}
+	if result != nil {
+		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] run_done model=%s steps=%d output=%q", sessionID, model, result.Steps, trimForLog(result.Output, 200)))
+	}
+	return result, nil
 }
 
 // StreamTurn runs one interactive agent turn using streaming, emitting events on the returned channel.
@@ -38,23 +67,73 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 	registerDefaultTools(registry)
 	registry.SetPermissionChecker(checker)
 	registry.SetAskUserCallback(askUser)
+	registry.SendMessageFn = MakeSubAgentFn(SubAgentOptions{
+		Client:   c,
+		Model:    model,
+		Backend:  backend,
+		APIShape: apiShape,
+		MaxTurns: maxTurns / 2,
+		Checker:  checker,
+		AskUser:  askUser,
+	})
+	wsDir := workspaceDir()
+	_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] stream_start model=%s prompt=%q", sessionID, model, trimForLog(prompt, 160)))
+
+	// Scan user prompt for injection patterns before processing.
+	safePrompt, injected := SanitizeUserInput(prompt)
+	if injected {
+		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] prompt_injection_detected prompt=%q", sessionID, trimForLog(prompt, 80)))
+	}
 
 	memory := NewBufferMemory(64)
 	sysPrompt := buildSystemPrompt()
 	memory.Append(Message{Role: "system", Content: []ContentBlock{TextBlock(sysPrompt)}})
-	seedHistory(memory, history, prompt)
+	if pc := LoadWorkspaceContext(wsDir); !pc.IsEmpty() {
+		injectPersistentContext(memory, pc)
+	}
+	seedHistory(memory, history, safePrompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
-	return ag.Stream(ctx, sessionID, prompt)
+	events, err := ag.Stream(ctx, sessionID, safePrompt)
+	if err != nil {
+		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] stream_error model=%s err=%q", sessionID, model, trimForLog(err.Error(), 200)))
+		return nil, err
+	}
+	wrapped := make(chan Event, 64)
+	go func() {
+		defer close(wrapped)
+		for ev := range events {
+			wrapped <- ev
+			switch ev.Type {
+			case EventDone:
+				_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] stream_done model=%s", sessionID, model))
+			case EventError:
+				_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] stream_error model=%s err=%q", sessionID, model, trimForLog(ev.Content, 200)))
+			}
+		}
+	}()
+	return wrapped, nil
+}
+
+func trimForLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
+	var base DispatchFn
 	switch normalizeAPIShape(apiShape) {
 	case "openai":
-		return OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c), model)
+		base = OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c), model)
 	default:
-		return NewDispatch(c, model, DefaultAPIShape)
+		base = NewDispatch(c, model, DefaultAPIShape)
 	}
+
+	// Add transient retry behavior for interactive agent turns.
+	return retryDispatch(base, 3, 500*time.Millisecond, 8*time.Second)
 }
 
 func omniLLMOpenAIBaseURL(c Client) string {
@@ -110,6 +189,7 @@ func registerDefaultTools(registry *tools.Registry) {
 		registry.Register(tool)
 	}
 	tools.InitRegistryStores(registry)
+	tools.InitSkillMembership(registry)
 }
 
 func seedHistory(memory Memory, history []HistoryMessage, currentPrompt string) {

@@ -57,6 +57,92 @@ func RegisterCoreTools(m *Manager) {
 	m.Register(SendMessage(), Metadata{Category: CategoryUtility, ReadOnly: false})
 	m.Register(AgentTool(), Metadata{Category: CategoryUtility, ReadOnly: false})
 	m.Register(Batch(), Metadata{Category: CategoryUtility, ReadOnly: false})
+
+	// ── Skill loader ──────────────────────────────────────────────────────────
+	m.Register(LoadSkill(), Metadata{Category: CategoryUtility, ReadOnly: false})
+}
+
+// SkillFilesystem groups write-capable filesystem tools.
+const SkillFilesystem = "filesystem"
+
+// SkillWeb groups web-access tools.
+const SkillWeb = "web"
+
+// SkillTask groups background task management tools.
+const SkillTask = "task"
+
+// SkillNotebook groups Jupyter notebook tools.
+const SkillNotebook = "notebook"
+
+// SkillPlan groups plan-mode tools.
+const SkillPlan = "plan"
+
+// SkillWorktree groups git worktree tools.
+const SkillWorktree = "worktree"
+
+// SkillScheduler groups scheduler/cron tools.
+const SkillScheduler = "scheduler"
+
+// SkillAgent groups multi-agent / sub-agent tools.
+const SkillAgent = "agent"
+
+// SkillUtilityExtra groups less-common utility tools (calculator, sleep, lsp, etc).
+const SkillUtilityExtra = "utility_extra"
+
+// InitSkillMembership assigns non-core tools in r to their skill group.
+// Must be called after RegisterCoreTools has populated the registry.
+// Core tools (always visible): bash, powershell, read, write, edit, glob,
+// grep, ls, ask_user_question, get_current_time, todo_write, load_skill.
+// Everything else requires the user/model to call load_skill first.
+func InitSkillMembership(r *Registry) {
+	// filesystem skill: destructive / bulk write operations
+	for _, name := range []string{"multiedit", "apply_patch", "notebook_edit"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillFilesystem)
+		}
+	}
+	// web skill
+	for _, name := range []string{"web_fetch", "web_search", "codesearch"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillWeb)
+		}
+	}
+	// task skill
+	for _, name := range []string{
+		"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update",
+	} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillTask)
+		}
+	}
+	// plan skill
+	for _, name := range []string{"enter_plan_mode", "exit_plan_mode"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillPlan)
+		}
+	}
+	// worktree skill
+	for _, name := range []string{"enter_worktree", "exit_worktree"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillWorktree)
+		}
+	}
+	// scheduler skill
+	if t := r.Get("schedule_cron"); t != nil {
+		r.RegisterSkillTool(t, SkillScheduler)
+	}
+	// agent skill
+	for _, name := range []string{"send_message", "agent", "batch"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillAgent)
+		}
+	}
+	// utility_extra skill
+	for _, name := range []string{"calculator", "sleep", "lsp", "tool_search", "config"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillUtilityExtra)
+		}
+	}
 }
 
 // InitRegistryStores creates fresh session-scoped stores and attaches them to

@@ -43,5 +43,5 @@ func (t *bashTool) Execute(ctx context.Context, call Context, input json.RawMess
 		return Result{Output: "error: command is required", IsError: true}
 	}
 
-	return runShellCommand(ctx, p.Command, p.TimeoutSeconds)
+	return runBashCommand(ctx, p.Command, p.TimeoutSeconds)
 }
