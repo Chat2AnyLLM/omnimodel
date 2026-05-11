@@ -1782,6 +1782,15 @@ func (m chatTUIModel) renderPermissionSection(text string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, label, body)
 }
 
+func displayAgentBackendName(agentBackend string) string {
+	switch strings.TrimSpace(strings.ToLower(agentBackend)) {
+	case "google-adk":
+		return "Omnicode"
+	default:
+		return agentBackend
+	}
+}
+
 func (m chatTUIModel) renderSidebar() string {
 	status := "Idle"
 	statusColor := lipgloss.Color("#6B7280")
@@ -1814,7 +1823,8 @@ func (m chatTUIModel) renderSidebar() string {
 		tuiSidebarLabelStyle.Render("Status") + "\n" + statusDot + " " + status,
 	}
 	if m.agentBackend != "" {
-		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(m.agentBackend))
+		agentLabel := displayAgentBackendName(m.agentBackend)
+		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(agentLabel))
 	}
 	sections = append(sections,
 		tuiSidebarHeaderStyle.Render("Actions"),
