@@ -67,12 +67,9 @@ func RegisterCoreTools(m *Manager) {
 	m.Register(LoadSkill(), Metadata{Category: CategoryUtility, ReadOnly: false})
 
 	// 鈹€鈹€ Spec-driven 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-	m.Register(SpecInit(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(SpecWrite(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(SpecRead(), Metadata{Category: CategorySpec, ReadOnly: true})
-	m.Register(SpecPlan(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(SpecTasks(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(SpecStatus(), Metadata{Category: CategorySpec, ReadOnly: true})
+	// Legacy spec_* agent tools (spec_init, spec_write, spec_read, spec_plan,
+	// spec_tasks, spec_status) have been removed. Use the speckit_* and
+	// openspec_* tools below instead.
 	m.Register(SpecKitConstitution(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitSpecify(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitClarify(), Metadata{Category: CategorySpec, ReadOnly: false})
@@ -80,6 +77,7 @@ func RegisterCoreTools(m *Manager) {
 	m.Register(SpecKitTasks(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitAnalyze(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitImplement(), Metadata{Category: CategorySpec, ReadOnly: true})
+	m.Register(SpecKitTasksToIssues(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitChecklist(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(SpecKitLifecycleStatus(), Metadata{Category: CategorySpec, ReadOnly: true})
 	m.Register(SpecKitComplete(), Metadata{Category: CategorySpec, ReadOnly: false})
@@ -95,9 +93,6 @@ func RegisterCoreTools(m *Manager) {
 	m.Register(OpenSpecArchive(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(OpenSpecBulkArchive(), Metadata{Category: CategorySpec, ReadOnly: false})
 	m.Register(OpenSpecOnboard(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(OpenSpecLegacyProposal(), Metadata{Category: CategorySpec, ReadOnly: false})
-	m.Register(OpenSpecLegacyApply(), Metadata{Category: CategorySpec, ReadOnly: true})
-	m.Register(OpenSpecLegacyArchive(), Metadata{Category: CategorySpec, ReadOnly: false})
 }
 
 // SkillFilesystem groups write-capable filesystem tools.
@@ -191,10 +186,8 @@ func InitSkillMembership(r *Registry) {
 	}
 	// spec skill
 	for _, name := range []string{
-		"spec_init", "spec_write", "spec_read", "spec_plan", "spec_tasks", "spec_status",
-		"speckit_constitution", "speckit_specify", "speckit_clarify", "speckit_plan", "speckit_tasks", "speckit_analyze", "speckit_implement", "speckit_checklist", "speckit_lifecycle_status", "speckit_complete", "speckit_archive",
+		"speckit_constitution", "speckit_specify", "speckit_clarify", "speckit_plan", "speckit_tasks", "speckit_analyze", "speckit_implement", "speckit_taskstoissues", "speckit_checklist", "speckit_lifecycle_status", "speckit_complete", "speckit_archive",
 		"openspec_propose", "openspec_explore", "openspec_new", "openspec_continue", "openspec_ff", "openspec_apply", "openspec_verify", "openspec_sync", "openspec_archive", "openspec_bulk_archive", "openspec_onboard",
-		"openspec_legacy_proposal", "openspec_legacy_apply", "openspec_legacy_archive",
 	} {
 		if t := r.Get(name); t != nil {
 			r.RegisterSkillTool(t, SkillSpec)

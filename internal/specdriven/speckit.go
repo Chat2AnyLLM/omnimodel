@@ -26,6 +26,7 @@ func SpecKitCommands() []SpecKitCommand {
 		{Slash: "/speckit.tasks", Tool: "speckit_tasks", Summary: "generate dependency-ordered implementation tasks", Artifact: "tasks.md"},
 		{Slash: "/speckit.analyze", Tool: "speckit_analyze", Summary: "check spec/plan/tasks consistency", Artifact: "analysis.md"},
 		{Slash: "/speckit.implement", Tool: "speckit_implement", Summary: "summarize or execute implementation tasks", Artifact: "tasks.md status"},
+		{Slash: "/speckit.taskstoissues", Tool: "speckit_taskstoissues", Summary: "convert tasks.md into GitHub issues via `gh`", Artifact: "GitHub issues"},
 		{Slash: "/speckit.lifecycle", Tool: "speckit_lifecycle_status", Summary: "show lifecycle state and next-step guidance", Artifact: ".speckit-state.json"},
 		{Slash: "/speckit.complete", Tool: "speckit_complete", Summary: "mark a spec completed while preserving artifacts", Artifact: ".speckit-state.json"},
 		{Slash: "/speckit.archive", Tool: "speckit_archive", Summary: "archive a completed spec under specs/archive/", Artifact: "specs/archive/<N>-<slug>/"},

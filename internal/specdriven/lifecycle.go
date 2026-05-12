@@ -90,10 +90,13 @@ func WriteLifecycle(specDir string, record SpecLifecycleRecord) error {
 
 func (s SpecLifecycleState) String() string { return string(s) }
 
-func EnsureLifecycle(specDir, createdAt string) (SpecLifecycleRecord, error) {
+func EnsureLifecycle(specDir, createdAt string, createIfMissing bool) (SpecLifecycleRecord, error) {
 	record, err := ReadLifecycle(specDir)
 	if err != nil {
 		return SpecLifecycleRecord{}, err
+	}
+	if !createIfMissing {
+		return record, nil
 	}
 	if _, err := os.Stat(lifecyclePath(specDir)); os.IsNotExist(err) {
 		record = DefaultLifecycleRecord(createdAt)

@@ -39,16 +39,32 @@ Key design decisions:
 
 ### New Tools: `internal/tools/specdriven.go`
 
-Six tools registered under the `spec` skill:
+Tools registered under the `spec` skill:
 
 | Tool | Description |
 |---|---|
-| `spec_init` | Create numbered spec dir + blank spec.md template |
-| `spec_write` | Write structured spec content (stories, requirements, entities, edge cases) |
-| `spec_read` | Read spec.md + show artifact status board |
-| `spec_plan` | Scaffold plan.md from spec (tech context → 4 standard phases) |
-| `spec_tasks` | Generate tasks.md (atomic, grouped by user story, [P] for parallelizable) |
-| `spec_status` | Scan all specs dirs and show artifact completion status |
+| `speckit_constitution` | Create or update memory/constitution.md with project principles |
+| `speckit_specify` | Create a numbered spec dir + spec.md from a natural-language feature description |
+| `speckit_clarify` | Append clarification answers or prompts to the current spec.md |
+| `speckit_plan` | Generate plan.md from spec.md |
+| `speckit_tasks` | Generate tasks.md from spec.md and plan.md |
+| `speckit_analyze` | Inspect spec.md, plan.md, and tasks.md for missing artifacts |
+| `speckit_implement` | Report tasks ready for implementation |
+| `speckit_checklist` | Generate a checklist for validating requirements quality |
+| `speckit_lifecycle_status` | Show lifecycle state, artifact summary, and next step |
+| `speckit_complete` | Mark a spec folder completed while preserving artifacts |
+| `speckit_archive` | Archive a completed spec folder under specs/archive/ |
+| `openspec_propose` | Create a change and generate proposal, delta specs, design, and tasks |
+| `openspec_explore` | Write exploratory notes before committing to a change |
+| `openspec_new` | Start a new change scaffold with .openspec.yaml metadata |
+| `openspec_continue` | Create the next missing artifact in dependency order |
+| `openspec_ff` | Fast-forward and create all planning artifacts |
+| `openspec_apply` | Report pending implementation tasks for a change |
+| `openspec_verify` | Validate artifact completeness and write verification.md |
+| `openspec_sync` | Copy delta specs from a change into openspec/specs |
+| `openspec_archive` | Move a completed change to openspec/changes/archive |
+| `openspec_bulk_archive` | Archive multiple changes |
+| `openspec_onboard` | Create a guided onboarding checklist for the workflow |
 
 ### Modified Files
 
@@ -56,7 +72,7 @@ Six tools registered under the `spec` skill:
 |---|---|
 | `internal/tools/catalog.go` | Added `CategorySpec = "spec"` |
 | `internal/tools/tool.go` | Added `SpecState *specdriven.SpecStore` to `Context` and `Registry`; added `omnillm/internal/specdriven` import |
-| `internal/tools/groups.go` | Registered 6 spec tools; added `SkillSpec` constant; added spec skill membership in `InitSkillMembership`; added `r.SpecState = specdriven.NewSpecStore()` in `InitRegistryStores` |
+| `internal/tools/groups.go` | Registered spec tools; added `SkillSpec` constant; added spec skill membership in `InitSkillMembership`; added `r.SpecState = specdriven.NewSpecStore()` in `InitRegistryStores` |
 | `internal/tools/load_skill.go` | Added `SkillSpec` to `allSkills` map with description |
 | `internal/tools/tools_test.go` | Updated `wantCount` from 40 → 46 |
 
@@ -75,21 +91,21 @@ Six tools registered under the `spec` skill:
 ## Workflow for Agent
 
 ```
-load_skill("spec")          # Activate spec tools for this session
+load_skill("spec")              # Activate spec tools for this session
   ↓
-spec_init(title, overview)  # Create specs/001-feature-name/spec.md
+speckit_specify(feature, ...)   # Create specs/001-feature-name/spec.md
   ↓
-spec_write(user_stories, requirements, entities, edge_cases)
+speckit_clarify()               # (optional) clarify requirements
   ↓
-spec_read()                 # Review + confirm spec is correct
+speckit_plan(language, framework, database, ...)  # Generate plan.md
   ↓
-spec_plan(language, framework, database, ...)  # Generate plan.md
-  ↓
-spec_tasks()                # Generate tasks.md with task breakdown
+speckit_tasks()                 # Generate tasks.md with task breakdown
   ↓
 # Implement tasks from tasks.md using standard file tools
   ↓
-spec_status()               # Check overall progress across all specs
+speckit_complete()              # Mark as completed
+  ↓
+speckit_archive()               # (optional) archive to specs/archive/
 ```
 
 ## Affected Files

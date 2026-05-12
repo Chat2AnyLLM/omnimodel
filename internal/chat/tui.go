@@ -789,24 +789,38 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.slashPicker = nil
 				current := strings.TrimSpace(m.textarea.Value())
 				if sel.TakesArgs {
-					if current == sel.Name {
-						m.applyTextareaValue(sel.Name + " ")
-						return m, nil
-					}
-					if strings.HasPrefix(current, sel.Name+" ") || strings.EqualFold(current, sel.Name) {
+					// If the textarea already contains the full command (with or
+					// without extra args), submit immediately — the user pressed
+					// Enter deliberately and does not want to add more args.
+					if strings.HasPrefix(current, sel.Name) {
+						m.applyTextareaValue(current)
 						return m.submitTextareaInput()
 					}
+					// The user navigated to this command via the picker but the
+					// textarea only has a partial prefix (e.g. typed "/spec" and
+					// selected "/spec status"). Expand to the command name and
+					// let them type args before submitting.
 					m.applyTextareaValue(sel.Name + " ")
 					return m, nil
 				}
 				m.applyTextareaValue(sel.Name)
 				return m.submitTextareaInput()
-			case tea.KeySpace:
-				current := strings.TrimSpace(m.textarea.Value())
-				if current == specSlashCommandName() {
-					m.applyTextareaValue(specSlashCommandName() + " ")
+			case tea.KeyTab:
+				// Tab completes the highlighted picker entry into the textarea
+				// without submitting. For commands that take args, leave a
+				// trailing space so the user can keep typing.
+				sel, ok := m.slashPicker.selected()
+				if !ok {
 					return m, nil
 				}
+				m.slashPicker = nil
+				if sel.TakesArgs {
+					m.applyTextareaValue(sel.Name + " ")
+				} else {
+					m.applyTextareaValue(sel.Name)
+				}
+				m.updateSlashPicker()
+				return m, nil
 			}
 			// Key not consumed by the picker — let the outer switch and
 			// the textarea handle it; updateSlashPicker reruns the filter.
@@ -1294,7 +1308,10 @@ func (m chatTUIModel) View() string {
 
 	div := tuiDivStyle.Render(strings.Repeat("─", tuiMax(0, m.mainWidth)))
 	var main strings.Builder
-	main.WriteString(tuiTitleStyle.Width(m.mainWidth).Render(title))
+	// MaxHeight(1) prevents long titles (e.g. long model names) from wrapping
+	// to a second row, which would push the layout past the terminal height
+	// and corrupt the screen with stale rows on every redraw.
+	main.WriteString(tuiTitleStyle.Width(m.mainWidth).MaxHeight(1).Render(title))
 	main.WriteString("\n")
 	main.WriteString(div)
 	main.WriteString("\n")
@@ -1347,7 +1364,11 @@ func (m chatTUIModel) renderTextarea() string {
 	}
 
 	shellInnerWidth := tuiMax(0, contentWidth-2)
-	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(inputWidth).Render(taView)
+	// Width must include the horizontal padding (2 left + 2 right). Otherwise
+	// lipgloss treats Width as the outer width and shrinks the content area to
+	// inputWidth-4, which wraps each textarea row into two and pushes the View
+	// past the terminal height — leaving stale "thinking…" rows on each redraw.
+	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(shellInnerWidth).Render(taView)
 	return tuiInputShellStyle.Width(shellInnerWidth).Render(inner)
 }
 
@@ -1414,17 +1435,22 @@ func (m chatTUIModel) renderSingleLineTextarea(width int) string {
 		cursorIndex = len(line)
 	}
 
-	start := 0
-	if cursorIndex >= textWidth {
-		start = cursorIndex - textWidth + 1
+	cumWidth := make([]int, len(line)+1)
+	for i, r := range line {
+		cumWidth[i+1] = cumWidth[i] + xansi.StringWidth(string(r))
 	}
-	end := minInt(len(line), start+textWidth)
-	if end < start {
-		end = start
+
+	start := 0
+	for start < cursorIndex && cumWidth[cursorIndex]-cumWidth[start] >= textWidth {
+		start++
+	}
+	end := start
+	for end < len(line) && cumWidth[end+1]-cumWidth[start] <= textWidth {
+		end++
 	}
 
 	cursor := m.textarea.Cursor
-	if cursorIndex < end {
+	if cursorIndex >= start && cursorIndex < end {
 		cursor.SetChar(string(line[cursorIndex]))
 		return prompt + string(line[start:cursorIndex]) + cursor.View() + string(line[cursorIndex+1:end])
 	}
@@ -1797,22 +1823,25 @@ func highlightVisibleRange(line string, left, right int) string {
 }
 
 func (m chatTUIModel) renderFooterStatus() string {
+	// Footer is reserved as a single row in the layout; MaxHeight(1) prevents
+	// long status text from wrapping and overflowing past the terminal height.
+	status := tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).MaxHeight(1)
 	if m.pendingPermission != nil {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render(m.approvalPromptText)
+		return status.Render(m.approvalPromptText)
 	}
-	if status := m.historySearchStatus(); status != "" {
-		return status
+	if s := m.historySearchStatus(); s != "" {
+		return s
 	}
-	if status := m.selectionStatus(); status != "" {
-		return status
+	if s := m.selectionStatus(); s != "" {
+		return s
 	}
 	if m.streamActive {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Streaming response… Esc cancels")
+		return status.Render("Streaming response… Esc cancels")
 	}
 	if m.queuedPrompt != "" {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Queued prompt ready")
+		return status.Render("Queued prompt ready")
 	}
-	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+O toggle all blocks · Ctrl+R search · Shift+Tab autopilot · /help commands")
+	return status.Render("Enter send · Ctrl+J newline · Ctrl+O toggle all blocks · Ctrl+R search · Shift+Tab autopilot · /help commands")
 }
 
 func (m chatTUIModel) renderPermissionChip() string {
@@ -2111,7 +2140,7 @@ func (m *chatTUIModel) updateAutoFollowFromViewport() {
 
 func (m *chatTUIModel) viewportBounds() (left, top, right, bottom int) {
 	left = 0
-	title := tuiTitleStyle.Width(m.mainWidth).Render(m.titleText())
+	title := tuiTitleStyle.Width(m.mainWidth).MaxHeight(1).Render(m.titleText())
 	top = lipgloss.Height(title) + 1
 	right = m.mainWidth
 	bottom = top + m.viewport.Height
@@ -3028,49 +3057,40 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return sessionCreatedMsg{sessionID: sid, apiShape: currentAPIShape}
 		}
 	default:
-		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s — use /help", fields[0])))
-		return m, nil
-	case "/spec":
-		sub := ""
-		if len(fields) > 1 {
-			sub = strings.ToLower(fields[1])
-		}
-		if sub == "" || sub == "help" {
-			add(m.renderMD(specHelpMarkdown()))
-		} else if sub == "mode" {
-			if len(fields) < 3 {
-				current := m.specMode
-				if current == "" {
-					current = "off"
-				}
-				add(m.renderMD(fmt.Sprintf("Current spec mode: **%s**\n\nUsage: `/spec mode <spec-kit|openspec|off>`", current)))
-			} else {
-				newMode := strings.ToLower(fields[2])
-				if newMode == "off" {
-					m.specMode = ""
-					add(m.renderMD("Spec mode **disabled**."))
-					m.saveConfig()
-				} else if isValidSpecMode(newMode) {
-					m.specMode = newMode
-					m.mode = "agent"
-					var summary string
-					if newMode == "spec-kit" {
-						summary = specKitWorkflowSummary()
-					} else {
-						summary = openSpecWorkflowSummary()
-					}
-					add(m.renderMD(fmt.Sprintf("Spec mode set to **%s**. Switched to **agent** mode.\n\n%s", newMode, summary)))
-					m.saveConfig()
-				} else {
-					add(tuiErrorStyle.Render(fmt.Sprintf("Unknown spec mode %q. Valid modes: spec-kit, openspec, off", newMode)))
-				}
+		// First try the offline direct-spec scaffold commands
+		// (/specify.init, /opsx:init, /speckit.status).
+		var directBuf strings.Builder
+		if handled, err := handleDirectSpecCommand(&directBuf, fields); handled {
+			if err != nil {
+				add(tuiErrorStyle.Render("Error: " + err.Error()))
+				return m, nil
 			}
-		} else {
-			session := &SessionState{SpecMode: m.specMode}
-			var sb strings.Builder
-			handleSpecCommand(&sb, fields, session)
-			add(m.renderMD(sb.String()))
+			add(m.renderMD(directBuf.String()))
+			return m, nil
 		}
+		session := &SessionState{Mode: m.mode, SpecMode: m.specMode}
+		var sb strings.Builder
+		handled, agentPrompt, err := handleSpecWorkflowSlashCommand(&sb, fields, session)
+		if err != nil {
+			add(tuiErrorStyle.Render("Error: " + err.Error()))
+			return m, nil
+		}
+		if handled {
+			m.mode = session.Mode
+			m.specMode = session.SpecMode
+			add(m.renderMD(sb.String()))
+			m.saveConfig()
+			if strings.TrimSpace(agentPrompt) == "" {
+				return m, nil
+			}
+			m.appendEntry(transcriptUser, agentPrompt)
+			m.syncViewport()
+			m.streamActive = true
+			m.spinning = true
+			m.streamBuf = ""
+			return m, tea.Batch(m.spinner.Tick, m.sendAndStream(agentPrompt))
+		}
+		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s -- use /help", fields[0])))
 		return m, nil
 	}
 }
@@ -3080,6 +3100,10 @@ func tuiTerminalOptions() []tea.ProgramOption {
 }
 
 func RunTUI(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message) error {
+	if err := configureUTF8Console(); err != nil {
+		return fmt.Errorf("configure UTF-8 console: %w", err)
+	}
+
 	m := newChatTUIModel(c, sessionID, model, mode, apiShape, agentBackend, history, ConfigSaveCallback)
 	p := tea.NewProgram(m, tuiTerminalOptions()...)
 	go func() { p.Send(progReadyMsg{p: p}) }()

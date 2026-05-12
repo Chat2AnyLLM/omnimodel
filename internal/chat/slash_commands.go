@@ -30,13 +30,7 @@ func slashCommands() []slashCommand {
 		{Name: "/agent", TakesArgs: true, Summary: "show or set the agent backend"},
 		{Name: "/max-turns", TakesArgs: true, Summary: "show or set max agent turns (1-100)"},
 		{Name: "/models", Summary: "open model picker"},
-		{Name: "/spec", TakesArgs: true, Summary: "choose spec-kit or OpenSpec workflow"},
-		{Name: "/spec mode spec-kit", Summary: "enter spec-kit workflow"},
-		{Name: "/spec mode openspec", Summary: "enter OpenSpec workflow"},
-		{Name: "/spec mode off", Summary: "leave spec-driven mode"},
-		{Name: "/spec init", TakesArgs: true, Summary: "create a new spec directory [title]"},
-		{Name: "/spec status", TakesArgs: true, Summary: "list specs and artifact status [dir]"},
-		{Name: "/spec help", Summary: "show spec workflow chooser"},
+		{Name: "/specify.init", TakesArgs: true, Summary: "Spec Kit: scaffold a new spec directory [title] (offline)"},
 		{Name: "/speckit.constitution", TakesArgs: true, Summary: "Spec Kit: create/update project constitution"},
 		{Name: "/speckit.specify", TakesArgs: true, Summary: "Spec Kit: create/update feature spec"},
 		{Name: "/speckit.clarify", TakesArgs: true, Summary: "Spec Kit: clarify open questions"},
@@ -44,24 +38,26 @@ func slashCommands() []slashCommand {
 		{Name: "/speckit.tasks", TakesArgs: true, Summary: "Spec Kit: generate tasks"},
 		{Name: "/speckit.analyze", TakesArgs: true, Summary: "Spec Kit: analyze artifact consistency"},
 		{Name: "/speckit.implement", TakesArgs: true, Summary: "Spec Kit: implement task plan"},
+		{Name: "/speckit.taskstoissues", TakesArgs: true, Summary: "Spec Kit: convert tasks.md into GitHub issues (requires gh)"},
 		{Name: "/speckit.lifecycle", TakesArgs: true, Summary: "Spec Kit: show lifecycle state and guidance"},
 		{Name: "/speckit.complete", TakesArgs: true, Summary: "Spec Kit: mark a spec completed"},
 		{Name: "/speckit.archive", TakesArgs: true, Summary: "Spec Kit: archive a completed spec"},
 		{Name: "/speckit.checklist", TakesArgs: true, Summary: "Spec Kit: generate checklist"},
-		{Name: "/opsx:propose", TakesArgs: true, Summary: "OpenSpec: create a change and planning artifacts"},
-		{Name: "/opsx:explore", TakesArgs: true, Summary: "OpenSpec: explore ideas before a change"},
-		{Name: "/opsx:apply", TakesArgs: true, Summary: "OpenSpec: implement or report pending tasks"},
-		{Name: "/opsx:sync", TakesArgs: true, Summary: "OpenSpec: sync delta specs into main specs"},
-		{Name: "/opsx:archive", TakesArgs: true, Summary: "OpenSpec: archive a completed change"},
-		{Name: "/opsx:new", TakesArgs: true, Summary: "OpenSpec: start a change scaffold"},
-		{Name: "/opsx:continue", TakesArgs: true, Summary: "OpenSpec: create next ready artifact"},
-		{Name: "/opsx:ff", TakesArgs: true, Summary: "OpenSpec: fast-forward planning artifacts"},
-		{Name: "/opsx:verify", TakesArgs: true, Summary: "OpenSpec: verify implementation against artifacts"},
-		{Name: "/opsx:bulk-archive", TakesArgs: true, Summary: "OpenSpec: archive multiple changes"},
-		{Name: "/opsx:onboard", Summary: "OpenSpec: guided workflow tutorial"},
-		{Name: "/openspec:proposal", TakesArgs: true, Summary: "OpenSpec legacy: create all artifacts"},
-		{Name: "/openspec:apply", TakesArgs: true, Summary: "OpenSpec legacy: apply change"},
-		{Name: "/openspec:archive", TakesArgs: true, Summary: "OpenSpec legacy: archive change"},
+		{Name: "/speckit.status", TakesArgs: true, Summary: "Spec Kit: list specs and artifact status [dir] (offline)"},
+		{Name: "/speckit.help", Summary: "Spec Kit: show workflow help and command list"},
+		{Name: "/openspec:init", TakesArgs: true, Aliases: []string{"/opsx:init"}, Summary: "OpenSpec: scaffold a new change directory [name] (offline)"},
+		{Name: "/openspec:propose", TakesArgs: true, Aliases: []string{"/opsx:propose"}, Summary: "OpenSpec: create a change and planning artifacts"},
+		{Name: "/openspec:explore", TakesArgs: true, Aliases: []string{"/opsx:explore"}, Summary: "OpenSpec: explore ideas before a change"},
+		{Name: "/openspec:apply", TakesArgs: true, Aliases: []string{"/opsx:apply"}, Summary: "OpenSpec: implement or report pending tasks"},
+		{Name: "/openspec:sync", TakesArgs: true, Aliases: []string{"/opsx:sync"}, Summary: "OpenSpec: sync delta specs into main specs"},
+		{Name: "/openspec:archive", TakesArgs: true, Aliases: []string{"/opsx:archive"}, Summary: "OpenSpec: archive a completed change"},
+		{Name: "/openspec:new", TakesArgs: true, Aliases: []string{"/opsx:new"}, Summary: "OpenSpec: start a change scaffold"},
+		{Name: "/openspec:continue", TakesArgs: true, Aliases: []string{"/opsx:continue"}, Summary: "OpenSpec: create next ready artifact"},
+		{Name: "/openspec:ff", TakesArgs: true, Aliases: []string{"/opsx:ff"}, Summary: "OpenSpec: fast-forward planning artifacts"},
+		{Name: "/openspec:verify", TakesArgs: true, Aliases: []string{"/opsx:verify"}, Summary: "OpenSpec: verify implementation against artifacts"},
+		{Name: "/openspec:bulk-archive", TakesArgs: true, Aliases: []string{"/opsx:bulk-archive"}, Summary: "OpenSpec: archive multiple changes"},
+		{Name: "/openspec:onboard", Aliases: []string{"/opsx:onboard"}, Summary: "OpenSpec: guided workflow tutorial"},
+		{Name: "/openspec:help", Aliases: []string{"/opsx:help"}, Summary: "OpenSpec: show workflow help and command list"},
 		{Name: "/clear", Aliases: []string{"/cls"}, Summary: "clear the screen"},
 		{Name: "/quit", Aliases: []string{"/exit"}, Summary: "quit"},
 	}
@@ -78,9 +74,6 @@ func fuzzySlashFilter(all []slashCommand, filter string) []slashCommand {
 	if q == "" {
 		out := make([]slashCommand, len(all))
 		copy(out, all)
-		return out
-	}
-	if out, ok := specSlashChoices(all, raw); ok {
 		return out
 	}
 
@@ -129,72 +122,6 @@ func fuzzySlashFilter(all []slashCommand, filter string) []slashCommand {
 	return out
 }
 
-func specSlashChoices(all []slashCommand, rawFilter string) ([]slashCommand, bool) {
-	trimmedLeft := strings.TrimLeft(rawFilter, " \t")
-	if !strings.HasPrefix(trimmedLeft, "/spec ") {
-		return nil, false
-	}
-	query := strings.TrimSpace(strings.TrimPrefix(trimmedLeft, "/spec"))
-	query = strings.TrimPrefix(query, "/")
-	query = strings.TrimSpace(query)
-
-	preferred := []string{"/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off", "/spec init", "/spec status", "/spec help"}
-	if query != "" {
-		parts := strings.Fields(query)
-		queries := []string{query}
-		compactQuery := strings.Join(parts, "")
-		if compactQuery != "" && compactQuery != query {
-			queries = append(queries, compactQuery)
-		}
-		if len(parts) >= 1 {
-			queries = append(queries, parts[0])
-		}
-		if len(parts) >= 2 {
-			queries = append(queries, strings.Join(parts[:2], " "))
-			queries = append(queries, strings.Join(parts[:2], ""))
-		}
-		preferred = make([]string, 0, len(preferred))
-		for _, name := range []string{"/spec mode spec-kit", "/spec mode openspec", "/spec mode off", "/spec init", "/spec status", "/spec help"} {
-			text := strings.TrimPrefix(strings.ToLower(name), "/spec ")
-			compactText := strings.Join(strings.Fields(text), "")
-			for _, candidate := range queries {
-				if _, ok := fuzzyScore(text, candidate); ok {
-					preferred = append(preferred, name)
-					goto nextSpecChoice
-				}
-				if strings.Contains(candidate, " ") {
-					if _, ok := fuzzyScore(compactText, strings.ReplaceAll(candidate, " ", "")); ok {
-						preferred = append(preferred, name)
-						goto nextSpecChoice
-					}
-				}
-			}
-		nextSpecChoice:
-		}
-	}
-
-	byName := make(map[string]slashCommand, len(all))
-	for _, c := range all {
-		byName[c.Name] = c
-	}
-	out := make([]slashCommand, 0, len(preferred))
-	for _, name := range preferred {
-		if c, ok := byName[name]; ok {
-			out = append(out, c)
-		}
-	}
-	return out, true
-}
-
-func specSlashCommandName() string {
-	for _, c := range slashCommands() {
-		if c.Name == "/spec" {
-			return c.Name
-		}
-	}
-	return "/spec"
-}
-
 // renderSlashHelp produces the markdown body for the /help command.
 func renderSlashHelp(cmds []slashCommand) string {
 	var b strings.Builder
@@ -211,6 +138,5 @@ func renderSlashHelp(cmds []slashCommand) string {
 	b.WriteString("- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n")
 	b.WriteString("- `↑`/`↓` — focus expandable tool results (when input is empty)\n")
 	b.WriteString("- `Space` — expand/collapse the focused tool result\n")
-	b.WriteString("- `Esc` — cancel current running job\n")
 	return b.String()
 }

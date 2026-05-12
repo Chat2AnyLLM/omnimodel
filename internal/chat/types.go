@@ -68,6 +68,7 @@ type replCommandResult struct {
 	model        string
 	apiShape     string
 	agentBackend string
+	agentPrompt  string
 }
 
 type sseEvent struct {

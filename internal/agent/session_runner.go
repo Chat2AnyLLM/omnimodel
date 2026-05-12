@@ -187,8 +187,11 @@ func buildSystemPrompt(osName string) string {
 	}
 	return fmt.Sprintf(
 		"You are a software engineering agent running inside OmniCode. The current operating system is %s. "+
+			"Before invoking any shell-related tool, first confirm the host OS (already provided above) and route accordingly: "+
+			"on `windows`, the PowerShell tool is the FIRST CHOICE for shell commands; on `macos`/`darwin` or `linux`, the bash/shell tool is the FIRST CHOICE. "+
 			"Use the %q tool to execute shell commands — all commands must use %s syntax. "+
 			"%s "+
+			"Never guess the OS or fall back to the wrong shell tool when one is missing — surface the missing-tool error to the user instead. "+
 			"When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style inspired by Bubble Tea, Lip Gloss, Bubbles, Glamour, and charmbracelet/x/ansi. "+
 			"Prefer Markdown-first output with structured headings, bullets, fenced code blocks, and concise sections. "+
 			"For workflows, tool output, task status, or summaries, use clean panel/card-style sections where helpful. "+

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,42 +13,11 @@ import (
 	"omnillm/internal/specdriven"
 )
 
-// ─── spec_init ────────────────────────────────────────────────────────────────
+// ─── Internal helpers (extracted from legacy spec_* tools) ────────────────────
 
-type specInitTool struct{}
-
-// SpecInit returns the spec_init tool which creates a new spec directory and
-// populates an initial spec.md template.
-func SpecInit() Tool { return &specInitTool{} }
-
-func (t *specInitTool) Name() string { return "spec_init" }
-func (t *specInitTool) Description() string {
-	return "Initialise a new spec-driven feature. Creates a numbered spec directory " +
-		"(e.g. specs/001-user-auth/) with an empty spec.md template ready for editing. " +
-		"Call this first, then use spec_write to populate the spec, spec_plan to generate " +
-		"plan.md, and spec_tasks to generate tasks.md."
-}
-func (t *specInitTool) InputSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"title": map[string]any{
-				"type":        "string",
-				"description": "Human-readable feature title, e.g. 'User Authentication'.",
-			},
-			"overview": map[string]any{
-				"type":        "string",
-				"description": "1–3 sentence description of the feature and its purpose.",
-			},
-			"specs_dir": map[string]any{
-				"type":        "string",
-				"description": "Path to the specs root directory. Defaults to './specs'.",
-			},
-		},
-		"required": []string{"title", "overview"},
-	}
-}
-func (t *specInitTool) Execute(_ context.Context, call Context, input json.RawMessage) Result {
+// runSpecInit creates a new spec directory and populates an initial spec.md template.
+// Input shape: {title, overview, specs_dir}
+func runSpecInit(_ context.Context, call Context, input json.RawMessage) Result {
 	var p struct {
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
@@ -89,7 +59,7 @@ func (t *specInitTool) Execute(_ context.Context, call Context, input json.RawMe
 	if err := os.WriteFile(specFile, []byte(content), 0o644); err != nil {
 		return Result{Output: "error writing spec.md: " + err.Error(), IsError: true}
 	}
-	if _, err := specdriven.EnsureLifecycle(dirPath, spec.CreatedAt); err != nil {
+	if _, err := specdriven.EnsureLifecycle(dirPath, spec.CreatedAt, true); err != nil {
 		return Result{Output: "error writing lifecycle metadata: " + err.Error(), IsError: true}
 	}
 
@@ -101,291 +71,13 @@ func (t *specInitTool) Execute(_ context.Context, call Context, input json.RawMe
 
 	return Result{
 		Title:  fmt.Sprintf("Spec initialised: %s", spec.DirName()),
-		Output: fmt.Sprintf("Created %s\n\nNext steps:\n  1. Use spec_write to add user stories, requirements, and entities.\n  2. Use spec_plan to generate plan.md.\n  3. Use spec_tasks to generate tasks.md.", specFile),
+		Output: fmt.Sprintf("Created %s\n\nNext steps:\n  1. Use speckit_specify to add user stories, requirements, and entities.\n  2. Use speckit_plan to generate plan.md.\n  3. Use speckit_tasks to generate tasks.md.", specFile),
 	}
 }
 
-// ─── spec_write ───────────────────────────────────────────────────────────────
-
-type specWriteTool struct{}
-
-// SpecWrite returns the spec_write tool which writes structured spec content.
-func SpecWrite() Tool { return &specWriteTool{} }
-
-func (t *specWriteTool) Name() string { return "spec_write" }
-func (t *specWriteTool) Description() string {
-	return "Write or overwrite a spec.md with structured spec-driven content. " +
-		"Provide user stories (with Given-When-Then scenarios), functional requirements " +
-		"(SHALL/MUST language), key entities, and edge cases. " +
-		"Call spec_init first to create the directory."
-}
-func (t *specWriteTool) InputSchema() map[string]any {
-	scenarioSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"title": map[string]any{"type": "string"},
-			"given": map[string]any{"type": "string"},
-			"when":  map[string]any{"type": "string"},
-			"then":  map[string]any{"type": "string"},
-		},
-		"required": []string{"title", "given", "when", "then"},
-	}
-	storySchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"id":           map[string]any{"type": "string", "description": "e.g. US1"},
-			"title":        map[string]any{"type": "string"},
-			"description":  map[string]any{"type": "string"},
-			"priority":     map[string]any{"type": "string", "enum": []string{"P1", "P2", "P3"}},
-			"why_priority": map[string]any{"type": "string"},
-			"scenarios":    map[string]any{"type": "array", "items": scenarioSchema},
-		},
-		"required": []string{"id", "title", "description", "priority"},
-	}
-	reqSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"id":                  map[string]any{"type": "string", "description": "e.g. FR-001"},
-			"user_story_id":       map[string]any{"type": "string"},
-			"text":                map[string]any{"type": "string", "description": "The system SHALL/MUST ..."},
-			"needs_clarification": map[string]any{"type": "boolean"},
-		},
-		"required": []string{"id", "user_story_id", "text"},
-	}
-	entitySchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name":        map[string]any{"type": "string"},
-			"description": map[string]any{"type": "string"},
-			"fields":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		},
-		"required": []string{"name", "description"},
-	}
-	edgeSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"id":          map[string]any{"type": "string", "description": "e.g. EC-001"},
-			"description": map[string]any{"type": "string"},
-			"expected":    map[string]any{"type": "string"},
-		},
-		"required": []string{"id", "description", "expected"},
-	}
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"spec_dir":     map[string]any{"type": "string", "description": "Path to the spec directory, e.g. specs/001-user-auth. If omitted, uses the current session spec."},
-			"user_stories": map[string]any{"type": "array", "items": storySchema},
-			"requirements": map[string]any{"type": "array", "items": reqSchema},
-			"entities":     map[string]any{"type": "array", "items": entitySchema},
-			"edge_cases":   map[string]any{"type": "array", "items": edgeSchema},
-		},
-	}
-}
-func (t *specWriteTool) Execute(_ context.Context, call Context, input json.RawMessage) Result {
-	var p struct {
-		SpecDir     string `json:"spec_dir"`
-		UserStories []struct {
-			ID          string `json:"id"`
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			Priority    string `json:"priority"`
-			WhyPriority string `json:"why_priority"`
-			Scenarios   []struct {
-				Title string `json:"title"`
-				Given string `json:"given"`
-				When  string `json:"when"`
-				Then  string `json:"then"`
-			} `json:"scenarios"`
-		} `json:"user_stories"`
-		Requirements []struct {
-			ID                 string `json:"id"`
-			UserStoryID        string `json:"user_story_id"`
-			Text               string `json:"text"`
-			NeedsClarification bool   `json:"needs_clarification"`
-		} `json:"requirements"`
-		Entities []struct {
-			Name        string   `json:"name"`
-			Description string   `json:"description"`
-			Fields      []string `json:"fields"`
-		} `json:"entities"`
-		EdgeCases []struct {
-			ID          string `json:"id"`
-			Description string `json:"description"`
-			Expected    string `json:"expected"`
-		} `json:"edge_cases"`
-	}
-	if err := json.Unmarshal(input, &p); err != nil {
-		return Result{Output: "error: " + err.Error(), IsError: true}
-	}
-
-	specDir := p.SpecDir
-	if specDir == "" && call.SpecState != nil {
-		specDir = call.SpecState.GetSpecDir()
-	}
-	if specDir == "" {
-		return Result{Output: "error: spec_dir is required (or call spec_init first)", IsError: true}
-	}
-
-	// Load existing spec.md to get header fields.
-	existing := loadSpecHeader(filepath.Join(specDir, "spec.md"))
-
-	// Build updated spec.
-	spec := &specdriven.Spec{
-		Number:    existing.Number,
-		Slug:      existing.Slug,
-		Title:     existing.Title,
-		Overview:  existing.Overview,
-		CreatedAt: existing.CreatedAt,
-	}
-
-	for _, us := range p.UserStories {
-		story := specdriven.UserStory{
-			ID:          us.ID,
-			Title:       us.Title,
-			Description: us.Description,
-			Priority:    specdriven.Priority(us.Priority),
-			WhyPriority: us.WhyPriority,
-		}
-		for _, sc := range us.Scenarios {
-			story.Scenarios = append(story.Scenarios, specdriven.Scenario{
-				Title: sc.Title,
-				Given: sc.Given,
-				When:  sc.When,
-				Then:  sc.Then,
-			})
-		}
-		spec.UserStories = append(spec.UserStories, story)
-	}
-
-	for _, r := range p.Requirements {
-		spec.Requirements = append(spec.Requirements, specdriven.Requirement{
-			ID:                 r.ID,
-			UserStoryID:        r.UserStoryID,
-			Text:               r.Text,
-			NeedsClarification: r.NeedsClarification,
-		})
-	}
-
-	for _, e := range p.Entities {
-		spec.Entities = append(spec.Entities, specdriven.Entity{
-			Name:        e.Name,
-			Description: e.Description,
-			Fields:      e.Fields,
-		})
-	}
-
-	for _, ec := range p.EdgeCases {
-		spec.EdgeCases = append(spec.EdgeCases, specdriven.EdgeCase{
-			ID:          ec.ID,
-			Description: ec.Description,
-			Expected:    ec.Expected,
-		})
-	}
-
-	content := specdriven.RenderSpec(spec)
-	specFile := filepath.Join(specDir, "spec.md")
-	if err := os.WriteFile(specFile, []byte(content), 0o644); err != nil {
-		return Result{Output: "error writing spec.md: " + err.Error(), IsError: true}
-	}
-
-	if call.SpecState != nil {
-		call.SpecState.SetSpec(spec)
-		call.SpecState.SetSpecDir(specDir)
-	}
-
-	summary := fmt.Sprintf("spec.md updated: %d user stories, %d requirements, %d entities, %d edge cases.",
-		len(spec.UserStories), len(spec.Requirements), len(spec.Entities), len(spec.EdgeCases))
-	return Result{Title: "Spec written", Output: summary}
-}
-
-// ─── spec_read ────────────────────────────────────────────────────────────────
-
-type specReadTool struct{}
-
-// SpecRead returns the spec_read tool which reads and displays a spec.md.
-func SpecRead() Tool { return &specReadTool{} }
-
-func (t *specReadTool) Name() string { return "spec_read" }
-func (t *specReadTool) Description() string {
-	return "Read and display spec.md for a given spec directory. " +
-		"Shows the full spec content and artifact status (which of spec/plan/tasks are present). " +
-		"Use this to review the current spec before planning or implementing."
-}
-func (t *specReadTool) InputSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"spec_dir": map[string]any{
-				"type":        "string",
-				"description": "Path to the spec directory. If omitted, uses the current session spec.",
-			},
-		},
-	}
-}
-func (t *specReadTool) Execute(_ context.Context, call Context, input json.RawMessage) Result {
-	var p struct {
-		SpecDir string `json:"spec_dir"`
-	}
-	_ = json.Unmarshal(input, &p)
-
-	specDir := p.SpecDir
-	if specDir == "" && call.SpecState != nil {
-		specDir = call.SpecState.GetSpecDir()
-	}
-	if specDir == "" {
-		return Result{Output: "error: spec_dir is required (or call spec_init first)", IsError: true}
-	}
-
-	content, err := os.ReadFile(filepath.Join(specDir, "spec.md"))
-	if err != nil {
-		return Result{Output: "error reading spec.md: " + err.Error(), IsError: true}
-	}
-
-	// Artifact and lifecycle status.
-	present := specdriven.ArtifactPresence(specDir)
-	record, err := specdriven.EnsureLifecycle(specDir, "")
-	if err != nil {
-		return Result{Output: "error reading lifecycle metadata: " + err.Error(), IsError: true}
-	}
-
-	status := specdriven.RenderLifecycleStatus(specDir, present, record)
-	output := status + "\n---\n\n" + string(content)
-	return Result{Title: "spec.md", Output: output}
-}
-
-// ─── spec_plan ────────────────────────────────────────────────────────────────
-
-type specPlanTool struct{}
-
-// SpecPlan returns the spec_plan tool which scaffolds plan.md from spec.md.
-func SpecPlan() Tool { return &specPlanTool{} }
-
-func (t *specPlanTool) Name() string { return "spec_plan" }
-func (t *specPlanTool) Description() string {
-	return "Generate a plan.md scaffold from the current spec. " +
-		"Provide the technical context (language, framework, database) and the plan is " +
-		"created with standard phases: Phase 0 Research, Phase 1 Design, Phase 2 Setup, " +
-		"Phase 3 Implementation. Requires spec.md to exist. " +
-		"Edit plan.md to add data model, API contracts, and phase details."
-}
-func (t *specPlanTool) InputSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"spec_dir": map[string]any{
-				"type":        "string",
-				"description": "Path to the spec directory. If omitted, uses the current session spec.",
-			},
-			"language":    map[string]any{"type": "string", "description": "e.g. 'Go 1.22'"},
-			"framework":   map[string]any{"type": "string", "description": "e.g. 'Gin', 'Echo', 'net/http'"},
-			"database":    map[string]any{"type": "string", "description": "e.g. 'SQLite', 'Postgres'"},
-			"deployment":  map[string]any{"type": "string", "description": "e.g. 'Docker', 'bare metal'"},
-			"perf_goals":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"constraints": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		},
-	}
-}
-func (t *specPlanTool) Execute(_ context.Context, call Context, input json.RawMessage) Result {
+// runSpecPlan generates plan.md from spec.md.
+// Input shape: {spec_dir, language, framework, database, deployment, perf_goals, constraints}
+func runSpecPlan(_ context.Context, call Context, input json.RawMessage) Result {
 	var p struct {
 		SpecDir     string   `json:"spec_dir"`
 		Language    string   `json:"language"`
@@ -404,7 +96,7 @@ func (t *specPlanTool) Execute(_ context.Context, call Context, input json.RawMe
 		specDir = call.SpecState.GetSpecDir()
 	}
 	if specDir == "" {
-		return Result{Output: "error: spec_dir is required (or call spec_init first)", IsError: true}
+		return Result{Output: "error: spec_dir is required (or call speckit_specify first)", IsError: true}
 	}
 
 	existing := loadSpecHeader(filepath.Join(specDir, "spec.md"))
@@ -440,42 +132,19 @@ func (t *specPlanTool) Execute(_ context.Context, call Context, input json.RawMe
 	if call.SpecState != nil {
 		call.SpecState.SetPlan(plan)
 	}
-	if _, err := specdriven.EnsureLifecycle(specDir, existing.CreatedAt); err != nil {
+	if _, err := specdriven.EnsureLifecycle(specDir, existing.CreatedAt, false); err != nil {
 		return Result{Output: "error writing lifecycle metadata: " + err.Error(), IsError: true}
 	}
 
 	return Result{
 		Title:  "Plan scaffolded",
-		Output: fmt.Sprintf("Created %s\n\nNext steps:\n  1. Edit plan.md to fill in data model, API contracts, and research findings.\n  2. Use spec_tasks to generate tasks.md.", planFile),
+		Output: fmt.Sprintf("Created %s\n\nNext steps:\n  1. Edit plan.md to fill in data model, API contracts, and research findings.\n  2. Use speckit_tasks to generate tasks.md.", planFile),
 	}
 }
 
-// ─── spec_tasks ───────────────────────────────────────────────────────────────
-
-type specTasksTool struct{}
-
-// SpecTasks returns the spec_tasks tool which generates tasks.md from the spec.
-func SpecTasks() Tool { return &specTasksTool{} }
-
-func (t *specTasksTool) Name() string { return "spec_tasks" }
-func (t *specTasksTool) Description() string {
-	return "Generate tasks.md from spec.md (and optionally plan.md). " +
-		"Produces an atomic task breakdown grouped by user story, with parallelizable tasks " +
-		"marked [P]. Format: '[ ] T001 [P] [US1] Description — src/path'. " +
-		"Requires spec.md (and ideally plan.md) to exist."
-}
-func (t *specTasksTool) InputSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"spec_dir": map[string]any{
-				"type":        "string",
-				"description": "Path to the spec directory. If omitted, uses the current session spec.",
-			},
-		},
-	}
-}
-func (t *specTasksTool) Execute(_ context.Context, call Context, input json.RawMessage) Result {
+// runSpecTasks generates tasks.md from spec.md.
+// Input shape: {spec_dir}
+func runSpecTasks(_ context.Context, call Context, input json.RawMessage) Result {
 	var p struct {
 		SpecDir string `json:"spec_dir"`
 	}
@@ -486,12 +155,12 @@ func (t *specTasksTool) Execute(_ context.Context, call Context, input json.RawM
 		specDir = call.SpecState.GetSpecDir()
 	}
 	if specDir == "" {
-		return Result{Output: "error: spec_dir is required (or call spec_init first)", IsError: true}
+		return Result{Output: "error: spec_dir is required (or call speckit_specify first)", IsError: true}
 	}
 
 	// Prefer the full spec held in session state (has user stories + scenarios);
 	// fall back to the file header parse (number/title only) when running without
-	// prior spec_init/spec_write in the same session.
+	// prior speckit_specify in the same session.
 	var spec *specdriven.Spec
 	if call.SpecState != nil {
 		spec = call.SpecState.GetSpec()
@@ -527,67 +196,6 @@ func (t *specTasksTool) Execute(_ context.Context, call Context, input json.RawM
 	}
 }
 
-// ─── spec_status ──────────────────────────────────────────────────────────────
-
-type specStatusTool struct{}
-
-// SpecStatus returns the spec_status tool which shows all specs and their status.
-func SpecStatus() Tool { return &specStatusTool{} }
-
-func (t *specStatusTool) Name() string { return "spec_status" }
-func (t *specStatusTool) Description() string {
-	return "Show the status of all specs in the specs directory. " +
-		"Lists each spec with artifact presence, lifecycle state, and next-step guidance."
-}
-func (t *specStatusTool) InputSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"specs_dir": map[string]any{
-				"type":        "string",
-				"description": "Path to the specs root directory. Defaults to './specs'.",
-			},
-		},
-	}
-}
-func (t *specStatusTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
-	var p struct {
-		SpecsDir string `json:"specs_dir"`
-	}
-	_ = json.Unmarshal(input, &p)
-	specsRoot := p.SpecsDir
-	if specsRoot == "" {
-		specsRoot = "specs"
-	}
-
-	entries, err := os.ReadDir(specsRoot)
-	if err != nil {
-		return Result{Output: fmt.Sprintf("Cannot read %s: %v", specsRoot, err), IsError: true}
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Specs in %s:\n\n", specsRoot))
-	found := 0
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "archive" {
-			continue
-		}
-		dirPath := filepath.Join(specsRoot, entry.Name())
-		present := specdriven.ArtifactPresence(dirPath)
-		record, err := specdriven.EnsureLifecycle(dirPath, "")
-		if err != nil {
-			return Result{Output: "error reading lifecycle metadata: " + err.Error(), IsError: true}
-		}
-		sb.WriteString(specdriven.RenderLifecycleStatus(entry.Name(), present, record))
-		sb.WriteString("\n")
-		found++
-	}
-	if found == 0 {
-		sb.WriteString("No spec directories found. Use spec_init to create one.\n")
-	}
-	return Result{Title: "Spec status", Output: strings.TrimRight(sb.String(), "\n")}
-}
-
 // ??? Spec Kit-compatible tools ???????????????????????????????????????????????
 
 // Spec Kit-compatible tools.
@@ -599,6 +207,7 @@ type specKitPlanTool struct{}
 type specKitTasksTool struct{}
 type specKitAnalyzeTool struct{}
 type specKitImplementTool struct{}
+type specKitTasksToIssuesTool struct{}
 type specKitChecklistTool struct{}
 type specKitLifecycleStatusTool struct{}
 type specKitCompleteTool struct{}
@@ -611,6 +220,7 @@ func SpecKitPlan() Tool            { return &specKitPlanTool{} }
 func SpecKitTasks() Tool           { return &specKitTasksTool{} }
 func SpecKitAnalyze() Tool         { return &specKitAnalyzeTool{} }
 func SpecKitImplement() Tool       { return &specKitImplementTool{} }
+func SpecKitTasksToIssues() Tool   { return &specKitTasksToIssuesTool{} }
 func SpecKitChecklist() Tool       { return &specKitChecklistTool{} }
 func SpecKitLifecycleStatus() Tool { return &specKitLifecycleStatusTool{} }
 func SpecKitComplete() Tool        { return &specKitCompleteTool{} }
@@ -676,7 +286,7 @@ func (t *specKitSpecifyTool) Execute(ctx context.Context, call Context, input js
 		overview = overview[:600] + "..."
 	}
 	payload, _ := json.Marshal(map[string]any{"title": title, "overview": overview, "specs_dir": p.SpecsDir})
-	return SpecInit().Execute(ctx, call, payload)
+	return runSpecInit(ctx, call, payload)
 }
 
 func (t *specKitClarifyTool) Name() string { return "speckit_clarify" }
@@ -727,17 +337,43 @@ func (t *specKitPlanTool) Name() string { return "speckit_plan" }
 func (t *specKitPlanTool) Description() string {
 	return "Spec Kit-compatible /speckit.plan: generate plan.md from spec.md."
 }
-func (t *specKitPlanTool) InputSchema() map[string]any { return SpecPlan().InputSchema() }
+func (t *specKitPlanTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"spec_dir": map[string]any{
+				"type":        "string",
+				"description": "Path to the spec directory. If omitted, uses the current session spec.",
+			},
+			"language":    map[string]any{"type": "string", "description": "e.g. 'Go 1.22'"},
+			"framework":   map[string]any{"type": "string", "description": "e.g. 'Gin', 'Echo', 'net/http'"},
+			"database":    map[string]any{"type": "string", "description": "e.g. 'SQLite', 'Postgres'"},
+			"deployment":  map[string]any{"type": "string", "description": "e.g. 'Docker', 'bare metal'"},
+			"perf_goals":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"constraints": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+	}
+}
 func (t *specKitPlanTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
-	return SpecPlan().Execute(ctx, call, input)
+	return runSpecPlan(ctx, call, input)
 }
 func (t *specKitTasksTool) Name() string { return "speckit_tasks" }
 func (t *specKitTasksTool) Description() string {
 	return "Spec Kit-compatible /speckit.tasks: generate tasks.md from spec.md and plan.md."
 }
-func (t *specKitTasksTool) InputSchema() map[string]any { return SpecTasks().InputSchema() }
+func (t *specKitTasksTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"spec_dir": map[string]any{
+				"type":        "string",
+				"description": "Path to the spec directory. If omitted, uses the current session spec.",
+			},
+		},
+	}
+}
 func (t *specKitTasksTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
-	return SpecTasks().Execute(ctx, call, input)
+	return runSpecTasks(ctx, call, input)
 }
 
 func (t *specKitAnalyzeTool) Name() string { return "speckit_analyze" }
@@ -805,6 +441,173 @@ func (t *specKitImplementTool) Execute(_ context.Context, call Context, input js
 	return Result{Title: "Implementation readiness", Output: fmt.Sprintf("%s contains %d pending tasks. Execute tasks in dependency order, updating checkboxes as work completes.", tasksFile, pending)}
 }
 
+// taskstoissuesTask is one parsed line from tasks.md.
+type taskstoissuesTask struct {
+	ID    string // e.g. "T001"
+	Body  string // task description after the ID
+	State string // " ", "~", "x"
+}
+
+// parseTasksMarkdown extracts task lines like "- [ ] **T001** description"
+// from a tasks.md file. The format is what RenderTasks() emits.
+func parseTasksMarkdown(content string) []taskstoissuesTask {
+	var out []taskstoissuesTask
+	for _, line := range strings.Split(content, "\n") {
+		s := strings.TrimSpace(line)
+		if !strings.HasPrefix(s, "- [") || len(s) < 6 {
+			continue
+		}
+		state := string(s[3])
+		rest := strings.TrimSpace(s[5:])
+		// Expect: **TXXX** description ...  OR  **TXXX** [P] description
+		id := ""
+		body := rest
+		if strings.HasPrefix(rest, "**") {
+			if end := strings.Index(rest[2:], "**"); end > 0 {
+				id = rest[2 : 2+end]
+				body = strings.TrimSpace(rest[2+end+2:])
+				body = strings.TrimPrefix(body, "[P]")
+				body = strings.TrimSpace(body)
+			}
+		}
+		if id == "" {
+			continue
+		}
+		out = append(out, taskstoissuesTask{ID: id, Body: body, State: state})
+	}
+	return out
+}
+
+// detectGitHubRepo reads `git remote get-url <remote>` and returns
+// "owner/repo" if the remote points at github.com, or an error otherwise.
+// It avoids any network call.
+func detectGitHubRepo(remote string) (string, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	cmd := exec.Command("git", "remote", "get-url", remote)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git remote get-url %s: %w", remote, err)
+	}
+	url := strings.TrimSpace(string(output))
+	// Accept https://github.com/owner/repo(.git) and git@github.com:owner/repo(.git)
+	url = strings.TrimSuffix(url, ".git")
+	switch {
+	case strings.HasPrefix(url, "https://github.com/"):
+		path := strings.TrimPrefix(url, "https://github.com/")
+		if parts := strings.SplitN(path, "/", 3); len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0] + "/" + parts[1], nil
+		}
+	case strings.HasPrefix(url, "git@github.com:"):
+		path := strings.TrimPrefix(url, "git@github.com:")
+		if parts := strings.SplitN(path, "/", 3); len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0] + "/" + parts[1], nil
+		}
+	}
+	return "", fmt.Errorf("remote %q is not a GitHub URL: %s", remote, url)
+}
+
+func (t *specKitTasksToIssuesTool) Name() string { return "speckit_taskstoissues" }
+func (t *specKitTasksToIssuesTool) Description() string {
+	return "Spec Kit-compatible /speckit.taskstoissues: convert tasks.md items into GitHub issues via the `gh` CLI. Validates the git remote points at github.com, then runs `gh issue create` per pending task. Use dry_run=true to preview without creating issues."
+}
+func (t *specKitTasksToIssuesTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"spec_dir":     map[string]any{"type": "string", "description": "Spec directory containing tasks.md. Defaults to the active spec dir."},
+			"remote":       map[string]any{"type": "string", "description": "Git remote to inspect (default: origin)."},
+			"labels":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Labels to apply to each issue."},
+			"assignees":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "GitHub usernames to assign to each issue."},
+			"milestone":    map[string]any{"type": "string", "description": "Milestone title to attach to each issue."},
+			"include_done": map[string]any{"type": "boolean", "description": "Also create issues for tasks already marked [x] (default: false)."},
+			"dry_run":      map[string]any{"type": "boolean", "description": "If true, log the issues that would be created but do not run `gh`."},
+		},
+	}
+}
+func (t *specKitTasksToIssuesTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
+	var p struct {
+		SpecDir     string   `json:"spec_dir"`
+		Remote      string   `json:"remote"`
+		Labels      []string `json:"labels"`
+		Assignees   []string `json:"assignees"`
+		Milestone   string   `json:"milestone"`
+		IncludeDone bool     `json:"include_done"`
+		DryRun      bool     `json:"dry_run"`
+	}
+	_ = json.Unmarshal(input, &p)
+
+	specDir := resolveSpecDir(call, p.SpecDir)
+	if specDir == "" {
+		return missingSpecDirResult("speckit_specify")
+	}
+	tasksFile := filepath.Join(specDir, "tasks.md")
+	content, err := os.ReadFile(tasksFile)
+	if err != nil {
+		return Result{Output: "error reading tasks.md: " + err.Error() + "; run speckit_tasks first", IsError: true}
+	}
+
+	repo, err := detectGitHubRepo(p.Remote)
+	if err != nil {
+		return Result{Output: "error: " + err.Error() + "; /speckit.taskstoissues requires a GitHub remote", IsError: true}
+	}
+
+	tasks := parseTasksMarkdown(string(content))
+	if len(tasks) == 0 {
+		return Result{Output: "no tasks found in " + tasksFile + "; nothing to do", IsError: true}
+	}
+
+	var summary strings.Builder
+	fmt.Fprintf(&summary, "Repository: %s\nTasks file: %s\nDry run: %v\n\n", repo, tasksFile, p.DryRun)
+
+	created := 0
+	skipped := 0
+	for _, task := range tasks {
+		if !p.IncludeDone && task.State == "x" {
+			skipped++
+			continue
+		}
+		title := fmt.Sprintf("[%s] %s", task.ID, task.Body)
+		if len(title) > 200 {
+			title = title[:200]
+		}
+		body := fmt.Sprintf("From `%s`.\n\nTask `%s` — state: `%s`\n\n%s", tasksFile, task.ID, task.State, task.Body)
+
+		if p.DryRun {
+			fmt.Fprintf(&summary, "[dry-run] would create: %s\n", title)
+			created++
+			continue
+		}
+
+		args := []string{"issue", "create", "--repo", repo, "--title", title, "--body", body}
+		for _, lbl := range p.Labels {
+			args = append(args, "--label", lbl)
+		}
+		for _, a := range p.Assignees {
+			args = append(args, "--assignee", a)
+		}
+		if strings.TrimSpace(p.Milestone) != "" {
+			args = append(args, "--milestone", p.Milestone)
+		}
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		out, runErr := cmd.CombinedOutput()
+		if runErr != nil {
+			fmt.Fprintf(&summary, "[error] %s: %v\n%s\n", task.ID, runErr, strings.TrimSpace(string(out)))
+			continue
+		}
+		fmt.Fprintf(&summary, "[ok] %s -> %s\n", task.ID, strings.TrimSpace(string(out)))
+		created++
+	}
+
+	fmt.Fprintf(&summary, "\nCreated: %d  Skipped (already done): %d  Total parsed: %d", created, skipped, len(tasks))
+	title := "Spec Kit tasks → GitHub issues"
+	if p.DryRun {
+		title = "Spec Kit tasks → GitHub issues (dry run)"
+	}
+	return Result{Title: title, Output: summary.String()}
+}
+
 func (t *specKitChecklistTool) Name() string { return "speckit_checklist" }
 func (t *specKitChecklistTool) Description() string {
 	return "Spec Kit-compatible /speckit.checklist: generate a checklist for validating requirements quality."
@@ -865,7 +668,7 @@ func (t *specKitLifecycleStatusTool) Execute(_ context.Context, call Context, in
 	if specDir == "" {
 		return missingSpecDirResult("speckit_specify")
 	}
-	record, err := specdriven.EnsureLifecycle(specDir, "")
+	record, err := specdriven.EnsureLifecycle(specDir, "", false)
 	if err != nil {
 		return Result{Output: "error reading lifecycle metadata: " + err.Error(), IsError: true}
 	}
@@ -890,7 +693,7 @@ func (t *specKitCompleteTool) Execute(_ context.Context, call Context, input jso
 	if specDir == "" {
 		return missingSpecDirResult("speckit_specify")
 	}
-	record, err := specdriven.EnsureLifecycle(specDir, "")
+	record, err := specdriven.EnsureLifecycle(specDir, "", true)
 	if err != nil {
 		return Result{Output: "error reading lifecycle metadata: " + err.Error(), IsError: true}
 	}
@@ -927,7 +730,7 @@ func (t *specKitArchiveTool) Execute(_ context.Context, call Context, input json
 	if specDir == "" {
 		return missingSpecDirResult("speckit_specify")
 	}
-	record, err := specdriven.EnsureLifecycle(specDir, "")
+	record, err := specdriven.EnsureLifecycle(specDir, "", true)
 	if err != nil {
 		return Result{Output: "error reading lifecycle metadata: " + err.Error(), IsError: true}
 	}
@@ -1062,9 +865,11 @@ type openSpecSyncTool struct{}
 type openSpecArchiveTool struct{}
 type openSpecBulkArchiveTool struct{}
 type openSpecOnboardTool struct{}
-type openSpecLegacyProposalTool struct{}
-type openSpecLegacyApplyTool struct{}
-type openSpecLegacyArchiveTool struct{}
+
+// Legacy /openspec:proposal, /openspec:apply, /openspec:archive wrapper
+// tools have been removed. The modern openspec_propose / openspec_apply /
+// openspec_archive tools cover the same functionality and the slash
+// commands now share the /openspec: namespace.
 
 func OpenSpecPropose() Tool        { return &openSpecProposeTool{} }
 func OpenSpecExplore() Tool        { return &openSpecExploreTool{} }
@@ -1077,9 +882,6 @@ func OpenSpecSync() Tool           { return &openSpecSyncTool{} }
 func OpenSpecArchive() Tool        { return &openSpecArchiveTool{} }
 func OpenSpecBulkArchive() Tool    { return &openSpecBulkArchiveTool{} }
 func OpenSpecOnboard() Tool        { return &openSpecOnboardTool{} }
-func OpenSpecLegacyProposal() Tool { return &openSpecLegacyProposalTool{} }
-func OpenSpecLegacyApply() Tool    { return &openSpecLegacyApplyTool{} }
-func OpenSpecLegacyArchive() Tool  { return &openSpecLegacyArchiveTool{} }
 
 func (t *openSpecProposeTool) Name() string { return "openspec_propose" }
 func (t *openSpecProposeTool) Description() string {
@@ -1421,35 +1223,6 @@ func (t *openSpecOnboardTool) Execute(_ context.Context, _ Context, input json.R
 		return Result{Output: "error writing onboarding: " + err.Error(), IsError: true}
 	}
 	return Result{Title: "OpenSpec onboarding", Output: fmt.Sprintf("Created %s", file)}
-}
-
-func (t *openSpecLegacyProposalTool) Name() string { return "openspec_legacy_proposal" }
-func (t *openSpecLegacyProposalTool) Description() string {
-	return "Legacy OpenSpec /openspec:proposal wrapper for openspec_propose."
-}
-func (t *openSpecLegacyProposalTool) InputSchema() map[string]any {
-	return OpenSpecPropose().InputSchema()
-}
-func (t *openSpecLegacyProposalTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
-	return OpenSpecPropose().Execute(ctx, call, input)
-}
-func (t *openSpecLegacyApplyTool) Name() string { return "openspec_legacy_apply" }
-func (t *openSpecLegacyApplyTool) Description() string {
-	return "Legacy OpenSpec /openspec:apply wrapper for openspec_apply."
-}
-func (t *openSpecLegacyApplyTool) InputSchema() map[string]any { return OpenSpecApply().InputSchema() }
-func (t *openSpecLegacyApplyTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
-	return OpenSpecApply().Execute(ctx, call, input)
-}
-func (t *openSpecLegacyArchiveTool) Name() string { return "openspec_legacy_archive" }
-func (t *openSpecLegacyArchiveTool) Description() string {
-	return "Legacy OpenSpec /openspec:archive wrapper for openspec_archive."
-}
-func (t *openSpecLegacyArchiveTool) InputSchema() map[string]any {
-	return OpenSpecArchive().InputSchema()
-}
-func (t *openSpecLegacyArchiveTool) Execute(ctx context.Context, call Context, input json.RawMessage) Result {
-	return OpenSpecArchive().Execute(ctx, call, input)
 }
 
 type openSpecChangeInput struct {

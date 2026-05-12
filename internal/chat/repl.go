@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
+	"omnillm/internal/specdriven"
 	toolspkg "omnillm/internal/tools"
 
 	"github.com/chzyer/readline"
@@ -79,7 +80,10 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 				break
 			}
 			if result.handled {
-				continue
+				if result.agentPrompt == "" {
+					continue
+				}
+				line = result.agentPrompt
 			}
 		}
 
@@ -420,10 +424,13 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Model:   %s\n", currentModel)
 		}
 		return replCommandResult{handled: true, model: currentModel, agentBackend: currentBackend}, nil
-	case "/spec":
-		handleSpecCommand(cmd.OutOrStdout(), fields, session)
-		return replCommandResult{handled: true}, nil
 	default:
+		if handled, err := handleDirectSpecCommand(cmd.OutOrStdout(), fields); handled {
+			return replCommandResult{handled: true}, err
+		}
+		if handled, agentPrompt, err := handleSpecWorkflowSlashCommand(cmd.OutOrStdout(), fields, session); handled {
+			return replCommandResult{handled: true, agentPrompt: agentPrompt}, err
+		}
 		return replCommandResult{}, fmt.Errorf("unknown command %q; use /help", fields[0])
 	}
 }
@@ -443,10 +450,12 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /agent <backend>   Keep agent backend on google-adk")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
-	_, _ = fmt.Fprintln(w, "  /spec              Choose spec-kit or OpenSpec workflow")
-	_, _ = fmt.Fprintln(w, "  /spec mode <type>  Enter spec mode: spec-kit, openspec, or off")
-	_, _ = fmt.Fprintln(w, "  /spec init <title> Create a new spec directory")
-	_, _ = fmt.Fprintln(w, "  /spec status       List all specs and their artifact status")
+	_, _ = fmt.Fprintln(w, "  /specify.init      Spec Kit: scaffold a new spec directory (offline)")
+	_, _ = fmt.Fprintln(w, "  /speckit.status    Spec Kit: list specs and artifact status (offline)")
+	_, _ = fmt.Fprintln(w, "  /speckit.help      Spec Kit: show workflow help")
+	_, _ = fmt.Fprintln(w, "  /openspec:init <name>  OpenSpec: scaffold a new change directory (offline)")
+	_, _ = fmt.Fprintln(w, "  /openspec:help     OpenSpec: show workflow help")
+	_, _ = fmt.Fprintln(w, "  /speckit.* /openspec:* Run a Spec Kit / OpenSpec command via the agent")
 	_, _ = fmt.Fprintln(w, "  /clear, /cls       Clear the screen")
 	_, _ = fmt.Fprintln(w, "  /quit, /exit       Leave the chat shell")
 }
@@ -455,69 +464,109 @@ func clearScreen(w io.Writer) {
 	_, _ = fmt.Fprint(w, "\033[2J\033[H")
 }
 
-// handleSpecCommand handles the /spec REPL shortcut.
-// It covers simple read-only operations (status, init) without going through the
-// LLM. For spec_write, spec_plan, and spec_tasks — use natural language in agent
-// mode since they take rich structured input.
-func handleSpecCommand(w io.Writer, fields []string, session *SessionState) {
-	sub := ""
-	if len(fields) > 1 {
-		sub = strings.ToLower(fields[1])
+func specWorkflowAgentPrompt(cmdSlash, toolName, arg string) string {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return fmt.Sprintf("load the spec skill and run %s for %s", toolName, cmdSlash)
 	}
+	return fmt.Sprintf("load the spec skill and run %s for %s with this intent: %s", toolName, cmdSlash, arg)
+}
 
-	switch sub {
-	case "", "help":
-		_, _ = fmt.Fprint(w, specHelpMarkdown())
+// handleDirectSpecCommand intercepts the offline-only spec scaffold commands
+// (/specify.init, /opsx:init, /speckit.status) before agent routing. Returns
+// (handled, err). Unhandled commands fall through to agent routing.
+func handleDirectSpecCommand(w io.Writer, fields []string) (bool, error) {
+	if len(fields) == 0 {
+		return false, nil
+	}
+	name := strings.ToLower(fields[0])
+	arg := strings.TrimSpace(strings.Join(fields[1:], " "))
 
-	case "mode":
-		if len(fields) < 3 {
-			current := session.SpecMode
-			if current == "" {
-				current = "off"
-			}
-			_, _ = fmt.Fprintf(w, "Current spec mode: %s\nUsage: /spec mode <spec-kit|openspec|off>\n", current)
-			return
+	switch name {
+	case "/specify.init":
+		if arg == "" {
+			_, _ = fmt.Fprintln(w, "Usage: /specify.init <title>")
+			_, _ = fmt.Fprintln(w, "Example: /specify.init User Authentication")
+			return true, nil
 		}
-		newMode := strings.ToLower(fields[2])
-		if newMode == "off" {
-			session.SpecMode = ""
-			_, _ = fmt.Fprintln(w, "Spec mode disabled.")
-			return
-		}
-		if !isValidSpecMode(newMode) {
-			_, _ = fmt.Fprintf(w, "Unknown spec mode %q. Valid modes: spec-kit, openspec, off\n", newMode)
-			return
-		}
-		session.SpecMode = newMode
-		session.Mode = "agent"
-		_, _ = fmt.Fprintf(w, "Spec mode set to %s. Switched to agent mode.\n\n", newMode)
-		if newMode == "spec-kit" {
-			_, _ = fmt.Fprint(w, specKitWorkflowSummary())
-		} else {
-			_, _ = fmt.Fprint(w, openSpecWorkflowSummary())
-		}
-
-	case "init":
-		title := strings.Join(fields[2:], " ")
-		if title == "" {
-			_, _ = fmt.Fprintln(w, "Usage: /spec init <title>")
-			_, _ = fmt.Fprintln(w, "Example: /spec init User Authentication")
-			return
-		}
-		if err := specREPLInit(w, title); err != nil {
+		if err := specREPLInit(w, arg); err != nil {
 			_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		}
-
-	case "status":
+		return true, nil
+	case "/openspec:init", "/opsx:init":
+		if arg == "" {
+			_, _ = fmt.Fprintln(w, "Usage: /openspec:init <change-name>")
+			_, _ = fmt.Fprintln(w, "Example: /openspec:init add-user-auth")
+			return true, nil
+		}
+		if err := openSpecREPLInit(w, arg); err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v\n", err)
+		}
+		return true, nil
+	case "/speckit.status":
 		specsDir := "specs"
-		if len(fields) > 2 {
-			specsDir = fields[2]
+		if arg != "" {
+			specsDir = arg
 		}
 		if err := specREPLStatus(w, specsDir); err != nil {
 			_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		}
-
-	default:
-		_, _ = fmt.Fprintf(w, "Unknown /spec subcommand %q. Try /spec (no args) for help.\n", sub)
+		return true, nil
+	case "/speckit.help":
+		_, _ = fmt.Fprint(w, specKitHelpMarkdown())
+		return true, nil
+	case "/openspec:help", "/opsx:help":
+		_, _ = fmt.Fprint(w, openSpecHelpMarkdown())
+		return true, nil
 	}
+	return false, nil
 }
+
+func handleSpecWorkflowSlashCommand(w io.Writer, fields []string, session *SessionState) (bool, string, error) {
+	if len(fields) == 0 {
+		return false, "", nil
+	}
+	name := strings.ToLower(fields[0])
+	// Backwards compat: accept the deprecated /opsx:* aliases by rewriting
+	// them to their canonical /openspec:* counterparts before lookup.
+	if strings.HasPrefix(name, "/opsx:") {
+		name = "/openspec:" + strings.TrimPrefix(name, "/opsx:")
+	}
+	arg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.Join(fields, " "), fields[0])), " "))
+
+	for _, cmd := range specdriven.SpecKitCommands() {
+		if name == cmd.Slash {
+			if session != nil {
+				session.SpecMode = "spec-kit"
+				session.Mode = "agent"
+			}
+			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
+			_, _ = fmt.Fprintf(w, "Spec mode: spec-kit. Switched to agent mode.\n")
+			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
+			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
+			return true, prompt, nil
+		}
+	}
+
+	for _, cmd := range specdriven.OpenSpecCommands() {
+		if name == cmd.Slash {
+			if session != nil {
+				session.SpecMode = "openspec"
+				session.Mode = "agent"
+			}
+			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
+			_, _ = fmt.Fprintf(w, "Spec mode: openspec. Switched to agent mode.\n")
+			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
+			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
+			return true, prompt, nil
+		}
+	}
+
+	return false, "", nil
+}
+
+// handleSpecCommand removed: the /spec, /spec mode, /spec init, /spec status,
+// and /spec help shortcuts were retired in favour of /specify.init,
+// /opsx:init, /speckit.status, and the existing /speckit.* and /opsx:*
+// command families that route through the agent.
+

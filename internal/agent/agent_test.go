@@ -430,6 +430,10 @@ func TestBuildSystemPromptIncludesGoTUIOutputGuidance(t *testing.T) {
 	checks := map[string]string{
 		"runtime OS":          "The current operating system is windows",
 		"PowerShell guidance": `Use the "powershell" tool to execute shell commands`,
+		"OS-first routing":    "Before invoking any shell-related tool, first confirm the host OS",
+		"PowerShell first":    "on `windows`, the PowerShell tool is the FIRST CHOICE",
+		"bash first":          "on `macos`/`darwin` or `linux`, the bash/shell tool is the FIRST CHOICE",
+		"no-OS-guess":         "Never guess the OS or fall back to the wrong shell tool",
 		"Go TUI style":        "When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style",
 		"Markdown-first":      "Prefer Markdown-first output with structured headings",
 		"panel/card sections": "use clean panel/card-style sections where helpful",

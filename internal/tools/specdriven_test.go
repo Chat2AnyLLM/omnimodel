@@ -12,7 +12,7 @@ import (
 	"omnillm/internal/tools"
 )
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?helpers 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 func newSpecCtx(t *testing.T) (tools.Context, string) {
 	t.Helper()
@@ -29,20 +29,20 @@ func execTool(t *testing.T, tool tools.Tool, call tools.Context, input any) tool
 	return tool.Execute(context.Background(), call, raw)
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_init 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
+// ─── speckit_specify ──────────────────────────────────────────────────────────
 
-func TestSpecInitCreatesDirectory(t *testing.T) {
+func TestSpecKitSpecifyCreatesDirectory(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	result := execTool(t, tools.SpecInit(), call, map[string]any{
+	result := execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "Allow users to sign in and out securely.",
 		"title":     "User Authentication",
-		"overview":  "Allow users to sign in and out securely.",
 		"specs_dir": specsDir,
 	})
 
 	if result.IsError {
-		t.Fatalf("spec_init failed: %s", result.Output)
+		t.Fatalf("speckit_specify failed: %s", result.Output)
 	}
 
 	entries, err := os.ReadDir(specsDir)
@@ -75,18 +75,18 @@ func TestSpecInitCreatesDirectory(t *testing.T) {
 	}
 }
 
-func TestSpecInitNumbersSequentially(t *testing.T) {
+func TestSpecKitSpecifyNumbersSequentially(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
 	for _, title := range []string{"Feature One", "Feature Two", "Feature Three"} {
-		r := execTool(t, tools.SpecInit(), call, map[string]any{
+		r := execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+			"feature":   "overview for " + title,
 			"title":     title,
-			"overview":  "overview",
 			"specs_dir": specsDir,
 		})
 		if r.IsError {
-			t.Fatalf("spec_init %q failed: %s", title, r.Output)
+			t.Fatalf("speckit_specify %q failed: %s", title, r.Output)
 		}
 	}
 
@@ -102,161 +102,49 @@ func TestSpecInitNumbersSequentially(t *testing.T) {
 	}
 }
 
-func TestSpecInitMissingTitle(t *testing.T) {
+func TestSpecKitSpecifyMissingFeature(t *testing.T) {
 	call, _ := newSpecCtx(t)
-	r := execTool(t, tools.SpecInit(), call, map[string]any{"overview": "x"})
+	r := execTool(t, tools.SpecKitSpecify(), call, map[string]any{"title": "x"})
 	if !r.IsError {
-		t.Error("spec_init with empty title should fail")
+		t.Error("speckit_specify with empty feature should fail")
 	}
 }
 
-func TestSpecInitSetsSessionState(t *testing.T) {
+func TestSpecKitSpecifySetsSessionState(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	execTool(t, tools.SpecInit(), call, map[string]any{
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "Store photos.",
 		"title":     "Photo Album",
-		"overview":  "Store photos.",
 		"specs_dir": specsDir,
 	})
 
 	if call.SpecState.GetSpec() == nil {
-		t.Error("spec_init should set SpecState.currentSpec")
+		t.Error("speckit_specify should set SpecState.currentSpec")
 	}
 	if call.SpecState.GetSpecDir() == "" {
-		t.Error("spec_init should set SpecState.specDir")
+		t.Error("speckit_specify should set SpecState.specDir")
 	}
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_write 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── speckit_plan ─────────────────────────────────────────────────────────────
 
-func TestSpecWriteUpdatesFile(t *testing.T) {
+func TestSpecKitPlanCreatesPlanMd(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
-	})
-	specDir := call.SpecState.GetSpecDir()
-
-	r := execTool(t, tools.SpecWrite(), call, map[string]any{
-		"user_stories": []map[string]any{{
-			"id": "US1", "title": "Login", "description": "As a user I want to log in",
-			"priority": "P1", "why_priority": "MVP core",
-			"scenarios": []map[string]any{{
-				"title": "Happy path", "given": "valid creds", "when": "form submitted", "then": "user authenticated",
-			}},
-		}},
-		"requirements": []map[string]any{{
-			"id": "FR-001", "user_story_id": "US1", "text": "The system SHALL validate passwords",
-		}},
-	})
-	if r.IsError {
-		t.Fatalf("spec_write failed: %s", r.Output)
-	}
-
-	content, _ := os.ReadFile(filepath.Join(specDir, "spec.md"))
-	s := string(content)
-	if !strings.Contains(s, "US1") {
-		t.Error("spec.md missing US1")
-	}
-	if !strings.Contains(s, "valid creds") {
-		t.Error("spec.md missing scenario GIVEN")
-	}
-	if !strings.Contains(s, "FR-001") {
-		t.Error("spec.md missing FR-001")
-	}
-}
-
-func TestSpecWriteRequiresSpecDir(t *testing.T) {
-	call, _ := newSpecCtx(t)
-	r := execTool(t, tools.SpecWrite(), call, map[string]any{})
-	if !r.IsError {
-		t.Error("spec_write without spec_dir and no session state should fail")
-	}
-}
-
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_read 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
-
-func TestSpecReadShowsContent(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Photo Album", "overview": "manage photos", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "login",
+		"title":     "Auth",
+		"specs_dir": specsDir,
 	})
 
-	r := execTool(t, tools.SpecRead(), call, map[string]any{})
-	if r.IsError {
-		t.Fatalf("spec_read failed: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "Photo Album") {
-		t.Error("spec_read output missing title")
-	}
-	if !strings.Contains(r.Output, "Lifecycle state: draft") {
-		t.Error("spec_read should include lifecycle status")
-	}
-}
-
-func TestSpecReadShowsArtifactStatus(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
-	})
-
-	r := execTool(t, tools.SpecRead(), call, map[string]any{})
-	if !strings.Contains(r.Output, "spec.md") {
-		t.Error("spec_read should show spec.md artifact status")
-	}
-	if !strings.Contains(r.Output, "plan.md") || !strings.Contains(r.Output, "tasks.md") {
-		t.Error("spec_read should show missing plan/tasks artifact status")
-	}
-}
-
-func TestSpecReadMissingDir(t *testing.T) {
-	call, _ := newSpecCtx(t)
-	r := execTool(t, tools.SpecRead(), call, map[string]any{})
-	if !r.IsError {
-		t.Error("spec_read without spec_dir should fail")
-	}
-}
-
-func TestSpecReadExplicitDir(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
-	})
-	specDir := call.SpecState.GetSpecDir()
-
-	freshCall := tools.Context{SpecState: specdriven.NewSpecStore()}
-	r := execTool(t, tools.SpecRead(), freshCall, map[string]any{"spec_dir": specDir})
-	if r.IsError {
-		t.Fatalf("spec_read with explicit dir failed: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "Auth") {
-		t.Error("spec_read explicit dir output missing title")
-	}
-}
-
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_plan 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
-
-func TestSpecPlanCreatesPlanMd(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
-	})
-
-	r := execTool(t, tools.SpecPlan(), call, map[string]any{
+	r := execTool(t, tools.SpecKitPlan(), call, map[string]any{
 		"language": "Go 1.22", "framework": "Gin", "database": "SQLite",
 	})
 	if r.IsError {
-		t.Fatalf("spec_plan failed: %s", r.Output)
+		t.Fatalf("speckit_plan failed: %s", r.Output)
 	}
 
 	planFile := filepath.Join(call.SpecState.GetSpecDir(), "plan.md")
@@ -276,41 +164,37 @@ func TestSpecPlanCreatesPlanMd(t *testing.T) {
 	}
 }
 
-func TestSpecPlanSetsPlanState(t *testing.T) {
+func TestSpecKitPlanSetsPlanState(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "login",
+		"title":     "Auth",
+		"specs_dir": specsDir,
 	})
-	execTool(t, tools.SpecPlan(), call, map[string]any{"language": "Go"})
+	execTool(t, tools.SpecKitPlan(), call, map[string]any{"language": "Go"})
 
 	if call.SpecState.GetPlan() == nil {
-		t.Error("spec_plan should set SpecState.currentPlan")
+		t.Error("speckit_plan should set SpecState.currentPlan")
 	}
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_tasks 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── speckit_tasks ────────────────────────────────────────────────────────────
 
-func TestSpecTasksCreatesTasksMd(t *testing.T) {
+func TestSpecKitTasksCreatesTasksMd(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Auth", "overview": "login", "specs_dir": specsDir,
-	})
-	execTool(t, tools.SpecWrite(), call, map[string]any{
-		"user_stories": []map[string]any{{
-			"id": "US1", "title": "Login", "description": "user login", "priority": "P1",
-			"scenarios": []map[string]any{{
-				"title": "Happy path", "given": "creds", "when": "submit", "then": "logged in",
-			}},
-		}},
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "login",
+		"title":     "Auth",
+		"specs_dir": specsDir,
 	})
 
-	r := execTool(t, tools.SpecTasks(), call, map[string]any{})
+	r := execTool(t, tools.SpecKitTasks(), call, map[string]any{})
 	if r.IsError {
-		t.Fatalf("spec_tasks failed: %s", r.Output)
+		t.Fatalf("speckit_tasks failed: %s", r.Output)
 	}
 
 	tasksFile := filepath.Join(call.SpecState.GetSpecDir(), "tasks.md")
@@ -322,80 +206,28 @@ func TestSpecTasksCreatesTasksMd(t *testing.T) {
 	if !strings.Contains(s, "SETUP") {
 		t.Error("tasks.md missing SETUP group")
 	}
-	if !strings.Contains(s, "US1") {
-		t.Error("tasks.md missing US1 group")
-	}
 	if !strings.Contains(s, "[P]") {
 		t.Error("tasks.md should have parallelizable tasks")
 	}
 
 	stateContent, err := os.ReadFile(filepath.Join(call.SpecState.GetSpecDir(), ".speckit-state.json"))
 	if err != nil {
-		t.Fatalf("lifecycle metadata missing after spec_tasks: %v", err)
+		t.Fatalf("lifecycle metadata missing after speckit_tasks: %v", err)
 	}
 	if !strings.Contains(string(stateContent), "\"state\": \"in_progress\"") {
-		t.Error("spec_tasks should move lifecycle to in_progress")
+		t.Error("speckit_tasks should move lifecycle to in_progress")
 	}
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?spec_status 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
-
-func TestSpecStatusEmptyDir(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-	_ = os.MkdirAll(specsDir, 0o755)
-
-	r := execTool(t, tools.SpecStatus(), call, map[string]any{"specs_dir": specsDir})
-	if r.IsError {
-		t.Fatalf("spec_status empty dir failed: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "No spec directories") {
-		t.Errorf("spec_status on empty dir should say no specs, got: %s", r.Output)
-	}
-}
-
-func TestSpecStatusNonexistentDir(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	r := execTool(t, tools.SpecStatus(), call, map[string]any{"specs_dir": filepath.Join(tmpDir, "nonexistent")})
-	if !r.IsError {
-		t.Error("spec_status on missing dir should fail")
-	}
-}
-
-func TestSpecStatusShowsArtifacts(t *testing.T) {
-	call, tmpDir := newSpecCtx(t)
-	specsDir := filepath.Join(tmpDir, "specs")
-
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Feature A", "overview": "a", "specs_dir": specsDir,
-	})
-	call2 := tools.Context{SpecState: specdriven.NewSpecStore()}
-	execTool(t, tools.SpecInit(), call2, map[string]any{
-		"title": "Feature B", "overview": "b", "specs_dir": specsDir,
-	})
-
-	r := execTool(t, tools.SpecStatus(), tools.Context{SpecState: specdriven.NewSpecStore()}, map[string]any{"specs_dir": specsDir})
-	if r.IsError {
-		t.Fatalf("spec_status failed: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "feature-a") {
-		t.Errorf("spec_status missing feature-a, got: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "feature-b") {
-		t.Errorf("spec_status missing feature-b, got: %s", r.Output)
-	}
-	if !strings.Contains(r.Output, "Lifecycle state: draft") {
-		t.Error("spec_status should include lifecycle states")
-	}
-}
-
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?speckit lifecycle tools 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── speckit lifecycle tools ──────────────────────────────────────────────────
 
 func TestSpecKitLifecycleStatus(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Lifecycle Demo", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Lifecycle Demo",
+		"specs_dir": specsDir,
 	})
 
 	r := execTool(t, tools.SpecKitLifecycleStatus(), call, map[string]any{})
@@ -410,11 +242,13 @@ func TestSpecKitLifecycleStatus(t *testing.T) {
 func TestSpecKitCompletePreservesArtifactsAndAddsNotes(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Complete Demo", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Complete Demo",
+		"specs_dir": specsDir,
 	})
-	execTool(t, tools.SpecPlan(), call, map[string]any{"language": "Go"})
-	execTool(t, tools.SpecTasks(), call, map[string]any{})
+	execTool(t, tools.SpecKitPlan(), call, map[string]any{"language": "Go"})
+	execTool(t, tools.SpecKitTasks(), call, map[string]any{})
 
 	r := execTool(t, tools.SpecKitComplete(), call, map[string]any{
 		"notes":      "Implemented and verified.",
@@ -436,8 +270,10 @@ func TestSpecKitCompletePreservesArtifactsAndAddsNotes(t *testing.T) {
 func TestSpecKitArchiveMovesCompletedSpec(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Archive Demo", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Archive Demo",
+		"specs_dir": specsDir,
 	})
 	execTool(t, tools.SpecKitComplete(), call, map[string]any{})
 	originalDir := call.SpecState.GetSpecDir()
@@ -460,8 +296,10 @@ func TestSpecKitArchiveMovesCompletedSpec(t *testing.T) {
 func TestSpecKitArchiveRejectsNonCompletedWithoutForce(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Archive Reject", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Archive Reject",
+		"specs_dir": specsDir,
 	})
 
 	r := execTool(t, tools.SpecKitArchive(), call, map[string]any{})
@@ -472,8 +310,10 @@ func TestSpecKitArchiveRejectsNonCompletedWithoutForce(t *testing.T) {
 func TestSpecKitArchiveForceWarnsForNonCompletedSpec(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Archive Force", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Archive Force",
+		"specs_dir": specsDir,
 	})
 
 	r := execTool(t, tools.SpecKitArchive(), call, map[string]any{"force": true})
@@ -491,8 +331,10 @@ func TestSpecKitArchiveForceWarnsForNonCompletedSpec(t *testing.T) {
 func TestSpecKitCompleteHandlesMissingPlanAndTasks(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Missing Artifacts", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Missing Artifacts",
+		"specs_dir": specsDir,
 	})
 
 	r := execTool(t, tools.SpecKitComplete(), call, map[string]any{"notes": "completed with deferred artifacts"})
@@ -510,8 +352,10 @@ func TestSpecKitCompleteHandlesMissingPlanAndTasks(t *testing.T) {
 func TestSpecKitArchiveUsesUniqueDestination(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
-	execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Conflict Demo", "overview": "demo", "specs_dir": specsDir,
+	execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "demo",
+		"title":     "Conflict Demo",
+		"specs_dir": specsDir,
 	})
 	execTool(t, tools.SpecKitComplete(), call, map[string]any{})
 	base := filepath.Base(call.SpecState.GetSpecDir())
@@ -529,81 +373,59 @@ func TestSpecKitArchiveUsesUniqueDestination(t *testing.T) {
 	}
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Full pipeline 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
+// ─── Full pipeline ────────────────────────────────────────────────────────────
 
 func TestFullSpecPipeline(t *testing.T) {
 	call, tmpDir := newSpecCtx(t)
 	specsDir := filepath.Join(tmpDir, "specs")
 
-	r := execTool(t, tools.SpecInit(), call, map[string]any{
-		"title": "Payment Processing", "overview": "Handle payments.", "specs_dir": specsDir,
+	r := execTool(t, tools.SpecKitSpecify(), call, map[string]any{
+		"feature":   "Handle payments.",
+		"title":     "Payment Processing",
+		"specs_dir": specsDir,
 	})
 	if r.IsError {
-		t.Fatalf("init: %s", r.Output)
+		t.Fatalf("specify: %s", r.Output)
 	}
 
-	r = execTool(t, tools.SpecWrite(), call, map[string]any{
-		"user_stories": []map[string]any{{
-			"id": "US1", "title": "Make Payment", "description": "user pays", "priority": "P1",
-			"scenarios": []map[string]any{{
-				"title": "Card payment", "given": "valid card", "when": "checkout", "then": "charged",
-			}},
-		}},
-		"requirements": []map[string]any{{
-			"id": "FR-001", "user_story_id": "US1", "text": "The system SHALL process credit cards",
-		}},
-		"entities": []map[string]any{{
-			"name": "Payment", "description": "A financial transaction", "fields": []string{"id", "amount", "status"},
-		}},
-		"edge_cases": []map[string]any{{
-			"id": "EC-001", "description": "Declined card", "expected": "Return error to user",
-		}},
-	})
-	if r.IsError {
-		t.Fatalf("write: %s", r.Output)
-	}
-
-	r = execTool(t, tools.SpecPlan(), call, map[string]any{
+	r = execTool(t, tools.SpecKitPlan(), call, map[string]any{
 		"language": "Go 1.22", "framework": "Gin", "database": "Postgres",
 	})
 	if r.IsError {
 		t.Fatalf("plan: %s", r.Output)
 	}
 
-	r = execTool(t, tools.SpecTasks(), call, map[string]any{})
+	r = execTool(t, tools.SpecKitTasks(), call, map[string]any{})
 	if r.IsError {
 		t.Fatalf("tasks: %s", r.Output)
 	}
 
-	r = execTool(t, tools.SpecRead(), call, map[string]any{})
-	if r.IsError {
-		t.Fatalf("read: %s", r.Output)
-	}
+	// Verify artifacts exist
 	for _, artifact := range []string{"spec.md", "plan.md", "tasks.md"} {
-		if !strings.Contains(r.Output, artifact) {
-			t.Errorf("expected artifact %s in spec_read output:\n%s", artifact, r.Output)
+		path := filepath.Join(call.SpecState.GetSpecDir(), artifact)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s to exist: %v", artifact, err)
 		}
 	}
 
-	r = execTool(t, tools.SpecStatus(), call, map[string]any{"specs_dir": specsDir})
-	if r.IsError {
-		t.Fatalf("status: %s", r.Output)
+	// Check lifecycle advanced to in_progress
+	stateContent, err := os.ReadFile(filepath.Join(call.SpecState.GetSpecDir(), ".speckit-state.json"))
+	if err != nil {
+		t.Fatalf("lifecycle metadata missing: %v", err)
 	}
-	if !strings.Contains(r.Output, "payment-processing") {
-		t.Errorf("spec_status missing payment-processing, got:\n%s", r.Output)
-	}
-	if !strings.Contains(r.Output, "Lifecycle state: in_progress") {
+	if !strings.Contains(string(stateContent), "\"state\": \"in_progress\"") {
 		t.Error("expected in_progress lifecycle after generating tasks")
 	}
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Tool interface compliance 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
+// ─── Tool interface compliance ────────────────────────────────────────────────
 
 func TestSpecToolsHaveSchemas(t *testing.T) {
 	specTools := []tools.Tool{
-		tools.SpecInit(), tools.SpecWrite(), tools.SpecRead(),
-		tools.SpecPlan(), tools.SpecTasks(), tools.SpecStatus(),
+		tools.SpecKitSpecify(), tools.SpecKitPlan(), tools.SpecKitTasks(),
 		tools.SpecKitLifecycleStatus(), tools.SpecKitComplete(), tools.SpecKitArchive(),
+		tools.SpecKitConstitution(), tools.SpecKitClarify(), tools.SpecKitAnalyze(),
+		tools.SpecKitImplement(), tools.SpecKitChecklist(),
 	}
 	for _, tool := range specTools {
 		if tool.Name() == "" {
@@ -628,10 +450,74 @@ func TestSpecToolsRegistered(t *testing.T) {
 	r := m.Registry()
 	tools.InitSkillMembership(r)
 
-	specToolNames := []string{"spec_init", "spec_write", "spec_read", "spec_plan", "spec_tasks", "spec_status", "speckit_lifecycle_status", "speckit_complete", "speckit_archive"}
+	specToolNames := []string{
+		"speckit_constitution", "speckit_specify", "speckit_clarify", "speckit_plan", "speckit_tasks",
+		"speckit_analyze", "speckit_implement", "speckit_taskstoissues", "speckit_checklist", "speckit_lifecycle_status",
+		"speckit_complete", "speckit_archive",
+		"openspec_propose", "openspec_explore", "openspec_new", "openspec_continue", "openspec_ff",
+		"openspec_apply", "openspec_verify", "openspec_sync", "openspec_archive", "openspec_bulk_archive",
+		"openspec_onboard",
+	}
 	for _, name := range specToolNames {
 		if r.Get(name) == nil {
 			t.Errorf("tool %q not registered", name)
 		}
+	}
+}
+// ─── speckit_taskstoissues ────────────────────────────────────────────────────
+
+// TestSpecKitTasksToIssuesDryRunParsesAndSkipsDone exercises the parser and
+// dry-run path. We don't assert on which GitHub repo is detected (it depends
+// on the current git remote, which may inherit from the parent repo), but we
+// do assert that the output reflects the parsed tasks: T001 + T002 are queued
+// for issue creation while T003 (state "[x]") is skipped. This guards the
+// parseTasksMarkdown helper and the include_done default. If the host has no
+// git or no GitHub remote at all, the tool errors instead — also acceptable.
+func TestSpecKitTasksToIssuesDryRunRequiresGitHubRemote(t *testing.T) {
+	call, tmpDir := newSpecCtx(t)
+	specDir := filepath.Join(tmpDir, "specs", "001-demo")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	tasks := "# Tasks: 001 Demo\n\n## SETUP\n\n- [ ] **T001** First task\n- [~] **T002** [P] Second task\n- [x] **T003** Third task done\n"
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"), []byte(tasks), 0o644); err != nil {
+		t.Fatalf("write tasks.md: %v", err)
+	}
+
+	result := execTool(t, tools.SpecKitTasksToIssues(), call, map[string]any{
+		"spec_dir": specDir,
+		"dry_run":  true,
+	})
+	if result.IsError {
+		if !strings.Contains(result.Output, "GitHub") && !strings.Contains(result.Output, "git remote") {
+			t.Fatalf("error path: expected GitHub/git-remote error, got %q", result.Output)
+		}
+		return
+	}
+	for _, want := range []string{"Dry run: true", "[T001] First task", "[T002] Second task", "Created: 2", "Skipped (already done): 1", "Total parsed: 3"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("dry-run output missing %q\n---\n%s", want, result.Output)
+		}
+	}
+	if strings.Contains(result.Output, "[T003]") {
+		t.Errorf("done task should be skipped by default; got:\n%s", result.Output)
+	}
+}
+
+func TestSpecKitTasksToIssuesMissingTasksFile(t *testing.T) {
+	call, tmpDir := newSpecCtx(t)
+	specDir := filepath.Join(tmpDir, "specs", "001-demo")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	result := execTool(t, tools.SpecKitTasksToIssues(), call, map[string]any{
+		"spec_dir": specDir,
+		"dry_run":  true,
+	})
+	if !result.IsError {
+		t.Fatalf("expected error for missing tasks.md, got %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "tasks.md") {
+		t.Fatalf("expected tasks.md error, got %q", result.Output)
 	}
 }

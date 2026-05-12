@@ -3,7 +3,7 @@
 // markdown templates, prioritised user stories, Given-When-Then scenarios) and
 // OpenSpec (artifact dependency graph, change-delta tracking).
 //
-// Workflow: spec_init → spec_write → spec_read → spec_plan → spec_tasks
+// Workflow: speckit_specify -> speckit_plan -> speckit_tasks
 //
 // Each command corresponds to one stage of the spec-driven pipeline and is
 // exposed as a loadable "spec" skill in the tools registry.

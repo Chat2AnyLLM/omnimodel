@@ -17,22 +17,26 @@ type OpenSpecCommand struct {
 }
 
 // OpenSpecCommands returns the supported OpenSpec command inventory.
+//
+// As of the unification, all modern commands live under the `/openspec:*`
+// namespace. The previous `/opsx:*` aliases remain accepted at the chat
+// layer for one release for backwards compatibility, but are not enumerated
+// here. The original three `/openspec:proposal`, `/openspec:apply`,
+// `/openspec:archive` legacy commands have been retired (the modern
+// `/openspec:apply` and `/openspec:archive` now serve the same purpose).
 func OpenSpecCommands() []OpenSpecCommand {
 	return []OpenSpecCommand{
-		{Slash: "/opsx:propose", Tool: "openspec_propose", Summary: "create a change and generate planning artifacts", Artifact: "openspec/changes/<change>/", Profile: "core"},
-		{Slash: "/opsx:explore", Tool: "openspec_explore", Summary: "investigate ideas before committing to a change", Artifact: "exploration notes", Profile: "core"},
-		{Slash: "/opsx:apply", Tool: "openspec_apply", Summary: "implement or report pending tasks from a change", Artifact: "tasks.md status", Profile: "core"},
-		{Slash: "/opsx:sync", Tool: "openspec_sync", Summary: "merge delta specs into main OpenSpec specs", Artifact: "openspec/specs/", Profile: "core"},
-		{Slash: "/opsx:archive", Tool: "openspec_archive", Summary: "archive a completed change", Artifact: "openspec/changes/archive/", Profile: "core"},
-		{Slash: "/opsx:new", Tool: "openspec_new", Summary: "start a new change scaffold", Artifact: ".openspec.yaml", Profile: "expanded"},
-		{Slash: "/opsx:continue", Tool: "openspec_continue", Summary: "create the next ready artifact", Artifact: "next missing artifact", Profile: "expanded"},
-		{Slash: "/opsx:ff", Tool: "openspec_ff", Summary: "fast-forward all planning artifacts", Artifact: "proposal/specs/design/tasks", Profile: "expanded"},
-		{Slash: "/opsx:verify", Tool: "openspec_verify", Summary: "validate implementation against artifacts", Artifact: "verification.md", Profile: "expanded"},
-		{Slash: "/opsx:bulk-archive", Tool: "openspec_bulk_archive", Summary: "archive multiple completed changes", Artifact: "archive folders", Profile: "expanded"},
-		{Slash: "/opsx:onboard", Tool: "openspec_onboard", Summary: "guided tutorial through the workflow", Artifact: "onboarding plan", Profile: "expanded"},
-		{Slash: "/openspec:proposal", Tool: "openspec_legacy_proposal", Summary: "legacy all-at-once proposal workflow", Artifact: "openspec/changes/<change>/", Profile: "legacy"},
-		{Slash: "/openspec:apply", Tool: "openspec_legacy_apply", Summary: "legacy apply workflow", Artifact: "tasks.md status", Profile: "legacy"},
-		{Slash: "/openspec:archive", Tool: "openspec_legacy_archive", Summary: "legacy archive workflow", Artifact: "openspec/changes/archive/", Profile: "legacy"},
+		{Slash: "/openspec:propose", Tool: "openspec_propose", Summary: "create a change and generate planning artifacts", Artifact: "openspec/changes/<change>/", Profile: "core"},
+		{Slash: "/openspec:explore", Tool: "openspec_explore", Summary: "investigate ideas before committing to a change", Artifact: "exploration notes", Profile: "core"},
+		{Slash: "/openspec:apply", Tool: "openspec_apply", Summary: "implement or report pending tasks from a change", Artifact: "tasks.md status", Profile: "core"},
+		{Slash: "/openspec:sync", Tool: "openspec_sync", Summary: "merge delta specs into main OpenSpec specs", Artifact: "openspec/specs/", Profile: "core"},
+		{Slash: "/openspec:archive", Tool: "openspec_archive", Summary: "archive a completed change", Artifact: "openspec/changes/archive/", Profile: "core"},
+		{Slash: "/openspec:new", Tool: "openspec_new", Summary: "start a new change scaffold", Artifact: ".openspec.yaml", Profile: "expanded"},
+		{Slash: "/openspec:continue", Tool: "openspec_continue", Summary: "create the next ready artifact", Artifact: "next missing artifact", Profile: "expanded"},
+		{Slash: "/openspec:ff", Tool: "openspec_ff", Summary: "fast-forward all planning artifacts", Artifact: "proposal/specs/design/tasks", Profile: "expanded"},
+		{Slash: "/openspec:verify", Tool: "openspec_verify", Summary: "validate implementation against artifacts", Artifact: "verification.md", Profile: "expanded"},
+		{Slash: "/openspec:bulk-archive", Tool: "openspec_bulk_archive", Summary: "archive multiple completed changes", Artifact: "archive folders", Profile: "expanded"},
+		{Slash: "/openspec:onboard", Tool: "openspec_onboard", Summary: "guided tutorial through the workflow", Artifact: "onboarding plan", Profile: "expanded"},
 	}
 }
 
