@@ -821,12 +821,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.updateSlashPicker()
 				return m, nil
-			case tea.KeySpace:
-				current := strings.TrimSpace(m.textarea.Value())
-				if current == specSlashCommandName() {
-					m.applyTextareaValue(specSlashCommandName() + " ")
-					return m, nil
-				}
 			}
 			// Key not consumed by the picker — let the outer switch and
 			// the textarea handle it; updateSlashPicker reruns the filter.
@@ -1441,17 +1435,22 @@ func (m chatTUIModel) renderSingleLineTextarea(width int) string {
 		cursorIndex = len(line)
 	}
 
-	start := 0
-	if cursorIndex >= textWidth {
-		start = cursorIndex - textWidth + 1
+	cumWidth := make([]int, len(line)+1)
+	for i, r := range line {
+		cumWidth[i+1] = cumWidth[i] + xansi.StringWidth(string(r))
 	}
-	end := minInt(len(line), start+textWidth)
-	if end < start {
-		end = start
+
+	start := 0
+	for start < cursorIndex && cumWidth[cursorIndex]-cumWidth[start] >= textWidth {
+		start++
+	}
+	end := start
+	for end < len(line) && cumWidth[end+1]-cumWidth[start] <= textWidth {
+		end++
 	}
 
 	cursor := m.textarea.Cursor
-	if cursorIndex < end {
+	if cursorIndex >= start && cursorIndex < end {
 		cursor.SetChar(string(line[cursorIndex]))
 		return prompt + string(line[start:cursorIndex]) + cursor.View() + string(line[cursorIndex+1:end])
 	}
@@ -3058,6 +3057,17 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return sessionCreatedMsg{sessionID: sid, apiShape: currentAPIShape}
 		}
 	default:
+		// First try the offline direct-spec scaffold commands
+		// (/specify.init, /opsx:init, /speckit.status).
+		var directBuf strings.Builder
+		if handled, err := handleDirectSpecCommand(&directBuf, fields); handled {
+			if err != nil {
+				add(tuiErrorStyle.Render("Error: " + err.Error()))
+				return m, nil
+			}
+			add(m.renderMD(directBuf.String()))
+			return m, nil
+		}
 		session := &SessionState{Mode: m.mode, SpecMode: m.specMode}
 		var sb strings.Builder
 		handled, agentPrompt, err := handleSpecWorkflowSlashCommand(&sb, fields, session)
@@ -3082,48 +3092,6 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		}
 		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s -- use /help", fields[0])))
 		return m, nil
-	case "/spec":
-		sub := ""
-		if len(fields) > 1 {
-			sub = strings.ToLower(fields[1])
-		}
-		if sub == "" || sub == "help" {
-			add(m.renderMD(specHelpMarkdown()))
-		} else if sub == "mode" {
-			if len(fields) < 3 {
-				current := m.specMode
-				if current == "" {
-					current = "off"
-				}
-				add(m.renderMD(fmt.Sprintf("Current spec mode: **%s**\n\nUsage: `/spec mode <spec-kit|openspec|off>`", current)))
-			} else {
-				newMode := strings.ToLower(fields[2])
-				if newMode == "off" {
-					m.specMode = ""
-					add(m.renderMD("Spec mode **disabled**."))
-					m.saveConfig()
-				} else if isValidSpecMode(newMode) {
-					m.specMode = newMode
-					m.mode = "agent"
-					var summary string
-					if newMode == "spec-kit" {
-						summary = specKitWorkflowSummary()
-					} else {
-						summary = openSpecWorkflowSummary()
-					}
-					add(m.renderMD(fmt.Sprintf("Spec mode set to **%s**. Switched to **agent** mode.\n\n%s", newMode, summary)))
-					m.saveConfig()
-				} else {
-					add(tuiErrorStyle.Render(fmt.Sprintf("Unknown spec mode %q. Valid modes: spec-kit, openspec, off", newMode)))
-				}
-			}
-		} else {
-			session := &SessionState{SpecMode: m.specMode}
-			var sb strings.Builder
-			handleSpecCommand(&sb, fields, session)
-			add(m.renderMD(sb.String()))
-		}
-		return m, nil
 	}
 }
 
@@ -3132,6 +3100,10 @@ func tuiTerminalOptions() []tea.ProgramOption {
 }
 
 func RunTUI(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message) error {
+	if err := configureUTF8Console(); err != nil {
+		return fmt.Errorf("configure UTF-8 console: %w", err)
+	}
+
 	m := newChatTUIModel(c, sessionID, model, mode, apiShape, agentBackend, history, ConfigSaveCallback)
 	p := tea.NewProgram(m, tuiTerminalOptions()...)
 	go func() { p.Send(progReadyMsg{p: p}) }()

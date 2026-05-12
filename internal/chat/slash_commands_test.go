@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -31,9 +32,15 @@ func TestSlashCommandsCatalogShape(t *testing.T) {
 		}
 	}
 
-	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/model", "/agent", "/max-turns", "/models", "/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off", "/clear", "/quit"} {
+	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/model", "/agent", "/max-turns", "/models", "/specify.init", "/speckit.specify", "/speckit.status", "/opsx:init", "/opsx:propose", "/clear", "/quit"} {
 		if !seen[must] {
 			t.Errorf("catalog missing required command %q", must)
+		}
+	}
+
+	for _, mustNot := range []string{"/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off", "/spec init", "/spec status", "/spec help"} {
+		if seen[mustNot] {
+			t.Errorf("catalog should NOT contain retired command %q", mustNot)
 		}
 	}
 }
@@ -52,9 +59,9 @@ func TestFuzzySlashFilter(t *testing.T) {
 		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/model", "/models"}},
 		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/model", "/models"}},
 		{name: "question mark alias", filter: "?", want: []string{"/help"}},
-		{name: "spec mode shows workflow choices", filter: "/spec ", want: []string{"/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off"}},
-		{name: "spec-kit compact match", filter: "/spec spec", want: []string{"/spec mode spec-kit"}},
-		{name: "spec init with quoted title keeps init command", filter: "/spec init \"after entering each spec mode\"", want: []string{"/spec init"}},
+		{name: "specify init prefix match", filter: "/specify", want: []string{"/specify.init"}},
+		{name: "speckit status fuzzy match", filter: "speckit.stat", want: []string{"/speckit.status"}},
+		{name: "opsx init prefix match", filter: "opsx:init", want: []string{"/opsx:init"}},
 		{name: "no match", filter: "/zzzz", notWant: []string{"/help"}},
 	}
 
@@ -96,9 +103,14 @@ func slashNames(cs []slashCommand) []string {
 
 func TestRenderSlashHelp(t *testing.T) {
 	out := renderSlashHelp(slashCommands())
-	for _, want := range []string{"/help", "/models", "/spec mode spec-kit", "/spec mode openspec", "/quit", "show available commands"} {
+	for _, want := range []string{"/help", "/models", "/specify.init", "/speckit.status", "/opsx:init", "/quit", "show available commands"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSlashHelp output missing %q\n---\n%s", want, out)
+		}
+	}
+	for _, mustNot := range []string{"/spec mode spec-kit", "/spec mode openspec"} {
+		if strings.Contains(out, mustNot) {
+			t.Errorf("renderSlashHelp output should NOT contain retired %q\n---\n%s", mustNot, out)
 		}
 	}
 	if !strings.HasPrefix(strings.TrimSpace(out), "**Commands:**") {
@@ -106,20 +118,48 @@ func TestRenderSlashHelp(t *testing.T) {
 	}
 }
 
-func TestSpecHelpMentionsLifecycleCommands(t *testing.T) {
-	out := specHelpMarkdown()
-	for _, want := range []string{"speckit_lifecycle_status", "speckit_complete", "speckit_archive", "complete/archive cleanly"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("specHelpMarkdown output missing %q\n---\n%s", want, out)
-		}
+func TestHandleDirectSpecCommandSpecifyInitRequiresTitle(t *testing.T) {
+	var buf bytes.Buffer
+	handled, err := handleDirectSpecCommand(&buf, []string{"/specify.init"})
+	if !handled {
+		t.Fatalf("expected /specify.init to be handled directly")
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Usage: /specify.init <title>") {
+		t.Fatalf("expected usage hint, got %q", buf.String())
 	}
 }
 
-func TestSpecKitWorkflowSummaryExplainsCleanLifecycle(t *testing.T) {
-	out := specKitWorkflowSummary()
-	for _, want := range []string{"draft", "in_progress", "completed", "archived", "After implementation: validate -> mark completed -> optionally archive"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("specKitWorkflowSummary output missing %q\n---\n%s", want, out)
-		}
+func TestHandleDirectSpecCommandOpsxInitRequiresName(t *testing.T) {
+	var buf bytes.Buffer
+	handled, err := handleDirectSpecCommand(&buf, []string{"/opsx:init"})
+	if !handled || err != nil {
+		t.Fatalf("expected /opsx:init handled without error, got handled=%v err=%v", handled, err)
+	}
+	if !strings.Contains(buf.String(), "Usage: /opsx:init <change-name>") {
+		t.Fatalf("expected usage hint, got %q", buf.String())
 	}
 }
+
+func TestHandleDirectSpecCommandSpeckitStatusMissingDir(t *testing.T) {
+	var buf bytes.Buffer
+	handled, err := handleDirectSpecCommand(&buf, []string{"/speckit.status", "definitely-not-a-real-dir-xyz"})
+	if !handled || err != nil {
+		t.Fatalf("expected /speckit.status handled without error, got handled=%v err=%v", handled, err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "No specs directory") {
+		t.Fatalf("expected missing-dir hint, got %q", out)
+	}
+}
+
+func TestHandleDirectSpecCommandUnknownPassesThrough(t *testing.T) {
+	var buf bytes.Buffer
+	handled, _ := handleDirectSpecCommand(&buf, []string{"/speckit.specify", "stuff"})
+	if handled {
+		t.Fatalf("/speckit.specify should fall through to agent routing, not be handled directly")
+	}
+}
+

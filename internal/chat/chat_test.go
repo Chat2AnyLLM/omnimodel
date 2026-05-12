@@ -2114,3 +2114,64 @@ func TestPendingSubmitIsAbsorbedByIncomingPasteText(t *testing.T) {
 		t.Fatalf("textarea = %q, want absorbed newline before pasted text", got)
 	}
 }
+
+func TestChineseRunesArePreservedInTextareaInput(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("你好，世界")})
+	m = raw.(chatTUIModel)
+
+	if got, want := m.textarea.Value(), "你好，世界"; got != want {
+		t.Fatalf("textarea value = %q, want %q", got, want)
+	}
+}
+
+func TestRenderSingleLineTextareaCJKFitsInWidth(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m.applyTextareaValue("你好世界测试")
+	rendered := m.renderSingleLineTextarea(40)
+
+	displayWidth := xansi.StringWidth(rendered)
+	if displayWidth > 40 {
+		t.Fatalf("rendered display width = %d, exceeds available width 40", displayWidth)
+	}
+	if !strings.Contains(rendered, "你") {
+		t.Fatal("rendered output should contain Chinese characters")
+	}
+}
+
+func TestRenderSingleLineTextareaCJKScrolling(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	long := strings.Repeat("测", 50)
+	m.applyTextareaValue(long)
+	rendered := m.renderSingleLineTextarea(30)
+
+	displayWidth := xansi.StringWidth(rendered)
+	if displayWidth > 30 {
+		t.Fatalf("rendered display width = %d, exceeds available width 30; text: %q", displayWidth, rendered)
+	}
+}
+
+func TestRenderSingleLineTextareaMixedASCIIAndCJK(t *testing.T) {
+	t.Parallel()
+
+	m := readyChatTUIModelForInput()
+	m.applyTextareaValue("hello你好world世界")
+	rendered := m.renderSingleLineTextarea(40)
+
+	displayWidth := xansi.StringWidth(rendered)
+	if displayWidth > 40 {
+		t.Fatalf("rendered display width = %d, exceeds available width 40", displayWidth)
+	}
+}
+
+func TestConfigureUTF8ConsoleIsSafeToCall(t *testing.T) {
+	if err := configureUTF8Console(); err != nil {
+		t.Fatalf("configureUTF8Console() returned error: %v", err)
+	}
+}

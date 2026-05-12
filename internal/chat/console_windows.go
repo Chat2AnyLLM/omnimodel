@@ -4,12 +4,22 @@ package chat
 
 import "golang.org/x/sys/windows"
 
-// init forces the Windows console input and output code pages to UTF-8 (65001).
-// Without this, Chinese Windows defaults to CP936 (GBK), and multi-byte input
-// typed into the TUI textarea is decoded as GBK while bubbletea expects UTF-8,
-// producing mojibake like "浣犲ソ" for "你好".
+const windowsUTF8CodePage uint32 = 65001
+
+// configureUTF8Console sets the Windows console OUTPUT code page to UTF-8 so
+// that Bubble Tea's UTF-8 output renders correctly.
+//
+// The INPUT code page is intentionally left at the system default (e.g. CP936
+// on Chinese Windows). Bubble Tea's WithInputTTY option opens CONIN$ as a
+// separate file handle, which bypasses the ReadConsoleInput (Unicode) path and
+// falls back to byte-based ReadFile. Those bytes are then fed through
+// go-localereader, which converts from CP_ACP (the system ANSI code page) to
+// UTF-8. Setting the input CP to 65001 would cause ReadFile to emit UTF-8
+// bytes that localereader then misinterprets as GBK, producing mojibake.
+func configureUTF8Console() error {
+	return windows.SetConsoleOutputCP(windowsUTF8CodePage)
+}
+
 func init() {
-	const cpUTF8 uint32 = 65001
-	_ = windows.SetConsoleCP(cpUTF8)
-	_ = windows.SetConsoleOutputCP(cpUTF8)
+	_ = configureUTF8Console()
 }
