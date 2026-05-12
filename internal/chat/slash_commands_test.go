@@ -63,8 +63,8 @@ func TestFuzzySlashFilter(t *testing.T) {
 	}{
 		{name: "empty returns all", filter: "", want: []string{"/help"}},
 		{name: "leading slash only returns all", filter: "/", want: []string{"/help"}},
-		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/model", "/models"}},
-		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/model", "/models"}},
+		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/model"}},
+		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/model"}},
 		{name: "question mark alias", filter: "?", want: []string{"/help"}},
 		{name: "specify init prefix match", filter: "/specify", want: []string{"/specify.init"}},
 		{name: "speckit status fuzzy match", filter: "speckit.stat", want: []string{"/speckit.status"}},
@@ -110,7 +110,7 @@ func slashNames(cs []slashCommand) []string {
 
 func TestRenderSlashHelp(t *testing.T) {
 	out := renderSlashHelp(slashCommands())
-	for _, want := range []string{"/help", "/models", "/specify.init", "/speckit.status", "/openspec:init", "/quit", "show available commands"} {
+	for _, want := range []string{"/help", "/model (/models)", "/specify.init", "/speckit.status", "/openspec:init", "/quit", "show available commands"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSlashHelp output missing %q\n---\n%s", want, out)
 		}
@@ -220,16 +220,3 @@ func TestHandleDirectSpecCommandOpsxHelpDeprecatedAlias(t *testing.T) {
 		t.Fatalf("/opsx:help did not render help text:\n%s", buf.String())
 	}
 }
-
-func TestHandleDirectSpecCommandOpenspecHelpAlias(t *testing.T) {
-	// Backwards-compat sanity: /openspec:help is now canonical, no longer an alias.
-	var buf bytes.Buffer
-	handled, err := handleDirectSpecCommand(&buf, []string{"/openspec:help"})
-	if !handled || err != nil {
-		t.Fatalf("expected /openspec:help handled without error, got handled=%v err=%v", handled, err)
-	}
-	if !strings.Contains(buf.String(), "OpenSpec workflow") {
-		t.Fatalf("/openspec:help did not render help text:\n%s", buf.String())
-	}
-}
-

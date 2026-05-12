@@ -61,7 +61,7 @@ func TestSlashPickerFiltersAsYouType(t *testing.T) {
 	for _, c := range m.slashPicker.filtered {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"/model", "/models", "/mode"} {
+	for _, want := range []string{"/model", "/mode"} {
 		if !names[want] {
 			t.Errorf("expected %q in filtered set; got %v", want, namesOf(m.slashPicker.filtered))
 		}
@@ -134,7 +134,7 @@ func moveSelectionTo(t *testing.T, m chatTUIModel, name string) chatTUIModel {
 func TestSlashPickerEnterOnArglessSubmits(t *testing.T) {
 	m := newTestTUIModel()
 	m = typeRune(t, m, '/')
-	m = moveSelectionTo(t, m, "/models")
+	m = moveSelectionTo(t, m, "/permissions")
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = out.(chatTUIModel)
 	if m.slashPicker != nil {
@@ -246,5 +246,62 @@ func TestTUIHandleSlashOpenSpecAliasRoutesToAgent(t *testing.T) {
 	}
 	if strings.Contains(got, "Unknown command") {
 		t.Fatalf("TUI should not show unknown command for opsx alias\n---\n%s", got)
+	}
+}
+
+func TestTUIHandleSlashMaxTurnsAccepts1000(t *testing.T) {
+	m := newTestTUIModel()
+	out, cmd := m.handleSlash("/max-turns 1000")
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	mm, ok := out.(chatTUIModel)
+	if !ok {
+		t.Fatalf("handleSlash returned non chatTUIModel: %T", out)
+	}
+	if mm.maxTurns != 1000 {
+		t.Fatalf("maxTurns = %d, want 1000", mm.maxTurns)
+	}
+	got := xansi.Strip(renderEntriesForTest(mm.entries))
+	if !strings.Contains(got, "Max turns set to 1000") {
+		t.Fatalf("expected success message, got:\n%s", got)
+	}
+}
+
+func TestTUIHandleSlashMaxTurnsRejects1001(t *testing.T) {
+	m := newTestTUIModel()
+	out, cmd := m.handleSlash("/max-turns 1001")
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	mm, ok := out.(chatTUIModel)
+	if !ok {
+		t.Fatalf("handleSlash returned non chatTUIModel: %T", out)
+	}
+	got := xansi.Strip(renderEntriesForTest(mm.entries))
+	if !strings.Contains(got, "Max turns must be between 1 and 1000") {
+		t.Fatalf("expected error message, got:\n%s", got)
+	}
+	if mm.maxTurns != 1 {
+		t.Fatalf("maxTurns should remain default 1, got %d", mm.maxTurns)
+	}
+}
+
+func TestTUIHandleSlashMaxTurnsRejects0(t *testing.T) {
+	m := newTestTUIModel()
+	out, cmd := m.handleSlash("/max-turns 0")
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	mm, ok := out.(chatTUIModel)
+	if !ok {
+		t.Fatalf("handleSlash returned non chatTUIModel: %T", out)
+	}
+	got := xansi.Strip(renderEntriesForTest(mm.entries))
+	if !strings.Contains(got, "Max turns must be between 1 and 1000") {
+		t.Fatalf("expected error message, got:\n%s", got)
+	}
+	if mm.maxTurns != 1 {
+		t.Fatalf("maxTurns should remain default 1, got %d", mm.maxTurns)
 	}
 }

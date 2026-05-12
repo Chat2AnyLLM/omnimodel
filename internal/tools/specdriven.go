@@ -842,19 +842,17 @@ type openSpecArchiveTool struct{}
 type openSpecBulkArchiveTool struct{}
 type openSpecOnboardTool struct{}
 
-
-
-func OpenSpecPropose() Tool        { return &openSpecProposeTool{} }
-func OpenSpecExplore() Tool        { return &openSpecExploreTool{} }
-func OpenSpecNew() Tool            { return &openSpecNewTool{} }
-func OpenSpecContinue() Tool       { return &openSpecContinueTool{} }
-func OpenSpecFF() Tool             { return &openSpecFFTool{} }
-func OpenSpecApply() Tool          { return &openSpecApplyTool{} }
-func OpenSpecVerify() Tool         { return &openSpecVerifyTool{} }
-func OpenSpecSync() Tool           { return &openSpecSyncTool{} }
-func OpenSpecArchive() Tool        { return &openSpecArchiveTool{} }
-func OpenSpecBulkArchive() Tool    { return &openSpecBulkArchiveTool{} }
-func OpenSpecOnboard() Tool        { return &openSpecOnboardTool{} }
+func OpenSpecPropose() Tool     { return &openSpecProposeTool{} }
+func OpenSpecExplore() Tool     { return &openSpecExploreTool{} }
+func OpenSpecNew() Tool         { return &openSpecNewTool{} }
+func OpenSpecContinue() Tool    { return &openSpecContinueTool{} }
+func OpenSpecFF() Tool          { return &openSpecFFTool{} }
+func OpenSpecApply() Tool       { return &openSpecApplyTool{} }
+func OpenSpecVerify() Tool      { return &openSpecVerifyTool{} }
+func OpenSpecSync() Tool        { return &openSpecSyncTool{} }
+func OpenSpecArchive() Tool     { return &openSpecArchiveTool{} }
+func OpenSpecBulkArchive() Tool { return &openSpecBulkArchiveTool{} }
+func OpenSpecOnboard() Tool     { return &openSpecOnboardTool{} }
 
 func (t *openSpecProposeTool) Name() string { return "openspec_propose" }
 func (t *openSpecProposeTool) Description() string {
@@ -874,7 +872,7 @@ func (t *openSpecProposeTool) Execute(_ context.Context, _ Context, input json.R
 	if err != nil {
 		return Result{Output: "error creating artifacts: " + err.Error(), IsError: true}
 	}
-	return Result{Title: "OpenSpec proposal created", Output: fmt.Sprintf("Created %s\n\nArtifacts:\n- %s\n\nReady for implementation. Run openspec_apply or /opsx:apply.", change.dir, strings.Join(created, "\n- "))}
+	return Result{Title: "OpenSpec proposal created", Output: openSpecFillInstructions(created, change, strings.TrimSpace(p.Description))}
 }
 
 func (t *openSpecExploreTool) Name() string { return "openspec_explore" }
@@ -966,7 +964,7 @@ func (t *openSpecContinueTool) Execute(_ context.Context, _ Context, input json.
 		if err != nil {
 			return Result{Output: "error creating artifact: " + err.Error(), IsError: true}
 		}
-		return Result{Title: "OpenSpec artifact created", Output: fmt.Sprintf("Created %s\n\nRun openspec_continue again for the next artifact.", strings.Join(created, ", "))}
+		return Result{Title: "OpenSpec artifact created", Output: openSpecFillSingleArtifact(strings.Join(created, ", "), artifact.ID, change, strings.TrimSpace(p.Description))}
 	}
 	return Result{Title: "OpenSpec change complete", Output: fmt.Sprintf("All planning artifacts are present for %s. Run openspec_apply or /opsx:apply.", change.name)}
 }
@@ -989,7 +987,7 @@ func (t *openSpecFFTool) Execute(_ context.Context, _ Context, input json.RawMes
 	if err != nil {
 		return Result{Output: "error creating artifacts: " + err.Error(), IsError: true}
 	}
-	return Result{Title: "OpenSpec fast-forward complete", Output: fmt.Sprintf("Change: %s\nArtifacts created or already present:\n- %s\n\nReady for openspec_apply.", change.name, strings.Join(created, "\n- "))}
+	return Result{Title: "OpenSpec fast-forward complete", Output: openSpecFillInstructions(created, change, strings.TrimSpace(p.Description))}
 }
 
 func (t *openSpecApplyTool) Name() string { return "openspec_apply" }
@@ -1305,6 +1303,50 @@ func createOpenSpecArtifacts(change openSpecChange, ids []string, p openSpecChan
 		created = append(created, path)
 	}
 	return created, nil
+}
+
+func openSpecFillInstructions(created []string, change openSpecChange, description string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Scaffolded change directory: %s\n\nCreated artifacts:\n", change.dir))
+	for _, f := range created {
+		sb.WriteString(fmt.Sprintf("- %s\n", f))
+	}
+	sb.WriteString("\nIMPORTANT: These artifacts contain placeholder content. You MUST now fill them in with real, substantive content.\n\n")
+	sb.WriteString("Follow these steps:\n\n")
+	sb.WriteString("1. Read the codebase to understand the change scope — look at relevant source files, tests, and existing patterns.\n")
+	sb.WriteString("2. Read and update proposal.md: Write a real motivation (Why), list specific user-visible and technical changes (What Changes), and identify concrete impact (affected files, specs, components).\n")
+	sb.WriteString("3. Read and update specs/general/spec.md: Write real ADDED/MODIFIED/REMOVED requirements using SHALL language, with specific GIVEN/WHEN/THEN acceptance scenarios based on the actual change behavior.\n")
+	sb.WriteString("4. Read and update design.md: Document real context, design decisions with trade-offs considered, and risks with mitigations.\n")
+	sb.WriteString("5. Read and update tasks.md: Replace the generic tasks with specific, actionable implementation steps derived from the proposal, specs, and design. Each task should reference specific files or functions.\n\n")
+	sb.WriteString("Write the updated content to each file. Do NOT leave TODO placeholders.\n\n")
+	if description != "" {
+		sb.WriteString(fmt.Sprintf("User's intent: %s\n", description))
+	}
+	sb.WriteString(fmt.Sprintf("Change name: %s\n", change.name))
+	return sb.String()
+}
+
+func openSpecFillSingleArtifact(path string, artifactID string, change openSpecChange, description string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Created artifact: %s\n\n", path))
+	sb.WriteString("IMPORTANT: This artifact contains placeholder content. You MUST now fill it in with real, substantive content.\n\n")
+	switch artifactID {
+	case "proposal":
+		sb.WriteString("Read the codebase to understand the change scope, then update proposal.md with: real motivation (Why), specific user-visible and technical changes (What Changes), and concrete impact analysis.\n")
+	case "specs":
+		sb.WriteString("Read the codebase and the proposal, then update the spec with: real ADDED/MODIFIED/REMOVED requirements using SHALL language, and specific GIVEN/WHEN/THEN acceptance scenarios.\n")
+	case "design":
+		sb.WriteString("Read the codebase and the proposal, then update design.md with: real context, design decisions with trade-offs, and risks with mitigations.\n")
+	case "tasks":
+		sb.WriteString("Read the proposal, specs, and design, then update tasks.md with: specific, actionable implementation steps that reference concrete files and functions.\n")
+	}
+	sb.WriteString("\nDo NOT leave TODO placeholders. Write the updated content to the file.\n\n")
+	if description != "" {
+		sb.WriteString(fmt.Sprintf("User's intent: %s\n", description))
+	}
+	sb.WriteString(fmt.Sprintf("Change name: %s\n", change.name))
+	sb.WriteString("\nAfter filling in this artifact, run openspec_continue or /openspec:continue for the next one.\n")
+	return sb.String()
 }
 
 func renderOpenSpecArtifact(change openSpecChange, id string, p openSpecChangeInput) string {

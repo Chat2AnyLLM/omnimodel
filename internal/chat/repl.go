@@ -539,28 +539,14 @@ func handleSpecWorkflowSlashCommand(w io.Writer, fields []string, session *Sessi
 	}
 	arg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.Join(fields, " "), fields[0])), " "))
 
-	for _, cmd := range specdriven.SpecKitCommands() {
+	for _, cmd := range specdriven.AllSpecCommands() {
 		if name == cmd.Slash {
 			if session != nil {
-				session.SpecMode = "spec-kit"
+				session.SpecMode = cmd.Framework
 				session.Mode = "agent"
 			}
 			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
-			_, _ = fmt.Fprintf(w, "Spec mode: spec-kit. Switched to agent mode.\n")
-			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
-			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
-			return true, prompt, nil
-		}
-	}
-
-	for _, cmd := range specdriven.OpenSpecCommands() {
-		if name == cmd.Slash {
-			if session != nil {
-				session.SpecMode = "openspec"
-				session.Mode = "agent"
-			}
-			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
-			_, _ = fmt.Fprintf(w, "Spec mode: openspec. Switched to agent mode.\n")
+			_, _ = fmt.Fprintf(w, "Spec mode: %s. Switched to agent mode.\n", cmd.Framework)
 			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
 			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
 			return true, prompt, nil
@@ -574,4 +560,3 @@ func handleSpecWorkflowSlashCommand(w io.Writer, fields []string, session *Sessi
 // and /spec help shortcuts were retired in favour of /specify.init,
 // /opsx:init, /speckit.status, and the existing /speckit.* and /opsx:*
 // command families that route through the agent.
-

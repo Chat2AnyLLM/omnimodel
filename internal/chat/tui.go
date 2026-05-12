@@ -2958,8 +2958,8 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			add(m.renderMD(fmt.Sprintf("Max turns: **%d**", m.maxTurns)))
 			return m, nil
 		}
-		if n, err := strconv.Atoi(fields[1]); err != nil || n < 1 || n > 100 {
-			add(tuiErrorStyle.Render("Max turns must be between 1 and 100"))
+		if n, err := strconv.Atoi(fields[1]); err != nil || n < 1 || n > 1000 {
+			add(tuiErrorStyle.Render("Max turns must be between 1 and 1000"))
 			return m, nil
 		} else {
 			m.maxTurns = n
