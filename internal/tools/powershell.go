@@ -41,6 +41,5 @@ func (t *powershellTool) Execute(ctx context.Context, call Context, input json.R
 	if p.Command == "" {
 		return Result{Output: "error: command is required", IsError: true}
 	}
-	// runShellCommand already routes through powershell on Windows and sh elsewhere.
-	return runShellCommand(ctx, p.Command, p.TimeoutSeconds)
+	return runPowerShellCommand(ctx, p.Command, p.TimeoutSeconds)
 }

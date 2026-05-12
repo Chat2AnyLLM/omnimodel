@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -153,16 +154,10 @@ func TestRenderFooterStatusPrefersContextualState(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.mainWidth = 80
 
-	if got := m.renderFooterStatus(); !strings.Contains(got, "? help") {
+	if got := m.renderFooterStatus(); !strings.Contains(got, "Ctrl+O toggle all blocks") {
 		t.Fatalf("default footer = %q", got)
 	}
 
-	m.showInlineHelp = true
-	if got := m.renderFooterStatus(); !strings.Contains(got, "Space expand focused tool result") {
-		t.Fatalf("inline help footer = %q", got)
-	}
-
-	m.showInlineHelp = false
 	m.streamActive = true
 	if got := m.renderFooterStatus(); !strings.Contains(got, "Streaming response") {
 		t.Fatalf("stream footer = %q", got)
@@ -947,7 +942,7 @@ func TestTUIAssistantResponseClickDoesNotToggleExpansion(t *testing.T) {
 }
 
 func TestTUICtrlODoesNotToggleAssistantResponse(t *testing.T) {
-	// Ctrl+O has been removed. Pressing it should now be a no-op.
+	// Ctrl+O should only toggle tool results, not assistant responses
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -958,7 +953,7 @@ func TestTUICtrlODoesNotToggleAssistantResponse(t *testing.T) {
 		content: strings.Repeat("assistant response\n", 35),
 	})
 	m.syncViewport()
-	m.hoveredEntry = 0
+	m.textarea.Reset()
 
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	updated := model.(chatTUIModel)
@@ -1006,7 +1001,7 @@ func TestTUILeftMouseClickDoesNotToggleToolResultAfterEntryIndexShift(t *testing
 	}
 }
 
-func TestTUISpaceTogglesFocusedToolResultExpansion(t *testing.T) {
+func TestTUICtrlOTogglesAllToolResults(t *testing.T) {
 	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
@@ -1032,108 +1027,28 @@ func TestTUISpaceTogglesFocusedToolResultExpansion(t *testing.T) {
 		},
 	)
 	m.syncViewport()
-
-	// Space on focused expandable entry toggles only that one.
-	m.hoveredEntry = 0
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	updated := model.(chatTUIModel)
-	if !updated.expandedEntries[1] {
-		t.Fatal("expected Space to expand focused tool result")
-	}
-	if updated.expandedEntries[2] {
-		t.Fatal("Space should not expand non-focused tool results")
-	}
-
-	// Pressing Space again on the same focused entry collapses it.
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	updated = model.(chatTUIModel)
-	if updated.expandedEntries[1] {
-		t.Fatal("expected second Space to collapse focused tool result")
-	}
-
-	// Space on a non-overflowing tool result still toggles item expansion state.
-	updated.textarea.Reset()
-	updated.hoveredEntry = 2
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	updated = model.(chatTUIModel)
-	if !updated.expandedEntries[3] {
-		t.Fatal("Space should toggle non-overflowing tool result item state")
-	}
-
-	// Space with no hovered entry falls through to the textarea.
-	updated.textarea.Reset()
-	updated.hoveredEntry = -1
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	updated = model.(chatTUIModel)
-	if updated.textarea.Value() != " " {
-		t.Fatalf("Space with no hovered entry should reach textarea; got %q", updated.textarea.Value())
-	}
-}
-
-func TestTUIUpDownCyclesAllToolResultsWhenInputEmpty(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
-	m.ready = true
-	m.mainWidth = 80
-	m.viewport = viewport.New(80, 40)
-	m.entries = append(m.entries,
-		transcriptEntry{id: 1, kind: transcriptAssistant, content: "assistant"},
-		transcriptEntry{id: 2, kind: transcriptToolResult, toolName: "Read", content: strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, "\n")},
-		transcriptEntry{id: 3, kind: transcriptToolResult, toolName: "Short", content: "short"},
-		transcriptEntry{id: 4, kind: transcriptToolResult, toolName: "Write", content: strings.Join([]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}, "\n")},
-	)
-	m.syncViewport()
 	m.textarea.Reset()
-	m.hoveredEntry = -1
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	// Ctrl+O expands all tool results when any are collapsed
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	updated := model.(chatTUIModel)
-	if updated.hoveredEntry != 1 {
-		t.Fatalf("first KeyDown hoveredEntry = %d, want 1", updated.hoveredEntry)
+	if !updated.expandedEntries[1] || !updated.expandedEntries[2] || !updated.expandedEntries[3] {
+		t.Fatal("Ctrl+O should expand all tool results when any are collapsed")
 	}
 
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	// Ctrl+O collapses all tool results when all are expanded
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	updated = model.(chatTUIModel)
-	if updated.hoveredEntry != 2 {
-		t.Fatalf("second KeyDown hoveredEntry = %d, want 2", updated.hoveredEntry)
+	if updated.expandedEntries[1] || updated.expandedEntries[2] || updated.expandedEntries[3] {
+		t.Fatal("Ctrl+O should collapse all tool results when all are expanded")
 	}
 
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	// Ctrl+O does not work when textarea has input
+	updated.textarea.InsertString("text")
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	updated = model.(chatTUIModel)
-	if updated.hoveredEntry != 3 {
-		t.Fatalf("third KeyDown hoveredEntry = %d, want 3", updated.hoveredEntry)
-	}
-
-	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
-	updated = model.(chatTUIModel)
-	if updated.hoveredEntry != 2 {
-		t.Fatalf("KeyUp should move hoveredEntry back to 2, got %d", updated.hoveredEntry)
-	}
-
-	if updated.textarea.Value() != "" {
-		t.Fatalf("textarea should stay empty while cycling tool result focus, got %q", updated.textarea.Value())
-	}
-}
-
-func TestTUIUpDownPrefersToolResultFocusOverPromptHistory(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "chat", DefaultAPIShape, "", nil, nil)
-	m.ready = true
-	m.mainWidth = 80
-	m.viewport = viewport.New(80, 20)
-	m.entries = append(m.entries,
-		transcriptEntry{id: 1, kind: transcriptToolResult, toolName: "Short", content: "short output"},
-	)
-	m.syncViewport()
-	m.textarea.Reset()
-	m.promptHistory = []string{"alpha", "beta"}
-	m.hoveredEntry = -1
-
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	updated := model.(chatTUIModel)
-	if got := updated.textarea.Value(); got != "" {
-		t.Fatalf("textarea after KeyUp = %q, want empty", got)
-	}
-	if updated.hoveredEntry != 0 {
-		t.Fatalf("hoveredEntry after KeyUp = %d, want 0", updated.hoveredEntry)
+	if updated.expandedEntries[1] || updated.expandedEntries[2] || updated.expandedEntries[3] {
+		t.Fatal("Ctrl+O should not toggle when textarea has input")
 	}
 }
 
@@ -1995,6 +1910,26 @@ func readyChatTUIModelForInput() chatTUIModel {
 	m := newChatTUIModel(nil, "session-1", "model", "chat", "openai", "", nil, nil)
 	raw, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return raw.(chatTUIModel)
+}
+
+func TestTUITerminalOptions(t *testing.T) {
+	t.Parallel()
+
+	programIntField := func(p *tea.Program, name string) int64 {
+		return reflect.ValueOf(p).Elem().FieldByName(name).Int()
+	}
+	actual := tea.NewProgram(nil, tuiTerminalOptions()...)
+	expected := tea.NewProgram(
+		nil,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithInputTTY(),
+	)
+	for _, name := range []string{"inputType", "startupOptions"} {
+		if got, want := programIntField(actual, name), programIntField(expected, name); got != want {
+			t.Fatalf("%s = %d, want %d", name, got, want)
+		}
+	}
 }
 
 // sendLineByLinePaste simulates a terminal that pastes each line as a rune

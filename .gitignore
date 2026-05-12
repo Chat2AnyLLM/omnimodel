@@ -15,6 +15,7 @@ package-lock.json
 .eslintcache
 
 # build output
+build/
 dist/
 pages/index.html
 pages/admin/
@@ -22,6 +23,7 @@ pages/admin/
 # Go binaries
 /omnillm
 /omnillm.exe
+/omnicode
 /omnicode.exe
 /omniproxy
 /omniproxy.exe
@@ -46,3 +48,8 @@ pages/admin/
 
 # runtime logs
 omniproxy-*.log
+
+# generated memory logs
+memory/*.md
+internal/agent/memory/*.md
+internal/chat/memory/*.md

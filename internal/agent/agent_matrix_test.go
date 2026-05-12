@@ -348,13 +348,13 @@ func TestAgentMatrixAllAPIShapes(t *testing.T) {
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				dispatch := NewDispatch(stub, model, string(shape))
-					respCh, err := dispatch(context.Background(), &MessagesRequest{
-						Model:      model,
-						MaxTokens:  4096,
-						Messages:   []Message{testUserMessage("hi")},
-						Tools:      []toolspkg.ToolDefinition{testToolDefinition("get_current_time", stringPtr("Return current time"), map[string]any{"type": "object", "properties": map[string]any{}})},
-						ToolChoice: "auto",
-					})
+				respCh, err := dispatch(context.Background(), &MessagesRequest{
+					Model:      model,
+					MaxTokens:  4096,
+					Messages:   []Message{testUserMessage("hi")},
+					Tools:      []toolspkg.ToolDefinition{testToolDefinition("get_current_time", stringPtr("Return current time"), map[string]any{"type": "object", "properties": map[string]any{}})},
+					ToolChoice: "auto",
+				})
 				if err != nil {
 					t.Fatalf("dispatch error: %v", err)
 				}
@@ -397,7 +397,7 @@ func TestAgentMatrixSelectDispatchAllBackends(t *testing.T) {
 			t.Run(tag, func(t *testing.T) {
 				stub := &proxyStub{t: t, model: model}
 				dispatch := selectDispatch(stub, model, backend, DefaultAPIShape)
-					respCh, err := dispatch(context.Background(), testMessagesRequest(model, testUserMessage("hi")))
+				respCh, err := dispatch(context.Background(), testMessagesRequest(model, testUserMessage("hi")))
 				if err != nil {
 					t.Fatalf("[%s] dispatch error: %v", tag, err)
 				}
@@ -437,7 +437,7 @@ func TestAgentMatrixToolPayloadShape(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			stub := &proxyStub{t: t, model: model}
 			dispatch := NewChatCompletionsDispatch(stub, model)
-				_, err := dispatch(context.Background(), &MessagesRequest{Model: model, MaxTokens: 4096, Messages: []Message{testUserMessage("help")}, Tools: toolDefs, ToolChoice: "auto"})
+			_, err := dispatch(context.Background(), &MessagesRequest{Model: model, MaxTokens: 4096, Messages: []Message{testUserMessage("help")}, Tools: toolDefs, ToolChoice: "auto"})
 			if err != nil {
 				t.Fatalf("[%s] dispatch error: %v", model, err)
 			}
@@ -489,15 +489,12 @@ func TestAgentMatrixToolPayloadShape(t *testing.T) {
 // TestAgentMatrixCoreToolsRegistered ensures that for every model, RunTurn
 // forwards all 17 registered core tools to the proxy in Anthropic shape.
 func TestAgentMatrixCoreToolsRegistered(t *testing.T) {
+	// Skill filtering is active: only core tools + load_skill are visible
+	// by default. Skill tools (web, task, filesystem, etc.) require load_skill.
 	wantToolNames := []string{
-		"agent", "apply_patch", "ask_user_question", "bash", "batch",
-		"calculator", "codesearch", "config", "edit",
-		"enter_plan_mode", "enter_worktree", "exit_plan_mode", "exit_worktree",
-		"get_current_time", "glob", "grep", "ls", "lsp", "multiedit",
-		"notebook_edit", "powershell", "read", "schedule_cron", "send_message",
-		"sleep", "task_create", "task_get", "task_list", "task_output",
-		"task_stop", "task_update", "todo_write", "tool_search",
-		"web_fetch", "web_search", "write",
+		"ask_user_question", "bash", "edit", "get_current_time",
+		"glob", "grep", "load_skill", "ls", "powershell", "read",
+		"todo_write", "write",
 	}
 	sort.Strings(wantToolNames)
 
@@ -519,8 +516,8 @@ func TestAgentMatrixCoreToolsRegistered(t *testing.T) {
 
 			payload := stub.capturedPayload[0]
 			toolsRaw, _ := payload["tools"].([]any)
-			if len(toolsRaw) != 36 {
-				t.Fatalf("[%s] tools count = %d, want 36", model, len(toolsRaw))
+			if len(toolsRaw) != 12 {
+				t.Fatalf("[%s] tools count = %d, want 12", model, len(toolsRaw))
 			}
 			var gotNames []string
 			for _, raw := range toolsRaw {

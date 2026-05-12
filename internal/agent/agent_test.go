@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"omnillm/internal/tools"
 )
@@ -323,7 +326,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 	}
 
 	toolsPayload, ok := capturedPayload["tools"].([]any)
-	if !ok || len(toolsPayload) != 36 {
+	if !ok || len(toolsPayload) != 12 {
 		t.Fatalf("tools = %#v", capturedPayload["tools"])
 	}
 
@@ -355,7 +358,7 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	wantNames := []string{"agent", "apply_patch", "ask_user_question", "bash", "batch", "calculator", "codesearch", "config", "edit", "enter_plan_mode", "enter_worktree", "exit_plan_mode", "exit_worktree", "get_current_time", "glob", "grep", "ls", "lsp", "multiedit", "notebook_edit", "powershell", "read", "schedule_cron", "send_message", "sleep", "task_create", "task_get", "task_list", "task_output", "task_stop", "task_update", "todo_write", "tool_search", "web_fetch", "web_search", "write"}
+	wantNames := []string{"ask_user_question", "bash", "edit", "get_current_time", "glob", "grep", "load_skill", "ls", "powershell", "read", "todo_write", "write"}
 	if fmt.Sprint(names) != fmt.Sprint(wantNames) {
 		t.Fatalf("tool names = %#v, want %#v", names, wantNames)
 	}
@@ -376,17 +379,32 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 		t.Fatalf("system prompt missing runtime OS %q: %q", runtime.GOOS, systemText)
 	}
 	wantShellTool := "bash"
-		if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" {
 		wantShellTool = "powershell"
 	}
 	if !strings.Contains(systemText, `Use the "`+wantShellTool+`" tool to execute shell commands`) {
 		t.Fatalf("system prompt missing shell tool guidance %q: %q", wantShellTool, systemText)
 	}
-	if !strings.Contains(systemText, "When presenting output for the OmniCode conversation UI, prefer structured sections so content reads cleanly in separate blocks.") {
-		t.Fatalf("system prompt missing structured output guidance: %q", systemText)
+	if !strings.Contains(systemText, "When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style") {
+		t.Fatalf("system prompt missing Go TUI output guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "Prefer Markdown-first output with structured headings") {
+		t.Fatalf("system prompt missing markdown-first guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "use clean panel/card-style sections where helpful") {
+		t.Fatalf("system prompt missing panel/card guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "present progress as streaming event blocks") {
+		t.Fatalf("system prompt missing streaming event guidance: %q", systemText)
 	}
 	if !strings.Contains(systemText, "format it as a compact, readable markdown table whenever practical") {
 		t.Fatalf("system prompt missing markdown table guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "Bubble Tea for the TUI framework, Lip Gloss for styling/layout, Bubbles for components, Glamour for Markdown rendering, and charmbracelet/x/ansi for ANSI helpers") {
+		t.Fatalf("system prompt missing Charm stack guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "avoid raw ANSI spaghetti") {
+		t.Fatalf("system prompt missing copy/paste friendly output guidance: %q", systemText)
 	}
 }
 
@@ -406,6 +424,27 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+func TestBuildSystemPromptIncludesGoTUIOutputGuidance(t *testing.T) {
+	systemText := buildSystemPrompt("windows")
+
+	checks := map[string]string{
+		"runtime OS":          "The current operating system is windows",
+		"PowerShell guidance": `Use the "powershell" tool to execute shell commands`,
+		"Go TUI style":        "When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style",
+		"Markdown-first":      "Prefer Markdown-first output with structured headings",
+		"panel/card sections": "use clean panel/card-style sections where helpful",
+		"streaming events":    "present progress as streaming event blocks",
+		"markdown tables":     "format it as a compact, readable markdown table whenever practical",
+		"Charm stack":         "Bubble Tea for the TUI framework, Lip Gloss for styling/layout, Bubbles for components, Glamour for Markdown rendering, and charmbracelet/x/ansi for ANSI helpers",
+		"copy/paste friendly": "avoid raw ANSI spaghetti",
+		"reactive workflows":  "reactive state, streaming views, Markdown rendering, viewport abstractions, and async tool-event blocks",
+	}
+	for name, want := range checks {
+		if !strings.Contains(systemText, want) {
+			t.Fatalf("system prompt missing %s guidance %q: %q", name, want, systemText)
+		}
+	}
+}
 func TestSelectDispatchAlwaysUsesMessagesProxy(t *testing.T) {
 	var capturedPath string
 	client := &stubAgentClient{
@@ -429,4 +468,62 @@ func newTestAgent() *Agent {
 	registry.Register(tools.Bash())
 	memory := NewBufferMemory(8)
 	return NewAgent(registry, memory, 10, nil)
+}
+
+func TestRunTurnAppendsDailyLogEntries(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(workspaceDirEnv, dir)
+
+	client := &stubAgentClient{
+		postFn: func(_ string, _ any) ([]byte, error) {
+			return []byte(`{"id":"msg_test","type":"message","role":"assistant","model":"deepseek-v4-flash","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}`), nil
+		},
+	}
+
+	_, err := RunTurn(context.Background(), client, "sess-log", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List files", nil, nil, nil, 10)
+	if err != nil {
+		t.Fatalf("RunTurn returned error: %v", err)
+	}
+
+	logPath := filepath.Join(dir, memoryLogDir, time.Now().Format("2006-01-02")+".md")
+	data, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("reading daily log: %v", readErr)
+	}
+	content := string(data)
+	if !strings.Contains(content, "[sess-log] run_start") {
+		t.Fatalf("daily log missing run_start entry: %q", content)
+	}
+	if !strings.Contains(content, "[sess-log] run_done") {
+		t.Fatalf("daily log missing run_done entry: %q", content)
+	}
+}
+
+func TestRunTurnAppendsDailyLogErrorEntry(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(workspaceDirEnv, dir)
+
+	client := &stubAgentClient{
+		postFn: func(_ string, _ any) ([]byte, error) {
+			return nil, fmt.Errorf("upstream unavailable")
+		},
+	}
+
+	_, err := RunTurn(context.Background(), client, "sess-log-err", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List files", nil, nil, nil, 10)
+	if err == nil {
+		t.Fatal("expected RunTurn error")
+	}
+
+	logPath := filepath.Join(dir, memoryLogDir, time.Now().Format("2006-01-02")+".md")
+	data, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("reading daily log: %v", readErr)
+	}
+	content := string(data)
+	if !strings.Contains(content, "[sess-log-err] run_start") {
+		t.Fatalf("daily log missing run_start entry: %q", content)
+	}
+	if !strings.Contains(content, "[sess-log-err] run_error") {
+		t.Fatalf("daily log missing run_error entry: %q", content)
+	}
 }

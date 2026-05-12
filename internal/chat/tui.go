@@ -94,10 +94,10 @@ var (
 
 // ConfigSaveCallback is invoked when the TUI state changes so the hosting binary
 // (e.g. omnicode) can persist user preferences.
-var ConfigSaveCallback func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
+var ConfigSaveCallback func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)
 
 // SetConfigSaveCallback sets the callback for persisting TUI preferences.
-func SetConfigSaveCallback(cb func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) {
+func SetConfigSaveCallback(cb func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)) {
 	ConfigSaveCallback = cb
 }
 
@@ -108,6 +108,7 @@ var InitialConfig struct {
 	APIShape  string
 	Autopilot bool
 	MaxTurns  int
+	SpecMode  string
 }
 
 const (
@@ -115,6 +116,10 @@ const (
 	tuiMinSidebarWidth = 60
 	// Align tool-result click hit-testing with perceived terminal row placement.
 	tuiToolResultHitRowOffset = 4
+	slashPickerVisible        = 20
+	tuiViewportMinHeight      = 1
+	tuiBaseRows               = 6
+	tuiSlashPickerFrameRows   = 3
 )
 
 type logoStyle struct {
@@ -477,6 +482,7 @@ type chatTUIModel struct {
 	mode         string
 	agentBackend string
 	apiShape     string
+	specMode     string
 	prog         *tea.Program
 
 	viewport viewport.Model
@@ -494,6 +500,7 @@ type chatTUIModel struct {
 	streamBuf            string
 	queuedPrompt         string
 	picker               *modelPickerState
+	slashPicker          *slashPickerState
 	sessionPicker        *sessionPickerState
 	pendingPermission    *pendingPermissionState
 	agentTurnCancel      context.CancelFunc
@@ -514,10 +521,9 @@ type chatTUIModel struct {
 	historySearchQuery  string
 	historySearchCursor int
 
-	onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
+	onConfigSave func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)
 
 	textareaExpanded bool
-	showInlineHelp   bool
 	ctrlCPrimed      bool
 
 	width                 int
@@ -531,7 +537,7 @@ type chatTUIModel struct {
 	middleDragStartOffset int
 }
 
-func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message, onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) chatTUIModel {
+func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message, onConfigSave func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)) chatTUIModel {
 	sp := spinner.New()
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7"))
 	sp.Spinner = spinner.Dot
@@ -554,6 +560,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 		mode:                defaultMode(mode, InitialConfig.Mode),
 		apiShape:            defaultAPIShape(apiShape, InitialConfig.APIShape),
 		agentBackend:        agentBackend,
+		specMode:            InitialConfig.SpecMode,
 		spinner:             sp,
 		textarea:            ta,
 		mdRenderer:          mdR,
@@ -629,7 +636,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Layout: title(1) + div(1) + viewport + div(1) + textarea(≥1) + status(1) + help(2) = 7 fixed rows
 		// Reserve an extra row for the conditional permission/search status line.
-		vpH := max(msg.Height-10, 3)
+		vpH := m.viewportHeight(msg.Height)
 		if !m.ready {
 			m.viewport = viewport.New(m.mainWidth, vpH)
 			// Disable single-letter viewport keybindings (b, u, d, f, j, k, h, l)
@@ -762,6 +769,40 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.slashPicker != nil {
+			switch msg.Type {
+			case tea.KeyEscape:
+				m.slashPicker = nil
+				return m, nil
+			case tea.KeyUp, tea.KeyCtrlP:
+				m.slashPicker.moveSelection(-1, slashPickerVisible)
+				return m, nil
+			case tea.KeyDown, tea.KeyCtrlN:
+				m.slashPicker.moveSelection(1, slashPickerVisible)
+				return m, nil
+			case tea.KeyEnter:
+				sel, ok := m.slashPicker.selected()
+				if !ok {
+					return m, nil
+				}
+				m.slashPicker = nil
+				current := strings.TrimSpace(m.textarea.Value())
+				if sel.TakesArgs && !strings.EqualFold(current, sel.Name) {
+					m.applyTextareaValue(sel.Name + " ")
+					return m, nil
+				}
+				m.applyTextareaValue(sel.Name)
+				return m.submitTextareaInput()
+			case tea.KeySpace:
+				current := strings.TrimSpace(m.textarea.Value())
+				if current == specSlashCommandName() {
+					m.applyTextareaValue(specSlashCommandName() + " ")
+					return m, nil
+				}
+			}
+			// Key not consumed by the picker — let the outer switch and
+			// the textarea handle it; updateSlashPicker reruns the filter.
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			if m.textarea.Value() != "" {
@@ -831,21 +872,27 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				}
 			}
-			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == '?' && strings.TrimSpace(m.textarea.Value()) == "" {
-				m.showInlineHelp = !m.showInlineHelp
-				return m, nil
-			}
-			if m.textarea.Focused() && !m.streamActive && len(msg.Runes) == 1 && msg.Runes[0] == ' ' && m.textarea.Value() == "" && m.hoveredEntry >= 0 && m.hoveredEntry < len(m.entries) {
-				entry := m.entries[m.hoveredEntry]
-				if entry.kind == transcriptToolResult {
-					if m.expandedEntries[entry.id] {
-						delete(m.expandedEntries, entry.id)
-					} else {
-						m.expandedEntries[entry.id] = true
+		case tea.KeyCtrlO:
+			if m.textarea.Focused() && strings.TrimSpace(m.textarea.Value()) == "" {
+				// Toggle all tool results: if any are collapsed, expand all; otherwise collapse all
+				anyCollapsed := false
+				for _, entry := range m.entries {
+					if entry.kind == transcriptToolResult && !m.expandedEntries[entry.id] {
+						anyCollapsed = true
+						break
 					}
-					m.syncViewport()
-					return m, nil
 				}
+				for _, entry := range m.entries {
+					if entry.kind == transcriptToolResult {
+						if anyCollapsed {
+							m.expandedEntries[entry.id] = true
+						} else {
+							delete(m.expandedEntries, entry.id)
+						}
+					}
+				}
+				m.syncViewport()
+				return m, nil
 			}
 		case tea.KeyUp, tea.KeyCtrlP:
 			if !m.textarea.Focused() || m.streamActive {
@@ -853,9 +900,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.historySearchMode {
 				m.applyHistorySearchResult()
-				return m, nil
-			}
-			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(-1) {
 				return m, nil
 			}
 			m.setAutoFollow(false)
@@ -875,9 +919,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 				}
-				return m, nil
-			}
-			if strings.TrimSpace(m.textarea.Value()) == "" && m.cycleExpandableToolResultFocus(1) {
 				return m, nil
 			}
 			m.updateAutoFollowFromViewport()
@@ -1158,11 +1199,82 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textareaExpanded = false
 		m.textarea.SetHeight(1)
 	}
+	m.updateSlashPicker()
+	m.resizeViewportForCurrentLayout()
 	if !m.textarea.Focused() || m.streamActive || m.pendingPermission != nil {
 		m.pendingSubmitNewline = false
 	}
 	cmds = append(cmds, vpCmd, taCmd)
 	return m, tea.Batch(cmds...)
+}
+
+// viewportHeight returns the transcript viewport height for the current layout.
+func (m *chatTUIModel) viewportHeight(totalHeight int) int {
+	if totalHeight <= 0 {
+		return tuiViewportMinHeight
+	}
+	reserved := tuiBaseRows + m.extraTextareaRows() + m.slashPickerHeight()
+	return max(totalHeight-reserved, tuiViewportMinHeight)
+}
+
+func (m *chatTUIModel) resizeViewportForCurrentLayout() {
+	if !m.ready || m.height <= 0 {
+		return
+	}
+	nextHeight := m.viewportHeight(m.height)
+	if m.viewport.Height != nextHeight {
+		m.viewport.Height = nextHeight
+	}
+}
+
+func (m *chatTUIModel) slashPickerVisibleRows() int {
+	if m.height <= 0 {
+		return slashPickerVisible
+	}
+	available := m.height - tuiBaseRows - tuiViewportMinHeight - tuiSlashPickerFrameRows - m.extraTextareaRows()
+	return max(minInt(slashPickerVisible, available), 0)
+}
+
+func (m *chatTUIModel) slashPickerHeight() int {
+	if m.slashPicker == nil {
+		return 0
+	}
+	visible := m.slashPickerVisibleRows()
+	if visible == 0 {
+		return 0
+	}
+	if visible > len(m.slashPicker.filtered) {
+		visible = len(m.slashPicker.filtered)
+	}
+	if visible == 0 {
+		visible = 1
+	}
+	return tuiSlashPickerFrameRows + visible
+}
+
+func (m *chatTUIModel) extraTextareaRows() int {
+	return max(m.textarea.Height()-1, 0)
+}
+
+func (m *chatTUIModel) updateSlashPicker() {
+	if m.streamActive || m.pendingPermission != nil || m.historySearchMode {
+		m.slashPicker = nil
+		return
+	}
+	value := m.textarea.Value()
+	if strings.Contains(value, "\n") {
+		m.slashPicker = nil
+		return
+	}
+	trimmed := strings.TrimLeft(value, " \t")
+	if !strings.HasPrefix(trimmed, "/") {
+		m.slashPicker = nil
+		return
+	}
+	if m.slashPicker == nil {
+		m.slashPicker = newSlashPickerState()
+	}
+	m.slashPicker.setFilter(trimmed)
 }
 
 func (m chatTUIModel) View() string {
@@ -1180,6 +1292,10 @@ func (m chatTUIModel) View() string {
 	main.WriteString("\n")
 	main.WriteString(m.viewport.View())
 	main.WriteString("\n")
+	if overlay := m.renderSlashPicker(); overlay != "" {
+		main.WriteString(overlay)
+		main.WriteString("\n")
+	}
 	main.WriteString(m.renderTextarea())
 	if status := m.renderFooterStatus(); status != "" {
 		main.WriteString("\n")
@@ -1208,6 +1324,9 @@ func (m chatTUIModel) titleText() string {
 	if m.model != "" {
 		title += "  │  " + m.model
 	}
+	if m.specMode != "" {
+		title += "  │  " + m.specMode
+	}
 	return title
 }
 
@@ -1222,6 +1341,52 @@ func (m chatTUIModel) renderTextarea() string {
 	shellInnerWidth := tuiMax(0, contentWidth-2)
 	inner := lipgloss.NewStyle().Padding(0, 2, 0, 2).Width(inputWidth).Render(taView)
 	return tuiInputShellStyle.Width(shellInnerWidth).Render(inner)
+}
+
+func (m chatTUIModel) renderSlashPicker() string {
+	if m.slashPicker == nil {
+		return ""
+	}
+	visible := m.slashPickerVisibleRows()
+	if visible == 0 {
+		return ""
+	}
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12")).Padding(0, 1)
+	normalStyle := lipgloss.NewStyle().Padding(0, 1)
+
+	width := tuiMax(40, m.transcriptBlockMaxWidth())
+	if visible > len(m.slashPicker.filtered) {
+		visible = len(m.slashPicker.filtered)
+	}
+	start := m.slashPicker.scrollOffset
+	end := start + visible
+	if end > len(m.slashPicker.filtered) {
+		end = len(m.slashPicker.filtered)
+	}
+
+	var rows strings.Builder
+	if len(m.slashPicker.filtered) == 0 {
+		rows.WriteString(muted.Render("  No matching commands"))
+	} else {
+		for i := start; i < end; i++ {
+			c := m.slashPicker.filtered[i]
+			label := fmt.Sprintf("%-14s %s", c.Name, muted.Render(c.Summary))
+			if i == m.slashPicker.selectedIdx {
+				rows.WriteString(selectedStyle.Width(width - 4).Render(label))
+			} else {
+				rows.WriteString(normalStyle.Render(label))
+			}
+			if i < end-1 {
+				rows.WriteString("\n")
+			}
+		}
+	}
+
+	header := lipgloss.NewStyle().Bold(true).Render("Commands")
+	hint := muted.Render("Enter selects • Esc closes • ↑↓ navigate")
+	body := lipgloss.JoinVertical(lipgloss.Left, header+"  "+hint, rows.String())
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("12")).Padding(0, 1).Width(width - 2).Render(body)
 }
 
 func (m chatTUIModel) renderSingleLineTextarea(width int) string {
@@ -1633,16 +1798,13 @@ func (m chatTUIModel) renderFooterStatus() string {
 	if status := m.selectionStatus(); status != "" {
 		return status
 	}
-	if m.showInlineHelp {
-		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Space expand focused tool result · Ctrl+R search · Shift+Tab autopilot · ? hide help · /help commands")
-	}
-	status := "Enter send · Ctrl+J newline · ? help"
 	if m.streamActive {
-		status = "Streaming response… Esc cancels"
-	} else if m.queuedPrompt != "" {
-		status = "Queued prompt ready"
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Streaming response… Esc cancels")
 	}
-	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render(status)
+	if m.queuedPrompt != "" {
+		return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Queued prompt ready")
+	}
+	return tuiStatusStyle.Width(m.transcriptBlockMaxWidth()).Render("Enter send · Ctrl+J newline · Ctrl+O toggle all blocks · Ctrl+R search · Shift+Tab autopilot · /help commands")
 }
 
 func (m chatTUIModel) renderPermissionChip() string {
@@ -1755,7 +1917,7 @@ func (m chatTUIModel) renderToolResultOutput(content string, expanded bool) stri
 	}
 
 	if !expanded && len(lines) > toolResultMaxLines {
-		out = append(out, tuiToolResultLineStyle.Width(width).Render(fmt.Sprintf("… (%d lines hidden) [click or space to expand]", len(lines)-toolResultMaxLines)))
+		out = append(out, tuiToolResultLineStyle.Width(width).Render(fmt.Sprintf("… (%d lines hidden)", len(lines)-toolResultMaxLines)))
 	}
 	return strings.Join(out, "\n")
 }
@@ -1784,6 +1946,15 @@ func (m chatTUIModel) renderPermissionSection(text string) string {
 	label := tuiPermissionLabelStyle.Render("Permission required")
 	body := tuiPermissionBlockStyle.Width(m.transcriptBlockMaxWidth()).MaxWidth(m.transcriptBlockMaxWidth()).Render(text)
 	return lipgloss.JoinVertical(lipgloss.Left, label, body)
+}
+
+func displayAgentBackendName(agentBackend string) string {
+	switch strings.TrimSpace(strings.ToLower(agentBackend)) {
+	case "google-adk":
+		return "Omnicode"
+	default:
+		return agentBackend
+	}
 }
 
 func (m chatTUIModel) renderSidebar() string {
@@ -1818,7 +1989,12 @@ func (m chatTUIModel) renderSidebar() string {
 		tuiSidebarLabelStyle.Render("Status") + "\n" + statusDot + " " + status,
 	}
 	if m.agentBackend != "" {
-		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(m.agentBackend))
+		agentLabel := displayAgentBackendName(m.agentBackend)
+		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(agentLabel))
+	}
+	if m.specMode != "" {
+		specLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Render(m.specMode)
+		sections = append(sections, tuiSidebarLabelStyle.Render("Spec")+"\n"+specLabel)
 	}
 	sections = append(sections,
 		tuiSidebarHeaderStyle.Render("Actions"),
@@ -1891,7 +2067,7 @@ func (m *chatTUIModel) cancelOngoingTurn(recordCancellation bool) {
 
 func (m *chatTUIModel) saveConfig() {
 	if m.onConfigSave != nil {
-		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.autopilot, m.maxTurns)
+		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.specMode, m.autopilot, m.maxTurns)
 	}
 }
 
@@ -1975,49 +2151,6 @@ func (m *chatTUIModel) updateHoveredEntry(localY int, insideViewport bool) bool 
 
 func (m *chatTUIModel) toolResultIsExpandable(entry transcriptEntry) bool {
 	return entry.kind == transcriptToolResult
-}
-
-func (m *chatTUIModel) cycleExpandableToolResultFocus(direction int) bool {
-	if direction == 0 {
-		direction = 1
-	}
-	indices := make([]int, 0)
-	for i, entry := range m.entries {
-		if m.toolResultIsExpandable(entry) {
-			indices = append(indices, i)
-		}
-	}
-	if len(indices) == 0 {
-		return false
-	}
-
-	currentPos := -1
-	for pos, idx := range indices {
-		if idx == m.hoveredEntry {
-			currentPos = pos
-			break
-		}
-	}
-
-	var next int
-	if currentPos == -1 {
-		if direction > 0 {
-			next = indices[0]
-		} else {
-			next = indices[len(indices)-1]
-		}
-	} else {
-		if direction > 0 {
-			next = indices[(currentPos+1)%len(indices)]
-		} else {
-			next = indices[(currentPos-1+len(indices))%len(indices)]
-		}
-	}
-
-	m.hoveredEntry = next
-	m.scrollEntryIntoView(next)
-	m.syncViewport()
-	return true
 }
 
 func (m *chatTUIModel) scrollEntryIntoView(entryIdx int) {
@@ -2760,7 +2893,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `↑`/`↓` — focus expandable tool results (when input is empty)\n- `Space` — expand/collapse the focused tool result\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD(renderSlashHelp(slashCommands())))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
@@ -2889,12 +3022,58 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 	default:
 		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s — use /help", fields[0])))
 		return m, nil
+	case "/spec":
+		sub := ""
+		if len(fields) > 1 {
+			sub = strings.ToLower(fields[1])
+		}
+		if sub == "" || sub == "help" {
+			add(m.renderMD(specHelpMarkdown()))
+		} else if sub == "mode" {
+			if len(fields) < 3 {
+				current := m.specMode
+				if current == "" {
+					current = "off"
+				}
+				add(m.renderMD(fmt.Sprintf("Current spec mode: **%s**\n\nUsage: `/spec mode <spec-kit|openspec|off>`", current)))
+			} else {
+				newMode := strings.ToLower(fields[2])
+				if newMode == "off" {
+					m.specMode = ""
+					add(m.renderMD("Spec mode **disabled**."))
+					m.saveConfig()
+				} else if isValidSpecMode(newMode) {
+					m.specMode = newMode
+					m.mode = "agent"
+					var summary string
+					if newMode == "spec-kit" {
+						summary = specKitWorkflowSummary()
+					} else {
+						summary = openSpecWorkflowSummary()
+					}
+					add(m.renderMD(fmt.Sprintf("Spec mode set to **%s**. Switched to **agent** mode.\n\n%s", newMode, summary)))
+					m.saveConfig()
+				} else {
+					add(tuiErrorStyle.Render(fmt.Sprintf("Unknown spec mode %q. Valid modes: spec-kit, openspec, off", newMode)))
+				}
+			}
+		} else {
+			session := &SessionState{SpecMode: m.specMode}
+			var sb strings.Builder
+			handleSpecCommand(&sb, fields, session)
+			add(m.renderMD(sb.String()))
+		}
+		return m, nil
 	}
+}
+
+func tuiTerminalOptions() []tea.ProgramOption {
+	return []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithInputTTY()}
 }
 
 func RunTUI(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message) error {
 	m := newChatTUIModel(c, sessionID, model, mode, apiShape, agentBackend, history, ConfigSaveCallback)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tuiTerminalOptions()...)
 	go func() { p.Send(progReadyMsg{p: p}) }()
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI: %w", err)

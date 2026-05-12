@@ -1,5 +1,29 @@
 # AGENTS.md
 
+## OmniCode Agent Output Guidelines
+
+When displaying content to the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style inspired by Bubble Tea + Lip Gloss + Glamour patterns:
+
+- **Markdown-first:** Prefer structured Markdown with headings, bullets, fenced code blocks, and concise sections.
+- **Panel/card style for workflows:** When showing tasks, tool output, status, or summaries, use clean section blocks or box-style panels where helpful.
+- **Streaming/event-block mindset:** Present multi-step work as incremental status events, e.g. `⠋ Running tests...` then `✓ Running tests...`.
+- **Tables for dense operational data:** Use compact Markdown tables only when they improve readability, such as task lists, test results, metrics, schedules, or comparisons.
+- **Split-pane mental model:** Organize complex responses into clear areas such as `Current Task`, `Tool Output`, `Result`, `Next Steps`, and `Notes`.
+- **Keep output copy/paste friendly:** Avoid raw ANSI spaghetti, pixel-perfect coordinate layouts, or overly decorative formatting.
+- **Prefer concise, composable sections:** Use short headings and reusable blocks rather than large unstructured paragraphs.
+
+For Go TUI implementation guidance, prefer this stack unless there is a specific reason not to:
+
+| Purpose | Library |
+| --- | --- |
+| TUI framework | Bubble Tea |
+| Styling/layout | Lip Gloss |
+| Components | Bubbles |
+| Markdown rendering | Glamour |
+| ANSI helpers | charmbracelet/x/ansi |
+
+Design OmniCode agent workflows around reactive state, streaming views, Markdown rendering, viewport abstractions, and async tool-event blocks.
+
 ## Build, Lint, and Test Commands
 
 - **Build:**  

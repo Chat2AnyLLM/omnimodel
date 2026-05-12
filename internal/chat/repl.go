@@ -420,6 +420,9 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Model:   %s\n", currentModel)
 		}
 		return replCommandResult{handled: true, model: currentModel, agentBackend: currentBackend}, nil
+	case "/spec":
+		handleSpecCommand(cmd.OutOrStdout(), fields, session)
+		return replCommandResult{handled: true}, nil
 	default:
 		return replCommandResult{}, fmt.Errorf("unknown command %q; use /help", fields[0])
 	}
@@ -440,10 +443,81 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /agent <backend>   Keep agent backend on google-adk")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
+	_, _ = fmt.Fprintln(w, "  /spec              Choose spec-kit or OpenSpec workflow")
+	_, _ = fmt.Fprintln(w, "  /spec mode <type>  Enter spec mode: spec-kit, openspec, or off")
+	_, _ = fmt.Fprintln(w, "  /spec init <title> Create a new spec directory")
+	_, _ = fmt.Fprintln(w, "  /spec status       List all specs and their artifact status")
 	_, _ = fmt.Fprintln(w, "  /clear, /cls       Clear the screen")
 	_, _ = fmt.Fprintln(w, "  /quit, /exit       Leave the chat shell")
 }
 
 func clearScreen(w io.Writer) {
 	_, _ = fmt.Fprint(w, "\033[2J\033[H")
+}
+
+// handleSpecCommand handles the /spec REPL shortcut.
+// It covers simple read-only operations (status, init) without going through the
+// LLM. For spec_write, spec_plan, and spec_tasks — use natural language in agent
+// mode since they take rich structured input.
+func handleSpecCommand(w io.Writer, fields []string, session *SessionState) {
+	sub := ""
+	if len(fields) > 1 {
+		sub = strings.ToLower(fields[1])
+	}
+
+	switch sub {
+	case "", "help":
+		_, _ = fmt.Fprint(w, specHelpMarkdown())
+
+	case "mode":
+		if len(fields) < 3 {
+			current := session.SpecMode
+			if current == "" {
+				current = "off"
+			}
+			_, _ = fmt.Fprintf(w, "Current spec mode: %s\nUsage: /spec mode <spec-kit|openspec|off>\n", current)
+			return
+		}
+		newMode := strings.ToLower(fields[2])
+		if newMode == "off" {
+			session.SpecMode = ""
+			_, _ = fmt.Fprintln(w, "Spec mode disabled.")
+			return
+		}
+		if !isValidSpecMode(newMode) {
+			_, _ = fmt.Fprintf(w, "Unknown spec mode %q. Valid modes: spec-kit, openspec, off\n", newMode)
+			return
+		}
+		session.SpecMode = newMode
+		session.Mode = "agent"
+		_, _ = fmt.Fprintf(w, "Spec mode set to %s. Switched to agent mode.\n\n", newMode)
+		if newMode == "spec-kit" {
+			_, _ = fmt.Fprint(w, specKitWorkflowSummary())
+		} else {
+			_, _ = fmt.Fprint(w, openSpecWorkflowSummary())
+		}
+
+	case "init":
+		title := strings.Join(fields[2:], " ")
+		if title == "" {
+			_, _ = fmt.Fprintln(w, "Usage: /spec init <title>")
+			_, _ = fmt.Fprintln(w, "Example: /spec init User Authentication")
+			return
+		}
+		if err := specREPLInit(w, title); err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v\n", err)
+		}
+
+	case "status":
+		specsDir := "specs"
+		if len(fields) > 2 {
+			specsDir = fields[2]
+		}
+		if err := specREPLStatus(w, specsDir); err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v\n", err)
+		}
+
+	default:
+		_, _ = fmt.Fprintf(w, "Unknown /spec subcommand %q. Try /spec (no args) for help.\n", sub)
+	}
 }

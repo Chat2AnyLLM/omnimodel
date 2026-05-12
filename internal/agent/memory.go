@@ -14,6 +14,9 @@ type Memory interface {
 	Append(msg Message)
 	Messages() []Message
 	Compact(ctx context.Context, summarizer SummarizerFn) error
+	// Reset replaces the entire message history with msgs.
+	// Used by checkpoint resume to restore saved state.
+	Reset(msgs []Message)
 }
 
 // BufferMemory keeps the last N messages.
@@ -57,6 +60,13 @@ func (b *BufferMemory) Compact(_ context.Context, _ SummarizerFn) error {
 	return nil
 }
 
+func (b *BufferMemory) Reset(msgs []Message) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.messages = make([]Message, len(msgs))
+	copy(b.messages, msgs)
+}
+
 // SummaryMemory tracks estimated token budget and summarizes when over budget.
 type SummaryMemory struct {
 	mu          sync.RWMutex
@@ -92,6 +102,13 @@ func (s *SummaryMemory) Messages() []Message {
 
 // Compact checks if messages exceed the token budget. If so, it summarizes
 // the oldest half and replaces them with a single system message.
+func (s *SummaryMemory) Reset(msgs []Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = make([]Message, len(msgs))
+	copy(s.messages, msgs)
+}
+
 func (s *SummaryMemory) Compact(ctx context.Context, summarizer SummarizerFn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +156,6 @@ func (s *SummaryMemory) estimateTokens() int {
 	}
 	return total
 }
-
 
 func estimateMessageTokens(msg Message) int {
 	text := extractTextContent(msg.Content)

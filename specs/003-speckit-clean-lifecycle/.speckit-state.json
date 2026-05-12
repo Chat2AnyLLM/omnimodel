@@ -1,0 +1,7 @@
+{
+  "state": "completed",
+  "created_at": "2026-05-12T05:43:13Z",
+  "updated_at": "2026-05-12T05:43:23Z",
+  "completed_at": "2026-05-12T05:43:23Z",
+  "notes": "Implemented SpecKit clean lifecycle metadata, status, completion, archive flow, help text, docs, tests, and manual verification."
+}

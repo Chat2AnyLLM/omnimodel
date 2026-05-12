@@ -10,7 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
+
+	"omnillm/internal/specdriven"
 )
 
 // ─── Result ──────────────────────────────────────────────────────────────────
@@ -60,6 +63,8 @@ type Context struct {
 	ConfigStore *ConfigStore
 	// SendMessageFn delivers a message to a named agent / sub-process (optional).
 	SendMessageFn func(ctx context.Context, to, message string) (string, error)
+	// SpecState holds spec-driven session state: current spec, plan, and spec dir.
+	SpecState *specdriven.SpecStore
 }
 
 // ─── Tool ────────────────────────────────────────────────────────────────────
@@ -94,18 +99,30 @@ type Registry struct {
 	checker PermissionChecker
 	askUser func(ctx context.Context, question string, options []string) (string, error)
 
+	// Skill membership: maps tool name → skill name.
+	// Tools with no entry are treated as "core" (always shown).
+	toolSkill map[string]string
+	// activeSkills is the set of currently enabled skill names.
+	// When nil/empty every tool is shown (backward-compatible default).
+	activeSkills map[string]bool
+
 	// Session-scoped stores — set once at construction via SetStores.
 	TodoStore     *TodoStore
 	TaskStore     *TaskStore
 	PlanState     *PlanState
 	WorktreeState *WorktreeState
 	ConfigStore   *ConfigStore
+	SpecState     *specdriven.SpecStore
 	SendMessageFn func(ctx context.Context, to, message string) (string, error)
 }
 
 // NewRegistry creates an empty tool registry.
 func NewRegistry() *Registry {
-	return &Registry{tools: make(map[string]Tool)}
+	return &Registry{
+		tools:        make(map[string]Tool),
+		toolSkill:    make(map[string]string),
+		activeSkills: make(map[string]bool),
+	}
 }
 
 // Register adds a tool. If a tool with the same name already exists it is replaced.
@@ -113,6 +130,50 @@ func (r *Registry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tools[t.Name()] = t
+}
+
+// RegisterSkillTool adds a tool and records it as belonging to skillName.
+// Skill tools are only included in Definitions() when that skill is active.
+func (r *Registry) RegisterSkillTool(t Tool, skillName string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tools[t.Name()] = t
+	if skillName != "" {
+		r.toolSkill[t.Name()] = skillName
+	}
+}
+
+// ActivateSkill enables a skill by name so its tools appear in Definitions().
+func (r *Registry) ActivateSkill(skillName string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activeSkills[skillName] = true
+}
+
+// IsSkillActive reports whether a skill is currently active.
+func (r *Registry) IsSkillActive(skillName string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.activeSkills[skillName]
+}
+
+// ActiveSkillNames returns the sorted list of currently active skill names.
+func (r *Registry) ActiveSkillNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.activeSkills))
+	for k := range r.activeSkills {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ToolSkill returns the skill a tool belongs to, or "" for core tools.
+func (r *Registry) ToolSkill(toolName string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.toolSkill[toolName]
 }
 
 // Get returns the tool with the given name, or nil.
@@ -161,11 +222,20 @@ func (r *Registry) List() []Tool {
 }
 
 // Definitions converts the registry's tools to Anthropic /v1/messages tool definitions.
+// When skill membership is configured, only core tools (no skill) and tools
+// whose skill is currently active are included.
 func (r *Registry) Definitions() []ToolDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	skillsEnabled := len(r.toolSkill) > 0
 	out := make([]ToolDefinition, 0, len(r.tools))
 	for _, t := range r.tools {
+		if skillsEnabled {
+			skill := r.toolSkill[t.Name()]
+			if skill != "" && !r.activeSkills[skill] {
+				continue // skill tool not yet activated
+			}
+		}
 		desc := t.Description()
 		var descPtr *string
 		if desc != "" {
@@ -273,6 +343,7 @@ func (r *Registry) ExecuteCalls(ctx context.Context, sessionID string, calls []T
 				PlanState:     r.PlanState,
 				WorktreeState: r.WorktreeState,
 				ConfigStore:   r.ConfigStore,
+				SpecState:     r.SpecState,
 				Registry:      r,
 				SendMessageFn: r.SendMessageFn,
 			}

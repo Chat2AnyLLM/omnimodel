@@ -15,6 +15,7 @@ type Config struct {
 	AgentBackend string `json:"agent_backend,omitempty"`
 	Autopilot    bool   `json:"autopilot"`
 	MaxTurns     int    `json:"max_turns,omitempty"`
+	SpecMode     string `json:"spec_mode,omitempty"`
 }
 
 func configPath() (string, error) {

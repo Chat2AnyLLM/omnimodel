@@ -39,6 +39,7 @@ type SessionState struct {
 	Mode         string
 	APIShape     string
 	AgentBackend string
+	SpecMode     string
 	Autopilot    bool
 	IsTTY        bool
 	Picker       ModelPickerFunc
