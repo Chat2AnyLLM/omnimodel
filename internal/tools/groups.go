@@ -1,5 +1,7 @@
 package tools
 
+import "omnillm/internal/specdriven"
+
 // RegisterCoreTools adds the full OmniCode tool set into the provided manager
 // with initial metadata. This mirrors the complete tool surface of claude-code3,
 // opencode, and pi-mono.
@@ -63,6 +65,14 @@ func RegisterCoreTools(m *Manager) {
 
 	// ── Skill loader ──────────────────────────────────────────────────────────
 	m.Register(LoadSkill(), Metadata{Category: CategoryUtility, ReadOnly: false})
+
+	// ── Spec-driven ───────────────────────────────────────────────────────────
+	m.Register(SpecInit(), Metadata{Category: CategorySpec, ReadOnly: false})
+	m.Register(SpecWrite(), Metadata{Category: CategorySpec, ReadOnly: false})
+	m.Register(SpecRead(), Metadata{Category: CategorySpec, ReadOnly: true})
+	m.Register(SpecPlan(), Metadata{Category: CategorySpec, ReadOnly: false})
+	m.Register(SpecTasks(), Metadata{Category: CategorySpec, ReadOnly: false})
+	m.Register(SpecStatus(), Metadata{Category: CategorySpec, ReadOnly: true})
 }
 
 // SkillFilesystem groups write-capable filesystem tools.
@@ -91,6 +101,9 @@ const SkillAgent = "agent"
 
 // SkillUtilityExtra groups less-common utility tools (calculator, sleep, lsp, etc).
 const SkillUtilityExtra = "utility_extra"
+
+// SkillSpec groups spec-driven development tools.
+const SkillSpec = "spec"
 
 // InitSkillMembership assigns non-core tools in r to their skill group.
 // Must be called after RegisterCoreTools has populated the registry.
@@ -148,6 +161,12 @@ func InitSkillMembership(r *Registry) {
 			r.RegisterSkillTool(t, SkillUtilityExtra)
 		}
 	}
+	// spec skill
+	for _, name := range []string{"spec_init", "spec_write", "spec_read", "spec_plan", "spec_tasks", "spec_status"} {
+		if t := r.Get(name); t != nil {
+			r.RegisterSkillTool(t, SkillSpec)
+		}
+	}
 }
 
 // InitRegistryStores creates fresh session-scoped stores and attaches them to
@@ -158,4 +177,5 @@ func InitRegistryStores(r *Registry) {
 	r.PlanState = NewPlanState()
 	r.WorktreeState = NewWorktreeState()
 	r.ConfigStore = NewConfigStore()
+	r.SpecState = specdriven.NewSpecStore()
 }

@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"omnillm/internal/specdriven"
 )
 
 // ─── Result ──────────────────────────────────────────────────────────────────
@@ -61,6 +63,8 @@ type Context struct {
 	ConfigStore *ConfigStore
 	// SendMessageFn delivers a message to a named agent / sub-process (optional).
 	SendMessageFn func(ctx context.Context, to, message string) (string, error)
+	// SpecState holds spec-driven session state: current spec, plan, and spec dir.
+	SpecState *specdriven.SpecStore
 }
 
 // ─── Tool ────────────────────────────────────────────────────────────────────
@@ -108,6 +112,7 @@ type Registry struct {
 	PlanState     *PlanState
 	WorktreeState *WorktreeState
 	ConfigStore   *ConfigStore
+	SpecState     *specdriven.SpecStore
 	SendMessageFn func(ctx context.Context, to, message string) (string, error)
 }
 
@@ -338,6 +343,7 @@ func (r *Registry) ExecuteCalls(ctx context.Context, sessionID string, calls []T
 				PlanState:     r.PlanState,
 				WorktreeState: r.WorktreeState,
 				ConfigStore:   r.ConfigStore,
+				SpecState:     r.SpecState,
 				Registry:      r,
 				SendMessageFn: r.SendMessageFn,
 			}

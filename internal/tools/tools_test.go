@@ -938,14 +938,15 @@ func TestRegisterCoreToolsCount(t *testing.T) {
 	RegisterCoreTools(m)
 
 	tools := m.Registry().List()
-	// 40 tools as of groups.go: bash, powershell, read, write, edit, multiedit,
+	// 46 tools as of groups.go: bash, powershell, read, write, edit, multiedit,
 	// apply_patch, glob, grep, ls, notebook_edit, web_fetch, web_search,
 	// codesearch, get_current_time, calculator, sleep, ask_user_question, lsp,
 	// tool_search, config, todo_write, task_create, task_get, task_list,
 	// task_output, task_stop, task_update, enter_plan_mode, exit_plan_mode,
 	// enter_worktree, exit_worktree, schedule_cron, schedule_heartbeat,
-	// trigger_event, send_message, agent, batch, orchestrate_agents, load_skill
-	const wantCount = 40
+	// trigger_event, send_message, agent, batch, orchestrate_agents, load_skill,
+	// spec_init, spec_write, spec_read, spec_plan, spec_tasks, spec_status
+	const wantCount = 46
 	if len(tools) != wantCount {
 		names := make([]string, len(tools))
 		for i, t2 := range tools {

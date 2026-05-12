@@ -15,4 +15,5 @@ const (
 	CategoryNotebook   Category = "notebook"
 	CategoryMCP        Category = "mcp"
 	CategoryBrowser    Category = "browser"
+	CategorySpec       Category = "spec"
 )

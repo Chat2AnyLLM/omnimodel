@@ -94,10 +94,10 @@ var (
 
 // ConfigSaveCallback is invoked when the TUI state changes so the hosting binary
 // (e.g. omnicode) can persist user preferences.
-var ConfigSaveCallback func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
+var ConfigSaveCallback func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)
 
 // SetConfigSaveCallback sets the callback for persisting TUI preferences.
-func SetConfigSaveCallback(cb func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) {
+func SetConfigSaveCallback(cb func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)) {
 	ConfigSaveCallback = cb
 }
 
@@ -108,6 +108,7 @@ var InitialConfig struct {
 	APIShape  string
 	Autopilot bool
 	MaxTurns  int
+	SpecMode  string
 }
 
 const (
@@ -115,7 +116,7 @@ const (
 	tuiMinSidebarWidth = 60
 	// Align tool-result click hit-testing with perceived terminal row placement.
 	tuiToolResultHitRowOffset = 4
-	slashPickerVisible        = 10
+	slashPickerVisible        = 20
 )
 
 type logoStyle struct {
@@ -478,6 +479,7 @@ type chatTUIModel struct {
 	mode         string
 	agentBackend string
 	apiShape     string
+	specMode     string
 	prog         *tea.Program
 
 	viewport viewport.Model
@@ -516,7 +518,7 @@ type chatTUIModel struct {
 	historySearchQuery  string
 	historySearchCursor int
 
-	onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)
+	onConfigSave func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)
 
 	textareaExpanded bool
 	ctrlCPrimed      bool
@@ -532,7 +534,7 @@ type chatTUIModel struct {
 	middleDragStartOffset int
 }
 
-func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message, onConfigSave func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int)) chatTUIModel {
+func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend string, history []Message, onConfigSave func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int)) chatTUIModel {
 	sp := spinner.New()
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7"))
 	sp.Spinner = spinner.Dot
@@ -555,6 +557,7 @@ func newChatTUIModel(c Client, sessionID, model, mode, apiShape, agentBackend st
 		mode:                defaultMode(mode, InitialConfig.Mode),
 		apiShape:            defaultAPIShape(apiShape, InitialConfig.APIShape),
 		agentBackend:        agentBackend,
+		specMode:            InitialConfig.SpecMode,
 		spinner:             sp,
 		textarea:            ta,
 		mdRenderer:          mdR,
@@ -1266,6 +1269,9 @@ func (m chatTUIModel) titleText() string {
 	if m.model != "" {
 		title += "  │  " + m.model
 	}
+	if m.specMode != "" {
+		title += "  │  " + m.specMode
+	}
 	return title
 }
 
@@ -1928,6 +1934,10 @@ func (m chatTUIModel) renderSidebar() string {
 		agentLabel := displayAgentBackendName(m.agentBackend)
 		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(agentLabel))
 	}
+	if m.specMode != "" {
+		specLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Render(m.specMode)
+		sections = append(sections, tuiSidebarLabelStyle.Render("Spec")+"\n"+specLabel)
+	}
 	sections = append(sections,
 		tuiSidebarHeaderStyle.Render("Actions"),
 		tuiSidebarValueStyle.Width(valueWidth).Render("Shift+Tab  Toggle autopilot"),
@@ -1999,7 +2009,7 @@ func (m *chatTUIModel) cancelOngoingTurn(recordCancellation bool) {
 
 func (m *chatTUIModel) saveConfig() {
 	if m.onConfigSave != nil {
-		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.autopilot, m.maxTurns)
+		m.onConfigSave(m.model, m.mode, m.apiShape, m.agentBackend, m.specMode, m.autopilot, m.maxTurns)
 	}
 }
 
@@ -2961,9 +2971,38 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		}
 		if sub == "" || sub == "help" {
 			add(m.renderMD(specHelpMarkdown()))
+		} else if sub == "mode" {
+			if len(fields) < 3 {
+				current := m.specMode
+				if current == "" {
+					current = "off"
+				}
+				add(m.renderMD(fmt.Sprintf("Current spec mode: **%s**\n\nUsage: `/spec mode <spec-kit|openspec|off>`", current)))
+			} else {
+				newMode := strings.ToLower(fields[2])
+				if newMode == "off" {
+					m.specMode = ""
+					add(m.renderMD("Spec mode **disabled**."))
+					m.saveConfig()
+				} else if isValidSpecMode(newMode) {
+					m.specMode = newMode
+					m.mode = "agent"
+					var summary string
+					if newMode == "spec-kit" {
+						summary = specKitWorkflowSummary()
+					} else {
+						summary = openSpecWorkflowSummary()
+					}
+					add(m.renderMD(fmt.Sprintf("Spec mode set to **%s**. Switched to **agent** mode.\n\n%s", newMode, summary)))
+					m.saveConfig()
+				} else {
+					add(tuiErrorStyle.Render(fmt.Sprintf("Unknown spec mode %q. Valid modes: spec-kit, openspec, off", newMode)))
+				}
+			}
 		} else {
+			session := &SessionState{SpecMode: m.specMode}
 			var sb strings.Builder
-			handleSpecCommand(&sb, fields)
+			handleSpecCommand(&sb, fields, session)
 			add(m.renderMD(sb.String()))
 		}
 		return m, nil

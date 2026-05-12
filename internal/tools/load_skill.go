@@ -20,6 +20,7 @@ var allSkills = map[string]string{
 	SkillScheduler:    "Scheduling automation: schedule_cron, schedule_heartbeat, trigger_event",
 	SkillAgent:        "Multi-agent: send_message, agent, batch",
 	SkillUtilityExtra: "Extra utilities: calculator, sleep, lsp, tool_search, config",
+	SkillSpec:         "Spec-driven development: spec_init, spec_write, spec_read, spec_plan, spec_tasks, spec_status",
 }
 
 type loadSkillTool struct{}

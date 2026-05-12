@@ -77,6 +77,7 @@ func NewRootCmd() *cobra.Command {
 			chat.InitialConfig.Mode = cfg.Mode
 			chat.InitialConfig.APIShape = cfg.APIShape
 			chat.InitialConfig.Autopilot = cfg.Autopilot
+			chat.InitialConfig.SpecMode = cfg.SpecMode
 			if cfg.MaxTurns > 0 {
 				chat.InitialConfig.MaxTurns = cfg.MaxTurns
 			}
@@ -89,7 +90,7 @@ func NewRootCmd() *cobra.Command {
 				return runOneShot(cmd, prompt)
 			}
 
-			saveCb := func(model, mode, apiShape, agentBackend string, autopilot bool, maxTurns int) {
+			saveCb := func(model, mode, apiShape, agentBackend, specMode string, autopilot bool, maxTurns int) {
 				if cfg == nil {
 					return
 				}
@@ -97,6 +98,7 @@ func NewRootCmd() *cobra.Command {
 				cfg.Mode = mode
 				cfg.APIShape = apiShape
 				cfg.AgentBackend = agentBackend
+				cfg.SpecMode = specMode
 				cfg.Autopilot = autopilot
 				cfg.MaxTurns = maxTurns
 				SaveConfig(cfg)
