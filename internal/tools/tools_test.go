@@ -927,8 +927,8 @@ func TestRegisterCoreToolsCount(t *testing.T) {
 	RegisterCoreTools(m)
 
 	tools := m.Registry().List()
-	// 71 tools as of groups.go, including additional Spec Kit lifecycle tools.
-	const wantCount = 71
+	// 65 tools as of groups.go, after removing legacy spec_* tools.
+	const wantCount = 65
 	if len(tools) != wantCount {
 		names := make([]string, len(tools))
 		for i, t2 := range tools {

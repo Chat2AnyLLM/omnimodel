@@ -66,6 +66,64 @@ func TestHandleSlashCommandUnknown(t *testing.T) {
 	}
 }
 
+func TestHandleSlashCommandOpenSpecAliasRoutesToAgent(t *testing.T) {
+	cmd := newTestCommandContext()
+	session := &SessionState{ID: "session-1", Mode: "chat"}
+	result, err := handleSlashCommand(cmd, nil, session, "/opsx:explore auth ideas")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled {
+		t.Fatalf("expected handled result, got %+v", result)
+	}
+	if result.agentPrompt == "" {
+		t.Fatalf("expected agent prompt, got empty result: %+v", result)
+	}
+	if session.SpecMode != "openspec" || session.Mode != "agent" {
+		t.Fatalf("expected openspec agent mode, got mode=%q specMode=%q", session.Mode, session.SpecMode)
+	}
+	out := cmd.out.String()
+	for _, want := range []string{"/opsx:explore", "openspec_explore", "Running agent workflow"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	for _, want := range []string{"load the spec skill", "openspec_explore", "auth ideas"} {
+		if !strings.Contains(result.agentPrompt, want) {
+			t.Fatalf("agent prompt missing %q:\n%s", want, result.agentPrompt)
+		}
+	}
+}
+
+func TestHandleSlashCommandSpecKitAliasRoutesToAgent(t *testing.T) {
+	cmd := newTestCommandContext()
+	session := &SessionState{ID: "session-1", Mode: "chat"}
+	result, err := handleSlashCommand(cmd, nil, session, "/speckit.lifecycle specs/001-demo")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled {
+		t.Fatalf("expected handled result, got %+v", result)
+	}
+	if result.agentPrompt == "" {
+		t.Fatalf("expected agent prompt, got empty result: %+v", result)
+	}
+	if session.SpecMode != "spec-kit" || session.Mode != "agent" {
+		t.Fatalf("expected spec-kit agent mode, got mode=%q specMode=%q", session.Mode, session.SpecMode)
+	}
+	out := cmd.out.String()
+	for _, want := range []string{"/speckit.lifecycle", "speckit_lifecycle_status", "Running agent workflow"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	for _, want := range []string{"load the spec skill", "speckit_lifecycle_status", "specs/001-demo"} {
+		if !strings.Contains(result.agentPrompt, want) {
+			t.Fatalf("agent prompt missing %q:\n%s", want, result.agentPrompt)
+		}
+	}
+}
+
 func TestRenderMarkdownTable(t *testing.T) {
 	t.Parallel()
 

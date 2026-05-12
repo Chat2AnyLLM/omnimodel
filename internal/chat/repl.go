@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
+	"omnillm/internal/specdriven"
 	toolspkg "omnillm/internal/tools"
 
 	"github.com/chzyer/readline"
@@ -79,7 +80,10 @@ func RunREPL(cmd CommandContext, c Client, requestedModel, existingSession strin
 				break
 			}
 			if result.handled {
-				continue
+				if result.agentPrompt == "" {
+					continue
+				}
+				line = result.agentPrompt
 			}
 		}
 
@@ -424,6 +428,9 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		handleSpecCommand(cmd.OutOrStdout(), fields, session)
 		return replCommandResult{handled: true}, nil
 	default:
+		if handled, agentPrompt, err := handleSpecWorkflowSlashCommand(cmd.OutOrStdout(), fields, session); handled {
+			return replCommandResult{handled: true, agentPrompt: agentPrompt}, err
+		}
 		return replCommandResult{}, fmt.Errorf("unknown command %q; use /help", fields[0])
 	}
 }
@@ -455,9 +462,55 @@ func clearScreen(w io.Writer) {
 	_, _ = fmt.Fprint(w, "\033[2J\033[H")
 }
 
+func specWorkflowAgentPrompt(cmdSlash, toolName, arg string) string {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return fmt.Sprintf("load the spec skill and run %s for %s", toolName, cmdSlash)
+	}
+	return fmt.Sprintf("load the spec skill and run %s for %s with this intent: %s", toolName, cmdSlash, arg)
+}
+
+func handleSpecWorkflowSlashCommand(w io.Writer, fields []string, session *SessionState) (bool, string, error) {
+	if len(fields) == 0 {
+		return false, "", nil
+	}
+	name := strings.ToLower(fields[0])
+	arg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.Join(fields, " "), fields[0])), " "))
+
+	for _, cmd := range specdriven.SpecKitCommands() {
+		if name == cmd.Slash {
+			if session != nil {
+				session.SpecMode = "spec-kit"
+				session.Mode = "agent"
+			}
+			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
+			_, _ = fmt.Fprintf(w, "Spec mode: spec-kit. Switched to agent mode.\n")
+			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
+			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
+			return true, prompt, nil
+		}
+	}
+
+	for _, cmd := range specdriven.OpenSpecCommands() {
+		if name == cmd.Slash {
+			if session != nil {
+				session.SpecMode = "openspec"
+				session.Mode = "agent"
+			}
+			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
+			_, _ = fmt.Fprintf(w, "Spec mode: openspec. Switched to agent mode.\n")
+			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
+			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
+			return true, prompt, nil
+		}
+	}
+
+	return false, "", nil
+}
+
 // handleSpecCommand handles the /spec REPL shortcut.
 // It covers simple read-only operations (status, init) without going through the
-// LLM. For spec_write, spec_plan, and spec_tasks — use natural language in agent
+// LLM. For speckit_specify, speckit_plan, and speckit_tasks — use natural language in agent
 // mode since they take rich structured input.
 func handleSpecCommand(w io.Writer, fields []string, session *SessionState) {
 	sub := ""

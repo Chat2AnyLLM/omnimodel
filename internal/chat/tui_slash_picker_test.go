@@ -27,6 +27,14 @@ func typeRune(t *testing.T, m chatTUIModel, r rune) chatTUIModel {
 	return mm
 }
 
+func renderEntriesForTest(entries []transcriptEntry) string {
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		parts = append(parts, entry.content)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func TestSlashPickerOpensOnSlash(t *testing.T) {
 	m := newTestTUIModel()
 	if m.slashPicker != nil {
@@ -178,5 +186,65 @@ func TestSlashPickerViewKeepsInputVisibleInShortWindow(t *testing.T) {
 	}
 	if strings.Contains(out, "Commands") {
 		t.Fatalf("View() should hide slash picker before it covers the input in short window; got:\n%s", out)
+	}
+}
+
+func TestTUIHandleSlashSpecKitAliasRoutesToAgent(t *testing.T) {
+	m := newTestTUIModel()
+	out, cmd := m.handleSlash("/speckit.specify add login flow")
+	if cmd == nil {
+		t.Fatalf("expected agent stream command")
+	}
+	mm, ok := out.(chatTUIModel)
+	if !ok {
+		t.Fatalf("handleSlash returned non chatTUIModel: %T", out)
+	}
+	if mm.mode != "agent" || mm.specMode != "spec-kit" {
+		t.Fatalf("expected agent spec-kit mode, got mode=%q specMode=%q", mm.mode, mm.specMode)
+	}
+	if !mm.streamActive || !mm.spinning {
+		t.Fatalf("expected active agent stream")
+	}
+	if len(mm.entries) == 0 {
+		t.Fatalf("expected routing entries")
+	}
+	got := xansi.Strip(renderEntriesForTest(mm.entries))
+	for _, want := range []string{"/speckit.specify", "speckit_specify", "Running agent workflow", "load the spec skill", "add login flow"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("TUI output missing %q\n---\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Unknown command") {
+		t.Fatalf("TUI should not show unknown command for speckit alias\n---\n%s", got)
+	}
+}
+
+func TestTUIHandleSlashOpenSpecAliasRoutesToAgent(t *testing.T) {
+	m := newTestTUIModel()
+	out, cmd := m.handleSlash("/opsx:explore auth ideas")
+	if cmd == nil {
+		t.Fatalf("expected agent stream command")
+	}
+	mm, ok := out.(chatTUIModel)
+	if !ok {
+		t.Fatalf("handleSlash returned non chatTUIModel: %T", out)
+	}
+	if mm.mode != "agent" || mm.specMode != "openspec" {
+		t.Fatalf("expected agent openspec mode, got mode=%q specMode=%q", mm.mode, mm.specMode)
+	}
+	if !mm.streamActive || !mm.spinning {
+		t.Fatalf("expected active agent stream")
+	}
+	if len(mm.entries) == 0 {
+		t.Fatalf("expected routing entries")
+	}
+	got := xansi.Strip(renderEntriesForTest(mm.entries))
+	for _, want := range []string{"/opsx:explore", "openspec_explore", "Running agent workflow", "load the spec skill", "auth ideas"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("TUI output missing %q\n---\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Unknown command") {
+		t.Fatalf("TUI should not show unknown command for opsx alias\n---\n%s", got)
 	}
 }

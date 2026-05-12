@@ -64,12 +64,6 @@ After implementation: validate -> mark completed -> optionally archive.
 **Core Spec Kit commands**
 
 ` + specdriven.RenderSpecKitCommandTable() + `
-**Legacy agent aliases** (after ` + "`load_skill(\"spec\")`" + `)
-
-- ` + "`spec_init`" + ` / ` + "`spec_write`" + ` -> create and populate spec.md
-- ` + "`spec_plan`" + ` -> scaffold plan.md
-- ` + "`spec_tasks`" + ` -> generate tasks.md and mark lifecycle in progress
-- ` + "`spec_read`" + ` / ` + "`spec_status`" + ` -> review artifacts and lifecycle
 `
 }
 
@@ -105,7 +99,7 @@ func isValidSpecMode(mode string) bool {
 // specREPLInit is the implementation behind "/spec init <title>".
 // It creates the spec directory and spec.md directly without going through the
 // agent loop 閳?useful for quickly kicking off a new feature before switching to
-// agent mode for the rich spec_write / spec_plan / spec_tasks steps.
+// agent mode for the rich speckit_specify / speckit_plan / speckit_tasks steps.
 func specREPLInit(w io.Writer, title string) error {
 	specsRoot := "specs"
 	number, err := nextSpecNumber(specsRoot)
@@ -131,7 +125,7 @@ func specREPLInit(w io.Writer, title string) error {
 	if err := os.WriteFile(specFile, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write spec.md: %w", err)
 	}
-	if _, err := specdriven.EnsureLifecycle(dirPath, spec.CreatedAt); err != nil {
+	if _, err := specdriven.EnsureLifecycle(dirPath, spec.CreatedAt, true); err != nil {
 		return fmt.Errorf("write lifecycle metadata: %w", err)
 	}
 
@@ -167,7 +161,7 @@ func specREPLStatus(w io.Writer, specsRoot string) error {
 		}
 		dirPath := filepath.Join(specsRoot, entry.Name())
 		present := specdriven.ArtifactPresence(dirPath)
-		record, err := specdriven.EnsureLifecycle(dirPath, "")
+		record, err := specdriven.EnsureLifecycle(dirPath, "", false)
 		if err != nil {
 			return fmt.Errorf("read lifecycle metadata for %s: %w", entry.Name(), err)
 		}

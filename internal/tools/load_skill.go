@@ -20,7 +20,7 @@ var allSkills = map[string]string{
 	SkillScheduler:    "Scheduling automation: schedule_cron, schedule_heartbeat, trigger_event",
 	SkillAgent:        "Multi-agent: send_message, agent, batch",
 	SkillUtilityExtra: "Extra utilities: calculator, sleep, lsp, tool_search, config",
-	SkillSpec:         "Spec-driven development: spec_init, spec_write, spec_read, spec_plan, spec_tasks, spec_status",
+	SkillSpec:         "Spec-driven development: speckit_constitution, speckit_specify, speckit_clarify, speckit_plan, speckit_tasks, speckit_analyze, speckit_implement, speckit_checklist, speckit_lifecycle_status, speckit_complete, speckit_archive, openspec_propose, openspec_explore, openspec_new, openspec_continue, openspec_ff, openspec_apply, openspec_verify, openspec_sync, openspec_archive, openspec_bulk_archive, openspec_onboard",
 }
 
 type loadSkillTool struct{}
