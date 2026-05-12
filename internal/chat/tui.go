@@ -2825,7 +2825,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/spec` — show spec-driven workflow help\n- `/spec init <title>` — create a new spec directory\n- `/spec status` — list all specs and their artifact status\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `↑`/`↓` — focus expandable tool results (when input is empty)\n- `Space` — expand/collapse the focused tool result\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD(renderSlashHelp(slashCommands())))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
