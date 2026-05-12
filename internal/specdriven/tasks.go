@@ -170,13 +170,16 @@ func BuildOrder() []ArtifactStatus {
 // RenderStatus builds a human-readable status board for a spec directory.
 func RenderStatus(specDir string, present map[ArtifactKind]bool) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Spec directory: %s\n\n", specDir))
+	sb.WriteString(fmt.Sprintf("Spec: %s\n", specDir))
+	sb.WriteString("Artifacts:\n")
 	for _, a := range BuildOrder() {
 		icon := "○"
+		status := "missing"
 		if present[a.Kind] {
 			icon = "✓"
+			status = "present"
 		}
-		sb.WriteString(fmt.Sprintf("  %s %s (%s)\n", icon, a.Kind, a.Filename))
+		sb.WriteString(fmt.Sprintf("  %s %-5s %-17s %s\n", icon, a.Kind, a.Filename, status))
 	}
 	return sb.String()
 }

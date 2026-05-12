@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"omnillm/internal/specdriven"
 )
@@ -158,6 +159,11 @@ func specREPLStatus(w io.Writer, specsRoot string) error {
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == "archive" {
 			continue
+		}
+		if found > 0 {
+			_, _ = fmt.Fprintln(w, "")
+			_, _ = fmt.Fprintln(w, strings.Repeat("-", 72))
+			_, _ = fmt.Fprintln(w, "")
 		}
 		dirPath := filepath.Join(specsRoot, entry.Name())
 		present := specdriven.ArtifactPresence(dirPath)

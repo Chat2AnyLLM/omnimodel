@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1909,6 +1910,26 @@ func readyChatTUIModelForInput() chatTUIModel {
 	m := newChatTUIModel(nil, "session-1", "model", "chat", "openai", "", nil, nil)
 	raw, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return raw.(chatTUIModel)
+}
+
+func TestTUITerminalOptions(t *testing.T) {
+	t.Parallel()
+
+	programIntField := func(p *tea.Program, name string) int64 {
+		return reflect.ValueOf(p).Elem().FieldByName(name).Int()
+	}
+	actual := tea.NewProgram(nil, tuiTerminalOptions()...)
+	expected := tea.NewProgram(
+		nil,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithInputTTY(),
+	)
+	for _, name := range []string{"inputType", "startupOptions"} {
+		if got, want := programIntField(actual, name), programIntField(expected, name); got != want {
+			t.Fatalf("%s = %d, want %d", name, got, want)
+		}
+	}
 }
 
 // sendLineByLinePaste simulates a terminal that pastes each line as a rune

@@ -138,26 +138,27 @@ func RenderLifecycleStatus(specDir string, present map[ArtifactKind]bool, record
 	var sb strings.Builder
 	sb.WriteString(RenderStatus(specDir, present))
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("Lifecycle state: %s\n", record.State))
+	sb.WriteString("Lifecycle:\n")
+	sb.WriteString(fmt.Sprintf("  Lifecycle state: %s\n", record.State))
 	if record.CreatedAt != "" {
-		sb.WriteString(fmt.Sprintf("Created at: %s\n", record.CreatedAt))
+		sb.WriteString(fmt.Sprintf("  Created at: %s\n", record.CreatedAt))
 	}
 	if record.CompletedAt != "" {
-		sb.WriteString(fmt.Sprintf("Completed at: %s\n", record.CompletedAt))
+		sb.WriteString(fmt.Sprintf("  Completed at: %s\n", record.CompletedAt))
 	}
 	if record.ArchivedAt != "" {
-		sb.WriteString(fmt.Sprintf("Archived at: %s\n", record.ArchivedAt))
+		sb.WriteString(fmt.Sprintf("  Archived at: %s\n", record.ArchivedAt))
 	}
 	if strings.TrimSpace(record.Notes) != "" {
-		sb.WriteString(fmt.Sprintf("Notes: %s\n", strings.TrimSpace(record.Notes)))
+		sb.WriteString(fmt.Sprintf("  Notes: %s\n", strings.TrimSpace(record.Notes)))
 	}
 	if len(record.FollowUps) > 0 {
-		sb.WriteString("Follow-ups:\n")
+		sb.WriteString("  Follow-ups:\n")
 		for _, item := range record.FollowUps {
-			sb.WriteString(fmt.Sprintf("- %s\n", item))
+			sb.WriteString(fmt.Sprintf("    - %s\n", item))
 		}
 	}
-	sb.WriteString(fmt.Sprintf("Guidance: %s\n", RenderLifecycleGuidance(record.State)))
+	sb.WriteString(fmt.Sprintf("  Guidance: %s\n", RenderLifecycleGuidance(record.State)))
 	return sb.String()
 }
 

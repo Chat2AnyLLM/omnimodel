@@ -385,11 +385,26 @@ func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.
 	if !strings.Contains(systemText, `Use the "`+wantShellTool+`" tool to execute shell commands`) {
 		t.Fatalf("system prompt missing shell tool guidance %q: %q", wantShellTool, systemText)
 	}
-	if !strings.Contains(systemText, "When presenting output for the OmniCode conversation UI, prefer structured sections so content reads cleanly in separate blocks.") {
-		t.Fatalf("system prompt missing structured output guidance: %q", systemText)
+	if !strings.Contains(systemText, "When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style") {
+		t.Fatalf("system prompt missing Go TUI output guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "Prefer Markdown-first output with structured headings") {
+		t.Fatalf("system prompt missing markdown-first guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "use clean panel/card-style sections where helpful") {
+		t.Fatalf("system prompt missing panel/card guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "present progress as streaming event blocks") {
+		t.Fatalf("system prompt missing streaming event guidance: %q", systemText)
 	}
 	if !strings.Contains(systemText, "format it as a compact, readable markdown table whenever practical") {
 		t.Fatalf("system prompt missing markdown table guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "Bubble Tea for the TUI framework, Lip Gloss for styling/layout, Bubbles for components, Glamour for Markdown rendering, and charmbracelet/x/ansi for ANSI helpers") {
+		t.Fatalf("system prompt missing Charm stack guidance: %q", systemText)
+	}
+	if !strings.Contains(systemText, "avoid raw ANSI spaghetti") {
+		t.Fatalf("system prompt missing copy/paste friendly output guidance: %q", systemText)
 	}
 }
 
@@ -409,6 +424,27 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+func TestBuildSystemPromptIncludesGoTUIOutputGuidance(t *testing.T) {
+	systemText := buildSystemPrompt("windows")
+
+	checks := map[string]string{
+		"runtime OS":          "The current operating system is windows",
+		"PowerShell guidance": `Use the "powershell" tool to execute shell commands`,
+		"Go TUI style":        "When presenting output for the OmniCode conversation UI, follow a modern Go TUI-friendly presentation style",
+		"Markdown-first":      "Prefer Markdown-first output with structured headings",
+		"panel/card sections": "use clean panel/card-style sections where helpful",
+		"streaming events":    "present progress as streaming event blocks",
+		"markdown tables":     "format it as a compact, readable markdown table whenever practical",
+		"Charm stack":         "Bubble Tea for the TUI framework, Lip Gloss for styling/layout, Bubbles for components, Glamour for Markdown rendering, and charmbracelet/x/ansi for ANSI helpers",
+		"copy/paste friendly": "avoid raw ANSI spaghetti",
+		"reactive workflows":  "reactive state, streaming views, Markdown rendering, viewport abstractions, and async tool-event blocks",
+	}
+	for name, want := range checks {
+		if !strings.Contains(systemText, want) {
+			t.Fatalf("system prompt missing %s guidance %q: %q", name, want, systemText)
+		}
+	}
+}
 func TestSelectDispatchAlwaysUsesMessagesProxy(t *testing.T) {
 	var capturedPath string
 	client := &stubAgentClient{
