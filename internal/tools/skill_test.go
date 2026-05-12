@@ -37,6 +37,27 @@ func TestDefinitionsFiltersByActiveSkill(t *testing.T) {
 	}
 }
 
+func TestSpecKitLifecycleToolsGatedBySpecSkill(t *testing.T) {
+	r := newFullRegistry(t)
+
+	gated := []string{"speckit_lifecycle_status", "speckit_complete", "speckit_archive"}
+
+	before := defNameSet(r.Definitions())
+	for _, name := range gated {
+		if before[name] {
+			t.Errorf("%s should NOT be visible before load_skill(%q)", name, SkillSpec)
+		}
+	}
+
+	r.ActivateSkill(SkillSpec)
+	after := defNameSet(r.Definitions())
+	for _, name := range gated {
+		if !after[name] {
+			t.Errorf("%s should be visible after load_skill(%q)", name, SkillSpec)
+		}
+	}
+}
+
 func TestIsSkillActiveAndActiveSkillNames(t *testing.T) {
 	r := newFullRegistry(t)
 
@@ -75,10 +96,13 @@ func TestToolSkillMembership(t *testing.T) {
 	}
 	// Known skill tools (using actual registered names).
 	cases := map[string]string{
-		"web_fetch":     SkillWeb,
-		"task_create":   SkillTask,
-		"notebook_edit": SkillFilesystem, // notebook_edit is in the filesystem skill group
-		"multiedit":     SkillFilesystem,
+		"web_fetch":                SkillWeb,
+		"task_create":              SkillTask,
+		"notebook_edit":            SkillFilesystem, // notebook_edit is in the filesystem skill group
+		"multiedit":                SkillFilesystem,
+		"speckit_lifecycle_status": SkillSpec,
+		"speckit_complete":         SkillSpec,
+		"speckit_archive":          SkillSpec,
 	}
 	for tool, wantSkill := range cases {
 		got := r.ToolSkill(tool)
