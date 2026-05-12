@@ -23,7 +23,6 @@ func TestSlugify(t *testing.T) {
 		{"already-kebab", "already-kebab"},
 		{"Special!@#Characters", "special-characters"},
 		{"", ""},
-		// max length truncation (>48 chars)
 		{"this is a very very very very very very very long title here", "this-is-a-very-very-very-very-very-very-very-lon"},
 	}
 	for _, tc := range cases {
@@ -54,12 +53,7 @@ func TestSpecDirName(t *testing.T) {
 // ─── RenderSpec ───────────────────────────────────────────────────────────────
 
 func TestRenderSpecTitle(t *testing.T) {
-	s := &specdriven.Spec{
-		Number:    "001",
-		Title:     "User Auth",
-		Overview:  "Allow users to sign in and out.",
-		CreatedAt: "2026-05-12T00:00:00Z",
-	}
+	s := &specdriven.Spec{Number: "001", Title: "User Auth", Overview: "Allow users to sign in and out.", CreatedAt: "2026-05-12T00:00:00Z"}
 	out := specdriven.RenderSpec(s)
 	if !strings.Contains(out, "# Spec: 001 User Auth") {
 		t.Errorf("RenderSpec missing title, got:\n%s", out)
@@ -76,18 +70,14 @@ func TestRenderSpecUserStories(t *testing.T) {
 	s := &specdriven.Spec{
 		Number: "001",
 		Title:  "User Auth",
-		UserStories: []specdriven.UserStory{
-			{
-				ID:          "US1",
-				Title:       "Login",
-				Description: "As a user I want to log in",
-				Priority:    specdriven.PriorityP1,
-				WhyPriority: "Core MVP",
-				Scenarios: []specdriven.Scenario{
-					{Title: "Happy path", Given: "valid credentials", When: "user submits form", Then: "user is logged in"},
-				},
-			},
-		},
+		UserStories: []specdriven.UserStory{{
+			ID:          "US1",
+			Title:       "Login",
+			Description: "As a user I want to log in",
+			Priority:    specdriven.PriorityP1,
+			WhyPriority: "Core MVP",
+			Scenarios:   []specdriven.Scenario{{Title: "Happy path", Given: "valid credentials", When: "user submits form", Then: "user is logged in"}},
+		}},
 	}
 	out := specdriven.RenderSpec(s)
 	if !strings.Contains(out, "### US1 – Login (P1)") {
@@ -126,13 +116,7 @@ func TestRenderSpecRequirements(t *testing.T) {
 }
 
 func TestRenderSpecEntities(t *testing.T) {
-	s := &specdriven.Spec{
-		Number: "001",
-		Title:  "Auth",
-		Entities: []specdriven.Entity{
-			{Name: "User", Description: "An account holder", Fields: []string{"id", "email", "password_hash"}},
-		},
-	}
+	s := &specdriven.Spec{Number: "001", Title: "Auth", Entities: []specdriven.Entity{{Name: "User", Description: "An account holder", Fields: []string{"id", "email", "password_hash"}}}}
 	out := specdriven.RenderSpec(s)
 	if !strings.Contains(out, "### User") {
 		t.Error("RenderSpec missing entity heading")
@@ -143,13 +127,7 @@ func TestRenderSpecEntities(t *testing.T) {
 }
 
 func TestRenderSpecEdgeCases(t *testing.T) {
-	s := &specdriven.Spec{
-		Number: "001",
-		Title:  "Auth",
-		EdgeCases: []specdriven.EdgeCase{
-			{ID: "EC-001", Description: "Empty password", Expected: "Return 422 Unprocessable Entity"},
-		},
-	}
+	s := &specdriven.Spec{Number: "001", Title: "Auth", EdgeCases: []specdriven.EdgeCase{{ID: "EC-001", Description: "Empty password", Expected: "Return 422 Unprocessable Entity"}}}
 	out := specdriven.RenderSpec(s)
 	if !strings.Contains(out, "**EC-001**: Empty password → Return 422 Unprocessable Entity") {
 		t.Errorf("RenderSpec missing edge case, got:\n%s", out)
@@ -159,7 +137,6 @@ func TestRenderSpecEdgeCases(t *testing.T) {
 func TestRenderSpecEmptyStories(t *testing.T) {
 	s := &specdriven.Spec{Number: "001", Title: "Empty"}
 	out := specdriven.RenderSpec(s)
-	// Should not panic, should contain the heading
 	if !strings.Contains(out, "# Spec: 001 Empty") {
 		t.Errorf("RenderSpec empty spec missing title")
 	}
@@ -172,14 +149,8 @@ func TestRenderPlanHeading(t *testing.T) {
 		SpecNumber: "002",
 		Title:      "Photo Album",
 		CreatedAt:  "2026-05-12T00:00:00Z",
-		TechCtx: specdriven.TechnicalContext{
-			Language:  "Go 1.22",
-			Framework: "Gin",
-			Database:  "SQLite",
-		},
-		Phases: []specdriven.PlanPhase{
-			{Phase: specdriven.PhaseResearch, Deliverable: []string{"research.md"}},
-		},
+		TechCtx:    specdriven.TechnicalContext{Language: "Go 1.22", Framework: "Gin", Database: "SQLite"},
+		Phases:     []specdriven.PlanPhase{{Phase: specdriven.PhaseResearch, Deliverable: []string{"research.md"}}},
 	}
 	out := specdriven.RenderPlan(p)
 	if !strings.Contains(out, "# Plan: 002 Photo Album") {
@@ -200,13 +171,7 @@ func TestRenderPlanHeading(t *testing.T) {
 }
 
 func TestRenderPlanContracts(t *testing.T) {
-	p := &specdriven.Plan{
-		SpecNumber: "001",
-		Title:      "Auth",
-		Contracts: []specdriven.APIContract{
-			{Method: "POST", Path: "/api/v1/login", Description: "Authenticate user", Response: `{"token":"string"}`},
-		},
-	}
+	p := &specdriven.Plan{SpecNumber: "001", Title: "Auth", Contracts: []specdriven.APIContract{{Method: "POST", Path: "/api/v1/login", Description: "Authenticate user", Response: `{"token":"string"}`}}}
 	out := specdriven.RenderPlan(p)
 	if !strings.Contains(out, "### POST /api/v1/login") {
 		t.Error("RenderPlan missing contract heading")
@@ -219,17 +184,11 @@ func TestRenderPlanContracts(t *testing.T) {
 // ─── RenderTasks ─────────────────────────────────────────────────────────────
 
 func TestRenderTasksBasic(t *testing.T) {
-	groups := []specdriven.TaskGroup{
-		{
-			UserStoryID: "US1",
-			Title:       "Login",
-			Tasks: []specdriven.SpecTask{
-				{ID: "T001", UserStoryID: "US1", Description: "Write tests", Status: specdriven.TaskPending},
-				{ID: "T002", UserStoryID: "US1", Description: "Implement login handler", Parallelizable: true, Status: specdriven.TaskInProgress},
-				{ID: "T003", UserStoryID: "US1", Description: "Add integration test", Status: specdriven.TaskDone},
-			},
-		},
-	}
+	groups := []specdriven.TaskGroup{{
+		UserStoryID: "US1",
+		Title:       "Login",
+		Tasks:       []specdriven.SpecTask{{ID: "T001", UserStoryID: "US1", Description: "Write tests", Status: specdriven.TaskPending}, {ID: "T002", UserStoryID: "US1", Description: "Implement login handler", Parallelizable: true, Status: specdriven.TaskInProgress}, {ID: "T003", UserStoryID: "US1", Description: "Add integration test", Status: specdriven.TaskDone}},
+	}}
 	out := specdriven.RenderTasks("001", "User Auth", groups)
 	if !strings.Contains(out, "# Tasks: 001 User Auth") {
 		t.Error("RenderTasks missing heading")
@@ -249,13 +208,7 @@ func TestRenderTasksBasic(t *testing.T) {
 }
 
 func TestRenderTasksTargetPath(t *testing.T) {
-	groups := []specdriven.TaskGroup{{
-		UserStoryID: "US1",
-		Title:       "Login",
-		Tasks: []specdriven.SpecTask{
-			{ID: "T001", UserStoryID: "US1", Description: "Write handler", TargetPath: "internal/auth/handler.go"},
-		},
-	}}
+	groups := []specdriven.TaskGroup{{UserStoryID: "US1", Title: "Login", Tasks: []specdriven.SpecTask{{ID: "T001", UserStoryID: "US1", Description: "Write handler", TargetPath: "internal/auth/handler.go"}}}}
 	out := specdriven.RenderTasks("001", "Auth", groups)
 	if !strings.Contains(out, "— internal/auth/handler.go") {
 		t.Errorf("RenderTasks missing target path, got:\n%s", out)
@@ -279,19 +232,8 @@ func TestScaffoldTaskGroupsSetup(t *testing.T) {
 }
 
 func TestScaffoldTaskGroupsPerStory(t *testing.T) {
-	s := &specdriven.Spec{
-		Number: "001",
-		Title:  "Auth",
-		UserStories: []specdriven.UserStory{
-			{ID: "US1", Title: "Login", Scenarios: []specdriven.Scenario{
-				{Title: "Happy path"},
-				{Title: "Wrong password"},
-			}},
-			{ID: "US2", Title: "Logout"},
-		},
-	}
+	s := &specdriven.Spec{Number: "001", Title: "Auth", UserStories: []specdriven.UserStory{{ID: "US1", Title: "Login", Scenarios: []specdriven.Scenario{{Title: "Happy path"}, {Title: "Wrong password"}}}, {ID: "US2", Title: "Logout"}}}
 	groups := specdriven.ScaffoldTaskGroups(s)
-	// SETUP + 2 user stories
 	if len(groups) != 3 {
 		t.Errorf("expected 3 groups (SETUP+2 stories), got %d", len(groups))
 	}
@@ -299,39 +241,25 @@ func TestScaffoldTaskGroupsPerStory(t *testing.T) {
 	if us1.UserStoryID != "US1" {
 		t.Errorf("group[1].UserStoryID = %q, want US1", us1.UserStoryID)
 	}
-	// test task + 2 scenario tasks
 	if len(us1.Tasks) != 3 {
 		t.Errorf("US1 should have 3 tasks (1 test + 2 scenarios), got %d", len(us1.Tasks))
 	}
-	// Scenario implementation tasks should be parallelizable
 	if !us1.Tasks[1].Parallelizable {
 		t.Error("scenario tasks should be marked parallelizable")
 	}
 }
 
 func TestScaffoldTaskGroupsNoScenarios(t *testing.T) {
-	s := &specdriven.Spec{
-		Number:      "001",
-		Title:       "Auth",
-		UserStories: []specdriven.UserStory{{ID: "US1", Title: "Login"}},
-	}
+	s := &specdriven.Spec{Number: "001", Title: "Auth", UserStories: []specdriven.UserStory{{ID: "US1", Title: "Login"}}}
 	groups := specdriven.ScaffoldTaskGroups(s)
 	us1 := groups[1]
-	// test task + 1 fallback implementation task
 	if len(us1.Tasks) != 2 {
 		t.Errorf("no-scenario story should have 2 tasks, got %d", len(us1.Tasks))
 	}
 }
 
 func TestScaffoldTaskGroupsUniqueIDs(t *testing.T) {
-	s := &specdriven.Spec{
-		Number: "001",
-		Title:  "Auth",
-		UserStories: []specdriven.UserStory{
-			{ID: "US1", Title: "Login", Scenarios: []specdriven.Scenario{{Title: "s1"}, {Title: "s2"}}},
-			{ID: "US2", Title: "Logout", Scenarios: []specdriven.Scenario{{Title: "s1"}}},
-		},
-	}
+	s := &specdriven.Spec{Number: "001", Title: "Auth", UserStories: []specdriven.UserStory{{ID: "US1", Title: "Login", Scenarios: []specdriven.Scenario{{Title: "s1"}, {Title: "s2"}}}, {ID: "US2", Title: "Logout", Scenarios: []specdriven.Scenario{{Title: "s1"}}}}}
 	groups := specdriven.ScaffoldTaskGroups(s)
 	seen := map[string]bool{}
 	for _, g := range groups {
@@ -351,15 +279,11 @@ func TestBuildOrder(t *testing.T) {
 	if len(order) != 4 {
 		t.Fatalf("BuildOrder: expected 4 artifacts, got %d", len(order))
 	}
-	// spec must come before plan, plan before tasks, tasks before code
 	kinds := make([]specdriven.ArtifactKind, len(order))
 	for i, a := range order {
 		kinds[i] = a.Kind
 	}
-	wantOrder := []specdriven.ArtifactKind{
-		specdriven.ArtifactSpec, specdriven.ArtifactPlan,
-		specdriven.ArtifactTasks, specdriven.ArtifactCode,
-	}
+	wantOrder := []specdriven.ArtifactKind{specdriven.ArtifactSpec, specdriven.ArtifactPlan, specdriven.ArtifactTasks, specdriven.ArtifactCode}
 	for i, k := range wantOrder {
 		if kinds[i] != k {
 			t.Errorf("BuildOrder[%d] = %q, want %q", i, kinds[i], k)
@@ -369,15 +293,12 @@ func TestBuildOrder(t *testing.T) {
 
 func TestBuildOrderDependencies(t *testing.T) {
 	order := specdriven.BuildOrder()
-	// spec has no requirements
 	if len(order[0].Requires) != 0 {
 		t.Errorf("spec should have no requirements, got %v", order[0].Requires)
 	}
-	// plan requires spec
 	if len(order[1].Requires) != 1 || order[1].Requires[0] != specdriven.ArtifactSpec {
 		t.Errorf("plan should require spec, got %v", order[1].Requires)
 	}
-	// tasks requires plan
 	if len(order[2].Requires) != 1 || order[2].Requires[0] != specdriven.ArtifactPlan {
 		t.Errorf("tasks should require plan, got %v", order[2].Requires)
 	}
@@ -399,12 +320,8 @@ func TestRenderStatusEmpty(t *testing.T) {
 }
 
 func TestRenderStatusPartial(t *testing.T) {
-	present := map[specdriven.ArtifactKind]bool{
-		specdriven.ArtifactSpec: true,
-		specdriven.ArtifactPlan: true,
-	}
+	present := map[specdriven.ArtifactKind]bool{specdriven.ArtifactSpec: true, specdriven.ArtifactPlan: true}
 	out := specdriven.RenderStatus("001-auth", present)
-	// spec and plan should be ✓, tasks and code ○
 	lines := strings.Split(out, "\n")
 	checkCount := 0
 	for _, l := range lines {
@@ -414,6 +331,28 @@ func TestRenderStatusPartial(t *testing.T) {
 	}
 	if checkCount != 2 {
 		t.Errorf("expected 2 checkmarks, got %d in:\n%s", checkCount, out)
+	}
+}
+
+func TestDefaultLifecycleRecord(t *testing.T) {
+	record := specdriven.DefaultLifecycleRecord("2026-05-12T00:00:00Z")
+	if record.State != specdriven.LifecycleDraft {
+		t.Fatalf("default lifecycle state = %q, want draft", record.State)
+	}
+	if record.CreatedAt == "" || record.UpdatedAt == "" {
+		t.Fatal("default lifecycle timestamps should be populated")
+	}
+}
+
+func TestRenderLifecycleStatus(t *testing.T) {
+	present := map[specdriven.ArtifactKind]bool{specdriven.ArtifactSpec: true}
+	record := specdriven.SpecLifecycleRecord{State: specdriven.LifecycleCompleted, CreatedAt: "2026-05-12T00:00:00Z", CompletedAt: "2026-05-13T00:00:00Z", Notes: "done"}
+	out := specdriven.RenderLifecycleStatus("001-auth", present, record)
+	if !strings.Contains(out, "Lifecycle state: completed") {
+		t.Error("missing lifecycle state")
+	}
+	if !strings.Contains(out, "Guidance:") {
+		t.Error("missing lifecycle guidance")
 	}
 }
 
@@ -469,7 +408,7 @@ func TestNowISO(t *testing.T) {
 	if !strings.HasSuffix(ts, "Z") {
 		t.Errorf("NowISO() = %q, want UTC Z suffix", ts)
 	}
-	if len(ts) != 20 { // "2006-01-02T15:04:05Z"
+	if len(ts) != 20 {
 		t.Errorf("NowISO() = %q, unexpected length %d", ts, len(ts))
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func newTestTUIModel() chatTUIModel {
@@ -150,14 +151,29 @@ func TestSlashPickerEnterOnArgTakingFillsInput(t *testing.T) {
 	}
 }
 
-func TestSlashPickerViewIncludesCommandRow(t *testing.T) {
+func TestSlashPickerViewShowsTypedCommandInInput(t *testing.T) {
 	m := newTestTUIModel()
+	m.height = 12
 	m = typeRune(t, m, '/')
-	out := m.View()
-	if !strings.Contains(out, "Commands") {
-		t.Errorf("View() missing header; got:\n%s", out)
+	m = typeRune(t, m, 's')
+	m = typeRune(t, m, 'l')
+
+	out := xansi.Strip(m.View())
+	if !strings.Contains(out, "/sl") {
+		t.Fatalf("View() should show typed slash command in input; got:\n%s", out)
 	}
-	if !strings.Contains(out, "/help") {
-		t.Errorf("View() should list /help; got:\n%s", out)
+}
+
+func TestSlashPickerViewKeepsInputVisibleInShortWindow(t *testing.T) {
+	m := newTestTUIModel()
+	m.height = 8
+	m = typeRune(t, m, '/')
+	m.streamActive = true
+	out := xansi.Strip(m.View())
+	if !strings.Contains(out, "/") {
+		t.Fatalf("View() should keep slash input visible in short window; got:\n%s", out)
+	}
+	if strings.Contains(out, "Commands") {
+		t.Fatalf("View() should hide slash picker before it covers the input in short window; got:\n%s", out)
 	}
 }

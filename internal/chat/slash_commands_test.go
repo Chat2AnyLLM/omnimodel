@@ -31,7 +31,7 @@ func TestSlashCommandsCatalogShape(t *testing.T) {
 		}
 	}
 
-	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/model", "/agent", "/max-turns", "/models", "/spec", "/clear", "/quit"} {
+	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/model", "/agent", "/max-turns", "/models", "/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off", "/clear", "/quit"} {
 		if !seen[must] {
 			t.Errorf("catalog missing required command %q", must)
 		}
@@ -52,6 +52,9 @@ func TestFuzzySlashFilter(t *testing.T) {
 		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/model", "/models"}},
 		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/model", "/models"}},
 		{name: "question mark alias", filter: "?", want: []string{"/help"}},
+		{name: "spec mode shows workflow choices", filter: "/spec ", want: []string{"/spec", "/spec mode spec-kit", "/spec mode openspec", "/spec mode off"}},
+		{name: "spec-kit compact match", filter: "/spec spec", want: []string{"/spec mode spec-kit"}},
+		{name: "spec init with quoted title keeps init command", filter: "/spec init \"after entering each spec mode\"", want: []string{"/spec init"}},
 		{name: "no match", filter: "/zzzz", notWant: []string{"/help"}},
 	}
 
@@ -93,12 +96,30 @@ func slashNames(cs []slashCommand) []string {
 
 func TestRenderSlashHelp(t *testing.T) {
 	out := renderSlashHelp(slashCommands())
-	for _, want := range []string{"/help", "/models", "/quit", "show available commands"} {
+	for _, want := range []string{"/help", "/models", "/spec mode spec-kit", "/spec mode openspec", "/quit", "show available commands"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSlashHelp output missing %q\n---\n%s", want, out)
 		}
 	}
 	if !strings.HasPrefix(strings.TrimSpace(out), "**Commands:**") {
 		t.Errorf("renderSlashHelp output should start with **Commands:** header; got:\n%s", out)
+	}
+}
+
+func TestSpecHelpMentionsLifecycleCommands(t *testing.T) {
+	out := specHelpMarkdown()
+	for _, want := range []string{"speckit_lifecycle_status", "speckit_complete", "speckit_archive", "complete/archive cleanly"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("specHelpMarkdown output missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+func TestSpecKitWorkflowSummaryExplainsCleanLifecycle(t *testing.T) {
+	out := specKitWorkflowSummary()
+	for _, want := range []string{"draft", "in_progress", "completed", "archived", "After implementation: validate -> mark completed -> optionally archive"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("specKitWorkflowSummary output missing %q\n---\n%s", want, out)
+		}
 	}
 }

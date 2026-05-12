@@ -9,121 +9,83 @@ import (
 	"omnillm/internal/specdriven"
 )
 
-// specHelpMarkdown returns the full /spec help text as markdown.
+// specHelpMarkdown returns the /spec entrypoint help text as markdown.
 // Used by both TUI (rendered via glamour) and plain REPL.
 func specHelpMarkdown() string {
-	return `**Spec-driven development workflow**
+	return `**Choose a spec-driven method**
 
-Combines ideas from **spec-kit** and **OpenSpec** into a unified tool set.
-All agent commands require ` + "`/mode agent`" + ` + ` + "`load_skill(\"spec\")`" + `.
+` + "`/spec`" + ` starts spec-driven mode selection. Pick one of the supported workflows:
 
-**REPL shortcuts** (no agent needed):
+| Workflow | Use when | Command |
+| --- | --- | --- |
+| **spec-kit** | Building a feature through specify -> plan -> tasks -> implement, then complete/archive cleanly | ` + "`/spec mode spec-kit`" + ` |
+| **OpenSpec** | Managing a requirements-driven change through propose -> apply -> archive | ` + "`/spec mode openspec`" + ` |
 
-- ` + "`/spec init <title>`" + ` — create ` + "`specs/<N>-<slug>/`" + ` + ` + "`spec.md`" + ` template
-- ` + "`/spec status`" + ` — show all specs and which artifacts are present
-- ` + "`/spec help`" + ` — show this help
+**Slash commands**
 
----
+- ` + "`/spec mode spec-kit`" + ` -> enter spec-kit mode and show its commands
+- ` + "`/spec mode openspec`" + ` -> enter OpenSpec mode and show its commands
+- ` + "`/spec mode off`" + ` -> leave spec-driven mode
+- ` + "`/spec init <title>`" + ` -> create ` + "`specs/<N>-<slug>/`" + ` + ` + "`spec.md`" + ` template
+- ` + "`/spec status [dir]`" + ` -> show specs and artifact status
+- ` + "`/spec help`" + ` -> show this chooser
 
-**spec-kit workflow** — specify → plan → tasks → implement
+**Core Spec Kit commands**
 
-Full pipeline for structured feature development with prioritized user stories,
-Given-When-Then acceptance scenarios, and phase-based planning.
+` + specdriven.RenderSpecKitCommandTable() + `
+**OpenSpec commands**
 
-- ` + "`spec_init`" + ` — create numbered spec dir + blank spec.md
-- ` + "`spec_write`" + ` — add user stories (P1/P2/P3), Given-When-Then scenarios
-- ` + "`spec_plan`" + ` — scaffold plan.md (Phase 0-3, tech context, data model)
-- ` + "`spec_tasks`" + ` — generate tasks.md (atomic tasks per story, ` + "`[P]`" + ` = parallelizable)
-
-Example — build a feature from scratch:
-
-` + "```" + `
-/mode agent
-> load the spec skill
-> spec_init: title="Photo Album Organizer"
-> spec_write with user stories:
-  - As a user I can create albums grouped by date (P1)
-  - As a user I can drag-and-drop photos between albums (P1)
-  - As a user I can search photos by metadata (P2)
-> spec_plan: language=TypeScript, framework=Vite, database=SQLite
-> spec_tasks
-` + "```" + `
-
-Example — constitution + full specify:
-
-` + "```" + `
-> Create a spec for a Kanban board with drag-and-drop task management,
-  user assignment, comments, and due dates. Focus on code quality,
-  testing standards, and performance requirements.
-` + "```" + `
-
----
-
-**OpenSpec workflow** — propose → apply → archive
-
-Lightweight lifecycle for requirements-driven changes with artifact dependency
-tracking (spec → plan → tasks → code) and SHALL/MUST requirement language.
-
-- ` + "`spec_write`" + ` — propose requirements (SHALL/MUST), entities, edge cases
-- ` + "`spec_read`" + ` — review spec + artifact dependency graph
-- ` + "`spec_plan`" + ` — apply: generate implementation plan from spec
-- ` + "`spec_tasks`" + ` — apply: break plan into atomic tasks
-- ` + "`spec_status`" + ` — scan artifact completion (spec → plan → tasks → code)
-
-Example — quick feature lifecycle:
-
-` + "```" + `
-/mode agent
-> load the spec skill
-> spec_init: title="Add Dark Mode"
-> spec_write with requirements:
-  - The system SHALL support a dark color scheme toggle
-  - The system MUST persist theme preference across sessions
-  - Edge case: system preference changes while app is open
-> spec_read                    # review artifact status board
-> spec_plan                    # generate implementation plan
-> spec_tasks                   # break into atomic tasks
-  ... implement tasks ...
-> spec_status                  # verify all artifacts complete
-` + "```" + `
-
-Example — exploratory then structured:
-
-` + "```" + `
-> spec_init: title="Optimize Product List Fetching"
-> spec_write with requirements:
-  - The system SHALL reduce API response time below 200ms (P95)
-  - The system SHALL support cursor-based pagination
-  - The system MUST NOT break existing client integrations
-> spec_plan
-> spec_tasks
-> spec_status
-` + "```" + `
+` + specdriven.RenderOpenSpecCommandTable() + `
+Tip: in the TUI, type ` + "`/spec `" + `, ` + "`/speckit`" + `, ` + "`/opsx`" + `, or ` + "`/openspec`" + ` to see these choices in the slash-command picker.
 `
 }
 
 // specKitWorkflowSummary returns a concise markdown summary of the spec-kit workflow.
 func specKitWorkflowSummary() string {
-	return `**spec-kit** — specify → plan → tasks → implement
+	return `**spec-kit mode** -> constitution -> specify -> clarify -> plan -> tasks -> analyze -> implement
 
-- ` + "`spec_init`" + ` — create numbered spec dir + blank spec.md
-- ` + "`spec_write`" + ` — add user stories (P1/P2/P3), Given-When-Then scenarios
-- ` + "`spec_plan`" + ` — scaffold plan.md (Phase 0-3, tech context, data model)
-- ` + "`spec_tasks`" + ` — generate tasks.md (atomic tasks per story)
+**Clean lifecycle**
+
+- ` + "`draft`" + ` -> spec exists and is being refined
+- ` + "`in_progress`" + ` -> implementation has started
+- ` + "`completed`" + ` -> implementation is done; keep ` + "`spec.md`" + `, ` + "`plan.md`" + `, and ` + "`tasks.md`" + `
+- ` + "`archived`" + ` -> optional move to ` + "`specs/archive/`" + ` to reduce clutter
+
+After implementation: validate -> mark completed -> optionally archive.
+
+**Slash commands**
+
+- ` + "`/spec init <title>`" + ` -> create a numbered spec dir + blank spec.md
+- ` + "`/spec status [dir]`" + ` -> scan artifact completion
+- ` + "`/spec mode openspec`" + ` -> switch to OpenSpec mode
+- ` + "`/spec mode off`" + ` -> leave spec-driven mode
+
+**Core Spec Kit commands**
+
+` + specdriven.RenderSpecKitCommandTable() + `
+**Legacy agent aliases** (after ` + "`load_skill(\"spec\")`" + `)
+
+- ` + "`spec_init`" + ` / ` + "`spec_write`" + ` -> create and populate spec.md
+- ` + "`spec_plan`" + ` -> scaffold plan.md
+- ` + "`spec_tasks`" + ` -> generate tasks.md and mark lifecycle in progress
+- ` + "`spec_read`" + ` / ` + "`spec_status`" + ` -> review artifacts and lifecycle
 `
 }
 
 // openSpecWorkflowSummary returns a concise markdown summary of the OpenSpec workflow.
 func openSpecWorkflowSummary() string {
-	return `**openspec** — propose → apply → archive
-
-- ` + "`spec_init`" + ` — create numbered spec dir
-- ` + "`spec_write`" + ` — propose requirements (SHALL/MUST), entities, edge cases
-- ` + "`spec_read`" + ` — review spec + artifact dependency graph
-- ` + "`spec_plan`" + ` — generate implementation plan from spec
-- ` + "`spec_tasks`" + ` — break plan into atomic tasks
-- ` + "`spec_status`" + ` — scan artifact completion
-`
+	return "**openspec mode** -> propose -> apply -> archive\n\n" +
+		"**Slash commands**\n\n" +
+		"- `/opsx:propose [change]` -> create a change and planning artifacts\n" +
+		"- `/opsx:explore [topic]` -> investigate before committing to a change\n" +
+		"- `/opsx:apply [change]` -> implement or report pending tasks\n" +
+		"- `/opsx:sync [change]` -> merge delta specs into `openspec/specs/`\n" +
+		"- `/opsx:archive [change]` -> archive a completed change\n" +
+		"- `/opsx:new`, `/opsx:continue`, `/opsx:ff`, `/opsx:verify`, `/opsx:bulk-archive`, `/opsx:onboard` -> expanded workflow\n" +
+		"- `/spec mode spec-kit` -> switch to spec-kit mode\n" +
+		"- `/spec mode off` -> leave spec-driven mode\n\n" +
+		"**OpenSpec commands** (after `load_skill(\"spec\")`)\n\n" +
+		specdriven.RenderOpenSpecCommandTable() + "\n"
 }
 
 // validSpecModes are the recognized spec mode values.
@@ -141,7 +103,7 @@ func isValidSpecMode(mode string) bool {
 
 // specREPLInit is the implementation behind "/spec init <title>".
 // It creates the spec directory and spec.md directly without going through the
-// agent loop — useful for quickly kicking off a new feature before switching to
+// agent loop 閳?useful for quickly kicking off a new feature before switching to
 // agent mode for the rich spec_write / spec_plan / spec_tasks steps.
 func specREPLInit(w io.Writer, title string) error {
 	specsRoot := "specs"
@@ -168,6 +130,9 @@ func specREPLInit(w io.Writer, title string) error {
 	if err := os.WriteFile(specFile, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write spec.md: %w", err)
 	}
+	if _, err := specdriven.EnsureLifecycle(dirPath, spec.CreatedAt); err != nil {
+		return fmt.Errorf("write lifecycle metadata: %w", err)
+	}
 
 	_, _ = fmt.Fprintf(w, "Created %s\n", specFile)
 	_, _ = fmt.Fprintln(w, "")
@@ -191,22 +156,16 @@ func specREPLStatus(w io.Writer, specsRoot string) error {
 
 	found := 0
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || entry.Name() == "archive" {
 			continue
 		}
 		dirPath := filepath.Join(specsRoot, entry.Name())
-		present := map[specdriven.ArtifactKind]bool{}
-		for _, kind := range []specdriven.ArtifactKind{
-			specdriven.ArtifactSpec,
-			specdriven.ArtifactPlan,
-			specdriven.ArtifactTasks,
-		} {
-			fname := string(kind) + ".md"
-			if _, err := os.Stat(filepath.Join(dirPath, fname)); err == nil {
-				present[kind] = true
-			}
+		present := specdriven.ArtifactPresence(dirPath)
+		record, err := specdriven.EnsureLifecycle(dirPath, "")
+		if err != nil {
+			return fmt.Errorf("read lifecycle metadata for %s: %w", entry.Name(), err)
 		}
-		_, _ = fmt.Fprint(w, specdriven.RenderStatus(entry.Name(), present))
+		_, _ = fmt.Fprint(w, specdriven.RenderLifecycleStatus(entry.Name(), present, record))
 		found++
 	}
 	if found == 0 {

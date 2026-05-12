@@ -117,6 +117,9 @@ const (
 	// Align tool-result click hit-testing with perceived terminal row placement.
 	tuiToolResultHitRowOffset = 4
 	slashPickerVisible        = 20
+	tuiViewportMinHeight      = 1
+	tuiBaseRows               = 6
+	tuiSlashPickerFrameRows   = 3
 )
 
 type logoStyle struct {
@@ -633,7 +636,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Layout: title(1) + div(1) + viewport + div(1) + textarea(≥1) + status(1) + help(2) = 7 fixed rows
 		// Reserve an extra row for the conditional permission/search status line.
-		vpH := max(msg.Height-10, 3)
+		vpH := m.viewportHeight(msg.Height)
 		if !m.ready {
 			m.viewport = viewport.New(m.mainWidth, vpH)
 			// Disable single-letter viewport keybindings (b, u, d, f, j, k, h, l)
@@ -790,6 +793,12 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.applyTextareaValue(sel.Name)
 				return m.submitTextareaInput()
+			case tea.KeySpace:
+				current := strings.TrimSpace(m.textarea.Value())
+				if current == specSlashCommandName() {
+					m.applyTextareaValue(specSlashCommandName() + " ")
+					return m, nil
+				}
 			}
 			// Key not consumed by the picker — let the outer switch and
 			// the textarea handle it; updateSlashPicker reruns the filter.
@@ -1191,6 +1200,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea.SetHeight(1)
 	}
 	m.updateSlashPicker()
+	m.resizeViewportForCurrentLayout()
 	if !m.textarea.Focused() || m.streamActive || m.pendingPermission != nil {
 		m.pendingSubmitNewline = false
 	}
@@ -1198,9 +1208,54 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// updateSlashPicker opens, updates, or closes the slash-command picker
-// based on the current textarea contents. It must be called after every
-// textarea update.
+// viewportHeight returns the transcript viewport height for the current layout.
+func (m *chatTUIModel) viewportHeight(totalHeight int) int {
+	if totalHeight <= 0 {
+		return tuiViewportMinHeight
+	}
+	reserved := tuiBaseRows + m.extraTextareaRows() + m.slashPickerHeight()
+	return max(totalHeight-reserved, tuiViewportMinHeight)
+}
+
+func (m *chatTUIModel) resizeViewportForCurrentLayout() {
+	if !m.ready || m.height <= 0 {
+		return
+	}
+	nextHeight := m.viewportHeight(m.height)
+	if m.viewport.Height != nextHeight {
+		m.viewport.Height = nextHeight
+	}
+}
+
+func (m *chatTUIModel) slashPickerVisibleRows() int {
+	if m.height <= 0 {
+		return slashPickerVisible
+	}
+	available := m.height - tuiBaseRows - tuiViewportMinHeight - tuiSlashPickerFrameRows - m.extraTextareaRows()
+	return max(minInt(slashPickerVisible, available), 0)
+}
+
+func (m *chatTUIModel) slashPickerHeight() int {
+	if m.slashPicker == nil {
+		return 0
+	}
+	visible := m.slashPickerVisibleRows()
+	if visible == 0 {
+		return 0
+	}
+	if visible > len(m.slashPicker.filtered) {
+		visible = len(m.slashPicker.filtered)
+	}
+	if visible == 0 {
+		visible = 1
+	}
+	return tuiSlashPickerFrameRows + visible
+}
+
+func (m *chatTUIModel) extraTextareaRows() int {
+	return max(m.textarea.Height()-1, 0)
+}
+
 func (m *chatTUIModel) updateSlashPicker() {
 	if m.streamActive || m.pendingPermission != nil || m.historySearchMode {
 		m.slashPicker = nil
@@ -1292,12 +1347,15 @@ func (m chatTUIModel) renderSlashPicker() string {
 	if m.slashPicker == nil {
 		return ""
 	}
+	visible := m.slashPickerVisibleRows()
+	if visible == 0 {
+		return ""
+	}
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12")).Padding(0, 1)
 	normalStyle := lipgloss.NewStyle().Padding(0, 1)
 
 	width := tuiMax(40, m.transcriptBlockMaxWidth())
-	visible := slashPickerVisible
 	if visible > len(m.slashPicker.filtered) {
 		visible = len(m.slashPicker.filtered)
 	}
