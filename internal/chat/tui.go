@@ -763,6 +763,34 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.slashPicker != nil {
+			switch msg.Type {
+			case tea.KeyEscape:
+				m.slashPicker = nil
+				return m, nil
+			case tea.KeyUp, tea.KeyCtrlP:
+				m.slashPicker.moveSelection(-1, slashPickerVisible)
+				return m, nil
+			case tea.KeyDown, tea.KeyCtrlN:
+				m.slashPicker.moveSelection(1, slashPickerVisible)
+				return m, nil
+			case tea.KeyEnter:
+				sel, ok := m.slashPicker.selected()
+				if !ok {
+					return m, nil
+				}
+				m.slashPicker = nil
+				if sel.TakesArgs {
+					m.applyTextareaValue(sel.Name + " ")
+					m.textarea.CursorEnd()
+					return m, nil
+				}
+				m.applyTextareaValue(sel.Name)
+				return m.submitTextareaInput()
+			}
+			// Fall through: any other key edits the textarea and the
+			// post-update lifecycle step will recompute the filter.
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			if m.textarea.Value() != "" {
