@@ -115,6 +115,7 @@ const (
 	tuiMinSidebarWidth = 60
 	// Align tool-result click hit-testing with perceived terminal row placement.
 	tuiToolResultHitRowOffset = 4
+	slashPickerVisible        = 10
 )
 
 type logoStyle struct {
@@ -494,6 +495,7 @@ type chatTUIModel struct {
 	streamBuf            string
 	queuedPrompt         string
 	picker               *modelPickerState
+	slashPicker          *slashPickerState
 	sessionPicker        *sessionPickerState
 	pendingPermission    *pendingPermissionState
 	agentTurnCancel      context.CancelFunc
@@ -1157,11 +1159,36 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textareaExpanded = false
 		m.textarea.SetHeight(1)
 	}
+	m.updateSlashPicker()
 	if !m.textarea.Focused() || m.streamActive || m.pendingPermission != nil {
 		m.pendingSubmitNewline = false
 	}
 	cmds = append(cmds, vpCmd, taCmd)
 	return m, tea.Batch(cmds...)
+}
+
+// updateSlashPicker opens, updates, or closes the slash-command picker
+// based on the current textarea contents. It must be called after every
+// textarea update.
+func (m *chatTUIModel) updateSlashPicker() {
+	if m.streamActive || m.pendingPermission != nil || m.historySearchMode {
+		m.slashPicker = nil
+		return
+	}
+	value := m.textarea.Value()
+	if strings.Contains(value, "\n") {
+		m.slashPicker = nil
+		return
+	}
+	trimmed := strings.TrimLeft(value, " \t")
+	if !strings.HasPrefix(trimmed, "/") {
+		m.slashPicker = nil
+		return
+	}
+	if m.slashPicker == nil {
+		m.slashPicker = newSlashPickerState()
+	}
+	m.slashPicker.setFilter(trimmed)
 }
 
 func (m chatTUIModel) View() string {
@@ -2723,7 +2750,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	case "/help", "?":
-		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `↑`/`↓` — focus expandable tool results (when input is empty)\n- `Space` — expand/collapse the focused tool result\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
+		add(m.renderMD("**Commands:**\n\n- `/help` or `?` — show this help\n- `/new [title]` — start a new session\n- `/sessions` — browse and resume a previous session\n- `/session` — show current session info\n- `/mode` — show current mode\n- `/mode <chat|agent>` — switch mode\n- `/apishape` — show the fixed agent API request shape\n- `/apishape <anthropic>` — keep the agent API request shape on `/v1/messages`\n- `/permissions` — toggle autopilot (auto-approve tool calls)\n- `/model` — show current model\n- `/model <id>` — switch model\n- `/agent` — show the fixed google-adk backend\n- `/agent <google-adk>` — keep the agent backend on google-adk\n- `/max-turns [1-100]` — show or set max agent turns (default 25)\n- `/models` — open model picker\n- `/spec` — show spec-driven workflow help\n- `/spec init <title>` — create a new spec directory\n- `/spec status` — list all specs and their artifact status\n- `/clear` or `/cls` — clear the screen\n- `/quit` or `/exit` — quit\n\n**Keyboard shortcuts:**\n\n- `Shift+Tab` — toggle autopilot (auto-approve tool calls)\n- `↑`/`↓` — focus expandable tool results (when input is empty)\n- `Space` — expand/collapse the focused tool result\n- `Esc` — cancel current running job\n- The right-hand panel always shows permission and session status\n"))
 		return m, nil
 	case "/session":
 		add(m.renderMD(fmt.Sprintf("**Session:** `%s`\n**Mode:** `%s`\n**API Shape:** `%s`\n**Model:** `%s`", m.sessionID, m.mode, formatAPIShape(m.apiShape), m.model)))
@@ -2851,6 +2878,35 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 		}
 	default:
 		add(tuiErrorStyle.Render(fmt.Sprintf("Unknown command: %s — use /help", fields[0])))
+		return m, nil
+	case "/spec":
+		sub := ""
+		if len(fields) > 1 {
+			sub = strings.ToLower(fields[1])
+		}
+		if sub == "" {
+			add(m.renderMD("**Spec-driven development workflow**\n\n" +
+				"**REPL shortcuts** (no agent needed):\n\n" +
+				"- `/spec init <title>` — create `specs/<N>-<slug>/` + `spec.md` template\n" +
+				"- `/spec status` — show all specs and which artifacts are present\n\n" +
+				"---\n\n" +
+				"**spec-kit workflow** — specify → plan → tasks → implement\n\n" +
+				"- `spec_init` — create numbered spec dir + blank spec.md\n" +
+				"- `spec_write` — add user stories (P1/P2/P3), Given-When-Then scenarios\n" +
+				"- `spec_plan` — scaffold plan.md (Phase 0-3, tech context, data model)\n" +
+				"- `spec_tasks` — generate tasks.md (atomic tasks per story, `[P]` = parallelizable)\n\n" +
+				"**OpenSpec workflow** — propose → apply → archive\n\n" +
+				"- `spec_write` — propose requirements (SHALL/MUST), entities, edge cases\n" +
+				"- `spec_read` — review spec + artifact dependency graph\n" +
+				"- `spec_status` — scan artifact completion (spec → plan → tasks → code)\n\n" +
+				"---\n\n" +
+				"All commands available in `/mode agent` after `load_skill(\"spec\")`.\n\n" +
+				"**Example:** \"load the spec skill and create a spec for user authentication\"\n"))
+		} else {
+			var sb strings.Builder
+			handleSpecCommand(&sb, fields)
+			add(m.renderMD(sb.String()))
+		}
 		return m, nil
 	}
 }
