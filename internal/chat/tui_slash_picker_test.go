@@ -61,7 +61,7 @@ func TestSlashPickerFiltersAsYouType(t *testing.T) {
 	for _, c := range m.slashPicker.filtered {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"/model", "/mode"} {
+	for _, want := range []string{"/models", "/mode"} {
 		if !names[want] {
 			t.Errorf("expected %q in filtered set; got %v", want, namesOf(m.slashPicker.filtered))
 		}

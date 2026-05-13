@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type editTool struct{}
@@ -51,17 +53,51 @@ func (t *editTool) Execute(ctx context.Context, call Context, input json.RawMess
 	}
 	content := string(data)
 
-	if !strings.Contains(content, p.OldString) {
+	// Normalize line endings for matching: LLMs typically produce \n but Windows files have \r\n.
+	normalizedContent := strings.ReplaceAll(content, "\r\n", "\n")
+	normalizedOld := strings.ReplaceAll(p.OldString, "\r\n", "\n")
+	normalizedNew := strings.ReplaceAll(p.NewString, "\r\n", "\n")
+
+	hasCRLF := strings.Contains(content, "\r\n")
+	directMatch := strings.Contains(content, p.OldString)
+	normalizedMatch := strings.Contains(normalizedContent, normalizedOld)
+
+	if !directMatch && !normalizedMatch {
+		snippet := p.OldString
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
+		log.Debug().
+			Str("file", p.FilePath).
+			Str("old_string_snippet", snippet).
+			Bool("file_has_crlf", hasCRLF).
+			Msg("edit: old_string not found")
 		return Result{Output: fmt.Sprintf("error: old_string not found in %s", p.FilePath), IsError: true}
 	}
 
-	count := strings.Count(content, p.OldString)
 	var updated string
-	if p.ReplaceAll {
-		updated = strings.ReplaceAll(content, p.OldString, p.NewString)
+	var count int
+	if directMatch {
+		count = strings.Count(content, p.OldString)
+		if p.ReplaceAll {
+			updated = strings.ReplaceAll(content, p.OldString, p.NewString)
+		} else {
+			updated = strings.Replace(content, p.OldString, p.NewString, 1)
+			count = 1
+		}
 	} else {
-		updated = strings.Replace(content, p.OldString, p.NewString, 1)
-		count = 1
+		// Matched after normalization — work in normalized space then restore CRLF if the file used it.
+		log.Debug().Str("file", p.FilePath).Msg("edit: matched after line-ending normalization")
+		count = strings.Count(normalizedContent, normalizedOld)
+		if p.ReplaceAll {
+			updated = strings.ReplaceAll(normalizedContent, normalizedOld, normalizedNew)
+		} else {
+			updated = strings.Replace(normalizedContent, normalizedOld, normalizedNew, 1)
+			count = 1
+		}
+		if hasCRLF {
+			updated = strings.ReplaceAll(updated, "\n", "\r\n")
+		}
 	}
 
 	if err := os.WriteFile(p.FilePath, []byte(updated), 0o644); err != nil {

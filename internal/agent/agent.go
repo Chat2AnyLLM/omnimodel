@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"omnillm/internal/tools"
 )
 
@@ -89,6 +91,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 	consecutiveAllErrorSteps := 0
 
 	for step := startStep; step < a.maxSteps; step++ {
+		log.Debug().Int("step", step).Int("max_steps", a.maxSteps).Msg("agent: starting step")
 		if err := ctx.Err(); err != nil {
 			return &RunResult{
 				Output:   finalOutput,
@@ -114,6 +117,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 
 		toolCalls := extractToolCalls(response.Content)
 		if len(toolCalls) == 0 {
+			log.Debug().Int("step", step).Msg("agent: no tool calls, finishing")
 			finalOutput = extractTextContent(response.Content)
 			clearCheckpoint(sessionID)
 			return &RunResult{
@@ -121,6 +125,10 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 				Steps:    step + 1,
 				Messages: a.memory.Messages(),
 			}, nil
+		}
+
+		for _, tc := range toolCalls {
+			log.Debug().Str("tool", tc.Name).Int("step", step).Msg("agent: executing tool call")
 		}
 
 		toolCallSignatures = append(toolCallSignatures, toolCallBatchSignature(toolCalls))
@@ -139,6 +147,7 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 			if !r.IsError {
 				allErrors = false
 			}
+			log.Debug().Str("tool", r.ToolName).Bool("is_error", r.IsError).Msg("agent: tool result")
 			safeContent := sanitizeToolResultForModel(r.ToolName, r.Content, r.IsError)
 			toolResultParts = append(toolResultParts, ContentBlock{
 				Type:      "tool_result",
@@ -150,7 +159,18 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 		}
 		if allErrors {
 			consecutiveAllErrorSteps++
+			log.Warn().
+				Int("consecutive_error_steps", consecutiveAllErrorSteps).
+				Int("max_allowed", maxConsecutiveAllErrorSteps).
+				Msg("agent: all tool calls in step returned errors")
+			for _, r := range toolResults {
+				log.Debug().
+					Str("tool", r.ToolName).
+					Str("error", r.Content).
+					Msg("agent: failing tool call detail")
+			}
 			if consecutiveAllErrorSteps >= maxConsecutiveAllErrorSteps {
+				log.Error().Msg("agent: aborting after consecutive tool-error steps")
 				return nil, errors.New("agent aborted after consecutive tool-error steps")
 			}
 		} else {
@@ -186,6 +206,8 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 		consecutiveAllErrorSteps := 0
 
 		for step := startStep; step < a.maxSteps; step++ {
+			log.Debug().Int("step", step).Int("max_steps", a.maxSteps).Msg("agent: starting step")
+			events <- Event{Type: EventTurnProgress, Turn: step + 1, MaxTurns: a.maxSteps}
 			if err := ctx.Err(); err != nil {
 				events <- Event{Type: EventError, Content: err.Error()}
 				return
@@ -216,6 +238,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 
 			toolCalls := extractToolCalls(response.Content)
 			if len(toolCalls) == 0 {
+				log.Debug().Int("step", step).Msg("agent: no tool calls, finishing")
 				clearCheckpoint(sessionID)
 				events <- Event{Type: EventDone}
 				return
@@ -231,6 +254,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 
 			for _, tc := range toolCalls {
+				log.Debug().Str("tool", tc.Name).Int("step", step).Msg("agent: executing tool call")
 				events <- Event{Type: EventToolCall, Tool: tc.Name, Content: formatToolCallPayload(tc)}
 			}
 
@@ -244,6 +268,7 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 				if !r.IsError {
 					allErrors = false
 				}
+				log.Debug().Str("tool", r.ToolName).Bool("is_error", r.IsError).Msg("agent: tool result")
 				safeContent := sanitizeToolResultForModel(r.ToolName, r.Content, r.IsError)
 				toolResultParts = append(toolResultParts, ContentBlock{
 					Type:      "tool_result",
@@ -255,7 +280,18 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 			}
 			if allErrors {
 				consecutiveAllErrorSteps++
+				log.Warn().
+					Int("consecutive_error_steps", consecutiveAllErrorSteps).
+					Int("max_allowed", maxConsecutiveAllErrorSteps).
+					Msg("agent: all tool calls in step returned errors")
+				for _, r := range toolResults {
+					log.Debug().
+						Str("tool", r.ToolName).
+						Str("error", r.Content).
+						Msg("agent: failing tool call detail")
+				}
 				if consecutiveAllErrorSteps >= maxConsecutiveAllErrorSteps {
+					log.Error().Msg("agent: aborting after consecutive tool-error steps")
 					events <- Event{Type: EventError, Content: "agent aborted after consecutive tool-error steps"}
 					return
 				}

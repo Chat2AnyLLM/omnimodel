@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"omnillm/internal/tools"
 )
 
@@ -53,6 +55,7 @@ func RunTurn(ctx context.Context, c Client, sessionID, model, backend, apiShape,
 	seedHistory(memory, history, safePrompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
+	log.Info().Str("session", sessionID).Str("model", model).Int("max_turns", maxTurns).Msg("agent: starting run")
 	result, err := ag.Run(ctx, sessionID, safePrompt)
 	if err != nil {
 		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] run_error model=%s err=%q", sessionID, model, trimForLog(err.Error(), 200)))
@@ -101,6 +104,7 @@ func StreamTurn(ctx context.Context, c Client, sessionID, model, backend, apiSha
 	seedHistory(memory, history, safePrompt)
 
 	ag := NewAgent(registry, memory, maxTurns, selectDispatch(c, model, backend, apiShape))
+	log.Info().Str("session", sessionID).Str("model", model).Int("max_turns", maxTurns).Msg("agent: starting stream")
 	events, err := ag.Stream(ctx, sessionID, safePrompt)
 	if err != nil {
 		_ = AppendDailyLog(wsDir, fmt.Sprintf("[%s] stream_error model=%s err=%q", sessionID, model, trimForLog(err.Error(), 200)))

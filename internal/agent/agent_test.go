@@ -467,6 +467,39 @@ func TestSelectDispatchAlwaysUsesMessagesProxy(t *testing.T) {
 	}
 }
 
+func TestStreamEmitsTurnProgress(t *testing.T) {
+	ag := NewAgent(tools.NewRegistry(), NewBufferMemory(8), 3, func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error) {
+		ch := make(chan *MessagesResponse, 1)
+		ch <- &MessagesResponse{
+			ID:         "msg-progress",
+			Model:      req.Model,
+			Content:    []ContentBlock{TextBlock("ok")},
+			StopReason: StopReasonEndTurn,
+		}
+		close(ch)
+		return ch, nil
+	})
+
+	events, err := ag.Stream(context.Background(), "sess-progress", "hello")
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	var progress []Event
+	for event := range events {
+		if event.Type == EventTurnProgress {
+			progress = append(progress, event)
+		}
+	}
+
+	if len(progress) != 1 {
+		t.Fatalf("progress events len = %d, want 1 (%#v)", len(progress), progress)
+	}
+	if progress[0].Turn != 1 || progress[0].MaxTurns != 3 {
+		t.Fatalf("progress event = turn %d max %d, want 1/3", progress[0].Turn, progress[0].MaxTurns)
+	}
+}
+
 func newTestAgent() *Agent {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Bash())

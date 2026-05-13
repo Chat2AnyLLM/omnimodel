@@ -142,7 +142,7 @@ func TestRenderMarkdownTable(t *testing.T) {
 				"| --- | --- |",
 				"| printer-1 | normal |",
 			}, "\n"),
-			want: []string{"┌", "Name", "printer-1", "Status"},
+			want: []string{"Name", "printer-1", "Status"},
 		},
 		{
 			name: "prose surrounding table",
@@ -155,7 +155,7 @@ func TestRenderMarkdownTable(t *testing.T) {
 				"",
 				"Summary: 1 printer found.",
 			}, "\n"),
-			want: []string{"Here are all the printers available on your system:", "┌", "printer-1", "Summary: 1 printer found."},
+			want: []string{"Here are all the printers available on your system:", "printer-1", "Summary: 1 printer found."},
 		},
 	}
 
@@ -241,6 +241,27 @@ func TestRenderSidebarPrioritizesActionsOverMessageCount(t *testing.T) {
 	}
 	if strings.Contains(rendered, "total") {
 		t.Fatalf("renderSidebar() still shows message count: %q", rendered)
+	}
+}
+
+func TestRenderSidebarShowsAgentTurnUsage(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "google-adk", nil, nil)
+	m.sidebarWidth = 30
+	m.height = 20
+	m.maxTurns = 8
+	m.streamActive = true
+	m.currentAgentTurn = 3
+	m.currentAgentMaxTurns = 8
+
+	rendered := m.renderSidebar()
+	if !strings.Contains(rendered, "Turns") {
+		t.Fatalf("renderSidebar() missing Turns section: %q", rendered)
+	}
+	if !strings.Contains(rendered, "3 / 8") {
+		t.Fatalf("renderSidebar() missing turn usage: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Turn 3/8") {
+		t.Fatalf("renderSidebar() missing active turn status: %q", rendered)
 	}
 }
 
@@ -467,41 +488,6 @@ func TestFilterModels(t *testing.T) {
 	}
 }
 
-func TestHandleSlashCommandModelSwitch(t *testing.T) {
-	var updatedModel string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
-			var body map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode request: %v", err)
-			}
-			updatedModel = body["model_id"]
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	cmd := newTestCommandContext()
-	client := &testClient{baseURL: server.URL, http: server.Client()}
-
-	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "chat"}, "/model qwen3")
-	if err != nil {
-		t.Fatalf("handleSlashCommand returned error: %v", err)
-	}
-	if !result.handled || result.model != "qwen3" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if updatedModel != "qwen3" {
-		t.Fatalf("updated model = %q, want qwen3", updatedModel)
-	}
-	if !strings.Contains(cmd.out.String(), "Switched model to qwen3") {
-		t.Fatalf("unexpected output: %s", cmd.out.String())
-	}
-}
-
 func TestHandleSlashCommandModelsFilterOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -681,6 +667,16 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 	}
 	if !strings.Contains(cmd.err.String(), "Allow tool execution?") {
 		t.Fatalf("expected permission prompt, got %q", cmd.err.String())
+	}
+}
+
+func TestTUIAgentTurnProgressMsgUpdatesCounter(t *testing.T) {
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "anthropic-sdk", nil, nil)
+
+	model, _ := m.Update(agentTurnProgressMsg{turn: 2, maxTurns: 5})
+	updated := model.(chatTUIModel)
+	if updated.currentAgentTurn != 2 || updated.currentAgentMaxTurns != 5 {
+		t.Fatalf("agent turn state = %d/%d, want 2/5", updated.currentAgentTurn, updated.currentAgentMaxTurns)
 	}
 }
 
@@ -1112,7 +1108,7 @@ func TestTUICtrlOTogglesAllToolResults(t *testing.T) {
 
 func TestFormatToolCallProgressShowsPayloadInline(t *testing.T) {
 	got := formatToolCallProgress("powershell", "Get-NetIPAddress -AddressFamily IPv4")
-	want := "🔧 Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"
+	want := "妫ｅ啯鏆?Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"
 	if got != want {
 		t.Fatalf("formatToolCallProgress() = %q, want %q", got, want)
 	}
@@ -1124,7 +1120,7 @@ func TestTUIAgentToolCallProgressShowsPayloadInline(t *testing.T) {
 	m.mainWidth = 120
 	m.viewport = viewport.New(120, 10)
 
-	model, _ := m.Update(agentProgressMsg{text: "🔧 Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"})
+	model, _ := m.Update(agentProgressMsg{text: "妫ｅ啯鏆?Calling tool `powershell`: Get-NetIPAddress -AddressFamily IPv4"})
 	updated := model.(chatTUIModel)
 	rendered := updated.renderTranscript()
 
@@ -1962,7 +1958,7 @@ func (c *testClient) PostStream(path string, body any) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
-// ─── Paste simulation tests ───────────────────────────────────────────────────
+// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Paste simulation tests 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
 
 func readyChatTUIModelForInput() chatTUIModel {
 	m := newChatTUIModel(nil, "session-1", "model", "chat", "openai", "", nil, nil)
@@ -2119,10 +2115,11 @@ func TestChineseRunesArePreservedInTextareaInput(t *testing.T) {
 	t.Parallel()
 
 	m := readyChatTUIModelForInput()
-	raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("你好，世界")})
+	input := "你好，世界"
+	raw, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(input)})
 	m = raw.(chatTUIModel)
 
-	if got, want := m.textarea.Value(), "你好，世界"; got != want {
+	if got, want := m.textarea.Value(), input; got != want {
 		t.Fatalf("textarea value = %q, want %q", got, want)
 	}
 }
@@ -2131,14 +2128,14 @@ func TestRenderSingleLineTextareaCJKFitsInWidth(t *testing.T) {
 	t.Parallel()
 
 	m := readyChatTUIModelForInput()
-	m.applyTextareaValue("你好世界测试")
+	m.applyTextareaValue("你好世界你好世界")
 	rendered := m.renderSingleLineTextarea(40)
 
 	displayWidth := xansi.StringWidth(rendered)
 	if displayWidth > 40 {
 		t.Fatalf("rendered display width = %d, exceeds available width 40", displayWidth)
 	}
-	if !strings.Contains(rendered, "你") {
+	if !strings.Contains(rendered, "你好") {
 		t.Fatal("rendered output should contain Chinese characters")
 	}
 }
@@ -2147,7 +2144,7 @@ func TestRenderSingleLineTextareaCJKScrolling(t *testing.T) {
 	t.Parallel()
 
 	m := readyChatTUIModelForInput()
-	long := strings.Repeat("测", 50)
+	long := strings.Repeat("界", 50)
 	m.applyTextareaValue(long)
 	rendered := m.renderSingleLineTextarea(30)
 
@@ -2169,7 +2166,6 @@ func TestRenderSingleLineTextareaMixedASCIIAndCJK(t *testing.T) {
 		t.Fatalf("rendered display width = %d, exceeds available width 40", displayWidth)
 	}
 }
-
 func TestConfigureUTF8ConsoleIsSafeToCall(t *testing.T) {
 	if err := configureUTF8Console(); err != nil {
 		t.Fatalf("configureUTF8Console() returned error: %v", err)

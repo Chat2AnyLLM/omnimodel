@@ -308,25 +308,6 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Permissions: %s\n", status)
 		return replCommandResult{handled: true}, nil
-	case "/model":
-		if len(fields) == 1 {
-			currentModel, err := CurrentModel(c, session.ID, session.Model)
-			if err != nil {
-				return replCommandResult{}, err
-			}
-			if currentModel == "" {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Current model: (server default)")
-			} else {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Current model: %s\n", currentModel)
-			}
-			return replCommandResult{handled: true, model: currentModel}, nil
-		}
-		newModel := fields[1]
-		if err := UpdateSessionModel(c, session.ID, newModel); err != nil {
-			return replCommandResult{}, err
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched model to %s\n", newModel)
-		return replCommandResult{handled: true, model: newModel}, nil
 	case "/apishape", "/api-shape":
 		if len(fields) == 1 {
 			currentShape, err := CurrentAPIShape(c, session.ID, session.APIShape)
@@ -444,8 +425,8 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /apishape          Show the agent API request shape")
 	_, _ = fmt.Fprintln(w, "  /apishape <shape>  Switch agent API shape: anthropic or openai")
 	_, _ = fmt.Fprintln(w, "  /permissions       Toggle autopilot (auto-approve tool calls)")
-	_, _ = fmt.Fprintln(w, "  /model             Show the current model")
-	_, _ = fmt.Fprintln(w, "  /model <id>        Switch to a different model")
+	_, _ = fmt.Fprintln(w, "  /models            Open model picker or list models")
+	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
 	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")
 	_, _ = fmt.Fprintln(w, "  /agent <backend>   Keep agent backend on google-adk")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")

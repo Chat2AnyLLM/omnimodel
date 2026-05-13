@@ -12,18 +12,21 @@ import (
 type EventType string
 
 const (
-	EventToken      EventType = "token"
-	EventToolCall   EventType = "tool_call"
-	EventToolResult EventType = "tool_result"
-	EventDone       EventType = "done"
-	EventError      EventType = "error"
+	EventToken        EventType = "token"
+	EventToolCall     EventType = "tool_call"
+	EventToolResult   EventType = "tool_result"
+	EventTurnProgress EventType = "turn_progress"
+	EventDone         EventType = "done"
+	EventError        EventType = "error"
 )
 
 // Event represents a single agent streaming event.
 type Event struct {
-	Type    EventType
-	Content string
-	Tool    string
+	Type     EventType
+	Content  string
+	Tool     string
+	Turn     int
+	MaxTurns int
 }
 
 // SerializeToSSE converts an agent Event to OpenAI-compatible SSE format.

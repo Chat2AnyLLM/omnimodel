@@ -195,7 +195,10 @@ type appendLineMsg string
 type modelChangedMsg string
 type agentBackendChangedMsg string
 type apiShapeChangedMsg string
-type openModelPickerMsg struct{ models []ModelInfo }
+type openModelPickerMsg struct {
+	models       []ModelInfo
+	currentModel string
+}
 type openSessionPickerMsg struct{ sessions []SessionSummary }
 type sessionPickerState struct {
 	sessions     []SessionSummary
@@ -223,6 +226,11 @@ type agentProgressMsg struct {
 	text string
 }
 
+type agentTurnProgressMsg struct {
+	turn     int
+	maxTurns int
+}
+
 type agentToolResultMsg struct {
 	tool    string
 	content string
@@ -240,9 +248,10 @@ type modelPickerGroup struct {
 }
 
 type modelPickerEntry struct {
-	isGroup bool
-	owner   string
-	model   ModelInfo
+	isGroup    bool
+	owner      string
+	model      ModelInfo
+	isCurrent  bool
 }
 
 type modelPickerState struct {
@@ -253,9 +262,10 @@ type modelPickerState struct {
 	scrollOffset int
 	groups       []modelPickerGroup
 	entries      []modelPickerEntry
+	currentModel string
 }
 
-func newModelPickerState(models []ModelInfo) *modelPickerState {
+func newModelPickerState(models []ModelInfo, currentModel string) *modelPickerState {
 	sorted := append([]ModelInfo(nil), models...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].Owner != sorted[j].Owner {
@@ -269,8 +279,18 @@ func newModelPickerState(models []ModelInfo) *modelPickerState {
 		filter:       "",
 		selectedIdx:  0,
 		scrollOffset: 0,
+		currentModel: currentModel,
 	}
 	p.rebuildGroups(true)
+	// Select the current model if found
+	if currentModel != "" {
+		for i, entry := range p.entries {
+			if !entry.isGroup && entry.model.Selector == currentModel {
+				p.selectedIdx = i
+				break
+			}
+		}
+	}
 	return p
 }
 
@@ -285,7 +305,30 @@ func (p *modelPickerState) rebuildGroups(collapsedByDefault bool) {
 	groupMap := make(map[string]*modelPickerGroup)
 	order := make([]string, 0)
 	newGroups := make([]modelPickerGroup, 0)
+
+	// Find the current model from the full list
+	var currentModelInfo ModelInfo
+	if p.currentModel != "" {
+		for _, m := range p.models {
+			if m.Selector == p.currentModel {
+				currentModelInfo = m
+				break
+			}
+		}
+	}
+
+	// Add "Recent" group at the top with the current model
+	if currentModelInfo.ID != "" {
+		newGroups = append(newGroups, modelPickerGroup{owner: "Recent", expanded: true})
+		groupMap["Recent"] = &newGroups[len(newGroups)-1]
+		order = append(order, "Recent")
+	}
+
 	for _, model := range p.filtered {
+		// Skip the current model from provider groups (it's in Recent)
+		if currentModelInfo.ID != "" && model.Selector == p.currentModel {
+			continue
+		}
 		owner := model.ProviderName
 		if owner == "" {
 			owner = model.OwnerName
@@ -313,6 +356,11 @@ func (p *modelPickerState) rebuildGroups(collapsedByDefault bool) {
 	}
 	p.groups = newGroups
 
+	// Add current model to Recent group
+	if currentModelInfo.ID != "" {
+		groupMap["Recent"].models = append(groupMap["Recent"].models, currentModelInfo)
+	}
+
 	p.entries = p.entries[:0]
 	for _, owner := range order {
 		for i := range p.groups {
@@ -323,7 +371,8 @@ func (p *modelPickerState) rebuildGroups(collapsedByDefault bool) {
 			p.entries = append(p.entries, modelPickerEntry{isGroup: true, owner: group.owner})
 			if group.expanded {
 				for _, model := range group.models {
-					p.entries = append(p.entries, modelPickerEntry{isGroup: false, owner: group.owner, model: model})
+					isCurrent := p.currentModel != "" && model.Selector == p.currentModel
+					p.entries = append(p.entries, modelPickerEntry{isGroup: false, owner: group.owner, model: model, isCurrent: isCurrent})
 				}
 			}
 			break
@@ -509,6 +558,8 @@ type chatTUIModel struct {
 	autopilot            bool
 	autoFollow           bool
 	maxTurns             int
+	currentAgentTurn     int
+	currentAgentMaxTurns int
 	clipboard            clipboardWriter
 	selection            transcriptSelection
 	submitSeq            uint64
@@ -1059,6 +1110,8 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentDoneMsg:
 		m.streamActive = false
 		m.spinning = false
+		m.currentAgentTurn = 0
+		m.currentAgentMaxTurns = 0
 		m.pendingPermission = nil
 		m.agentTurnCancel = nil
 		m.textarea.Placeholder = m.normalPlaceholder
@@ -1088,6 +1141,10 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendEntry(transcriptInfo, msg.text)
 		m.syncViewport()
 		return m, nil
+	case agentTurnProgressMsg:
+		m.currentAgentTurn = msg.turn
+		m.currentAgentMaxTurns = msg.maxTurns
+		return m, nil
 	case agentToolResultMsg:
 		m.nextEntryID++
 		m.entries = append(m.entries, transcriptEntry{
@@ -1106,7 +1163,7 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case openModelPickerMsg:
-		m.picker = newModelPickerState(msg.models)
+		m.picker = newModelPickerState(msg.models, msg.currentModel)
 		return m, nil
 	case openSessionPickerMsg:
 		m.sessionPicker = &sessionPickerState{sessions: msg.sessions}
@@ -1562,15 +1619,19 @@ func (m chatTUIModel) renderPickerModal() string {
 				}
 			} else {
 				mdl := entry.model
-				primary := "  " + mdl.Name
+				prefix := "  "
+				if entry.isCurrent {
+					prefix = "● "
+				}
+				primary := prefix + mdl.Name
 				if strings.TrimSpace(mdl.Name) == "" {
-					primary = "  " + mdl.ID
+					primary = prefix + mdl.ID
 				}
 				secondaryText := mdl.Selector
 				if mdl.ProviderName != "" && mdl.ProviderName != mdl.Selector {
 					secondaryText += "  •  " + mdl.ProviderName
 				}
-				secondary := muted.Render("  " + secondaryText)
+				secondary := muted.Render(prefix + secondaryText)
 				rowText := primary + "\n" + secondary
 				if i == m.picker.selectedIdx {
 					rows.WriteString(selectedModelStyle.Render(rowText))
@@ -1629,6 +1690,11 @@ func (m chatTUIModel) submitTextareaInput() (tea.Model, tea.Cmd) {
 	m.streamActive = true
 	m.spinning = true
 	m.streamBuf = ""
+	m.currentAgentTurn = 0
+	m.currentAgentMaxTurns = 0
+	if m.mode == "agent" {
+		m.currentAgentMaxTurns = m.maxTurns
+	}
 	return m, tea.Batch(m.spinner.Tick, m.sendAndStream(text))
 }
 
@@ -1999,6 +2065,13 @@ func (m chatTUIModel) renderSidebar() string {
 	statusColor := lipgloss.Color("#6B7280")
 	if m.streamActive || m.spinning {
 		status = "Active"
+		if m.currentAgentTurn > 0 {
+			if m.currentAgentMaxTurns > 0 {
+				status = fmt.Sprintf("Active · Turn %d/%d", m.currentAgentTurn, m.currentAgentMaxTurns)
+			} else {
+				status = fmt.Sprintf("Active · Turn %d", m.currentAgentTurn)
+			}
+		}
 		statusColor = lipgloss.Color("#10B981")
 	}
 	statusDot := lipgloss.NewStyle().Foreground(statusColor).Render("●")
@@ -2011,6 +2084,16 @@ func (m chatTUIModel) renderSidebar() string {
 	if m.pendingPermission != nil {
 		permMode = "Waiting: " + m.pendingPermission.req.ToolName
 	}
+
+	turnsUsed := m.currentAgentTurn
+	if !m.streamActive && !m.spinning {
+		turnsUsed = 0
+	}
+	turnsMax := m.currentAgentMaxTurns
+	if turnsMax <= 0 {
+		turnsMax = m.maxTurns
+	}
+	turnsLabel := fmt.Sprintf("%d / %d", turnsUsed, turnsMax)
 	workingDir, err := os.Getwd()
 	if err != nil || strings.TrimSpace(workingDir) == "" {
 		workingDir = "unknown"
@@ -2028,6 +2111,9 @@ func (m chatTUIModel) renderSidebar() string {
 	if m.agentBackend != "" {
 		agentLabel := displayAgentBackendName(m.agentBackend)
 		sections = append(sections, tuiSidebarLabelStyle.Render("Agent")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(agentLabel))
+	}
+	if m.mode == "agent" || m.streamActive || m.spinning {
+		sections = append(sections, tuiSidebarLabelStyle.Render("Turns")+"\n"+tuiSidebarValueStyle.Width(valueWidth).Render(turnsLabel))
 	}
 	if m.specMode != "" {
 		specLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Render(m.specMode)
@@ -2760,6 +2846,10 @@ func (m *chatTUIModel) sendAndStream(userText string) tea.Cmd {
 				switch event.Type {
 				case agentpkg.EventToken:
 					finalContent += event.Content
+				case agentpkg.EventTurnProgress:
+					if prog != nil {
+						prog.Send(agentTurnProgressMsg{turn: event.Turn, maxTurns: event.MaxTurns})
+					}
 				case agentpkg.EventToolCall:
 					finalContent = ""
 					if prog != nil {
@@ -3007,18 +3097,6 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			}
 			return agentBackendChangedMsg(newBackend)
 		}
-	case "/model":
-		if len(fields) == 1 {
-			add(m.renderMD(fmt.Sprintf("Current model: `%s`", m.model)))
-			return m, nil
-		}
-		newModel := fields[1]
-		return m, func() tea.Msg {
-			if err := UpdateSessionModel(m.client, m.sessionID, newModel); err != nil {
-				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
-			}
-			return modelChangedMsg(newModel)
-		}
 	case "/models":
 		return m, func() tea.Msg {
 			models, err := ListModels(m.client)
@@ -3028,7 +3106,7 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			if len(models) == 0 {
 				return appendLineMsg("No models available.")
 			}
-			return openModelPickerMsg{models: models}
+			return openModelPickerMsg{models: models, currentModel: m.model}
 		}
 	case "/sessions":
 		return m, func() tea.Msg {

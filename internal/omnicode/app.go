@@ -61,6 +61,12 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			logFile, _ := cmd.Flags().GetString("log-file")
+			if err := setupLogging(verbose, logFile); err != nil {
+				return fmt.Errorf("setup logging: %w", err)
+			}
+
 			var err error
 			cfg, err = LoadConfig()
 			if err != nil {
@@ -111,6 +117,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().String("server", "http://127.0.0.1:5000", "OmniLLM/OmniCode server address (or set OMNILLM_SERVER)")
 	rootCmd.PersistentFlags().String("api-key", "", "Admin API key for the server (or set OMNILLM_API_KEY)")
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable debug-level logging")
+	rootCmd.PersistentFlags().String("log-file", "", "Write logs to file (e.g. ~/.config/omnicode/omnicode.log)")
 	rootCmd.Flags().String("model", "", "Model to use for the chat session")
 	rootCmd.Flags().String("session", "", "Resume an existing session by ID")
 	rootCmd.Flags().StringP("prompt", "p", "", "Send a single prompt and print the response (non-interactive)")
