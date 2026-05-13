@@ -23,6 +23,7 @@ var slashCommandCatalog = []slashCommand{
 	{Name: "/mode", TakesArgs: true, Summary: "show or switch mode (chat|agent)"},
 	{Name: "/apishape", Aliases: []string{"/api-shape"}, TakesArgs: true, Summary: "show or set the agent API request shape"},
 	{Name: "/permissions", Summary: "toggle autopilot (auto-approve tool calls)"},
+	{Name: "/model", TakesArgs: true, Summary: "show or switch model or open model picker"},
 	{Name: "/models", Summary: "open model picker to switch model"},
 	{Name: "/agent", TakesArgs: true, Summary: "show or set the agent backend"},
 	{Name: "/max-turns", TakesArgs: true, Summary: "show or set max agent turns (1-1000)"},

@@ -14,6 +14,7 @@ type SpecCommand struct {
 	Artifact  string
 	Framework string // "spec-kit" or "openspec"
 	Profile   string // e.g. "core", "expanded" (OpenSpec only)
+	Prompt    string // rich workflow instructions injected into the agent prompt
 }
 
 var specKitCommands = []SpecCommand{

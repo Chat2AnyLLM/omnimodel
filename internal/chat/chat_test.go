@@ -1848,6 +1848,213 @@ func TestHandleSlashCommandModelsPicker(t *testing.T) {
 	}
 }
 
+func TestHandleSlashCommandModelPickerSelectsProviderQualifiedModel(t *testing.T) {
+	putCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"activeProviders": []map[string]any{{"id": "provider-a", "name": "Provider A"}, {"id": "provider-b", "name": "Provider B"}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/providers/provider-a/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{{"id": "gpt-4", "name": "GPT 4", "enabled": true}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/providers/provider-b/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{{"id": "qwen3", "name": "Qwen 3", "enabled": true}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			putCount++
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode update request: %v", err)
+			}
+			if body["model_id"] != "provider-b/qwen3" {
+				t.Fatalf("model_id = %q, want provider-b/qwen3", body["model_id"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	session := &SessionState{
+		ID:    "session-1",
+		Model: "provider-a/gpt-4",
+		IsTTY: true,
+		Mode:  "chat",
+		Picker: func(prompt string, models []ModelInfo) (string, error) {
+			if prompt != "Select a model" {
+				t.Fatalf("unexpected prompt: %s", prompt)
+			}
+			if len(models) != 2 {
+				t.Fatalf("expected 2 models, got %d", len(models))
+			}
+			found := false
+			for _, model := range models {
+				if model.Selector == "provider-b/qwen3" && model.ProviderName == "Provider B" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("picker models missing provider-qualified provider-b/qwen3: %+v", models)
+			}
+			return "provider-b/qwen3", nil
+		},
+	}
+
+	result, err := handleSlashCommand(cmd, client, session, "/model")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.model != "provider-b/qwen3" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if putCount != 1 {
+		t.Fatalf("session update count = %d, want 1", putCount)
+	}
+	if !strings.Contains(cmd.out.String(), "Switched model to provider-b/qwen3") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestHandleSlashCommandModelNonTTYShowsCurrentModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{"model_id": "provider-a/gpt-4", "messages": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	pickerCalled := false
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	session := &SessionState{
+		ID:    "session-1",
+		Model: "fallback-model",
+		IsTTY: false,
+		Mode:  "chat",
+		Picker: func(prompt string, models []ModelInfo) (string, error) {
+			pickerCalled = true
+			return "provider-b/qwen3", nil
+		},
+	}
+
+	result, err := handleSlashCommand(cmd, client, session, "/model")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if pickerCalled {
+		t.Fatal("picker should not be invoked for non-TTY /model")
+	}
+	if !result.handled || result.model != "provider-a/gpt-4" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if !strings.Contains(cmd.out.String(), "Current model: provider-a/gpt-4") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestHandleSlashCommandModelDirectSwitchDoesNotOpenPicker(t *testing.T) {
+	putCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			putCount++
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode update request: %v", err)
+			}
+			if body["model_id"] != "provider-a/gpt-4" {
+				t.Fatalf("model_id = %q, want provider-a/gpt-4", body["model_id"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	pickerCalled := false
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	session := &SessionState{
+		ID:    "session-1",
+		IsTTY: true,
+		Mode:  "chat",
+		Picker: func(prompt string, models []ModelInfo) (string, error) {
+			pickerCalled = true
+			return "provider-b/qwen3", nil
+		},
+	}
+
+	result, err := handleSlashCommand(cmd, client, session, "/model provider-a/gpt-4")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if pickerCalled {
+		t.Fatal("picker should not be invoked for direct /model switch")
+	}
+	if putCount != 1 {
+		t.Fatalf("session update count = %d, want 1", putCount)
+	}
+	if !result.handled || result.model != "provider-a/gpt-4" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if !strings.Contains(cmd.out.String(), "Switched model to provider-a/gpt-4") {
+		t.Fatalf("unexpected output: %s", cmd.out.String())
+	}
+}
+
+func TestHandleSlashCommandModelPickerCancellationLeavesModelUnchanged(t *testing.T) {
+	putCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"activeProviders": []map[string]any{{"id": "provider-a", "name": "Provider A"}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/providers/provider-a/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{{"id": "gpt-4", "name": "GPT 4", "enabled": true}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
+			putCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newTestCommandContext()
+	client := &testClient{baseURL: server.URL, http: server.Client()}
+	session := &SessionState{
+		ID:    "session-1",
+		Model: "provider-a/gpt-4",
+		IsTTY: true,
+		Mode:  "chat",
+		Picker: func(prompt string, models []ModelInfo) (string, error) {
+			return "", nil
+		},
+	}
+
+	result, err := handleSlashCommand(cmd, client, session, "/model")
+	if err != nil {
+		t.Fatalf("handleSlashCommand returned error: %v", err)
+	}
+	if !result.handled || result.model != "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if putCount != 0 {
+		t.Fatalf("session update count = %d, want 0", putCount)
+	}
+	if session.Model != "provider-a/gpt-4" {
+		t.Fatalf("session model = %q, want provider-a/gpt-4", session.Model)
+	}
+}
+
 func TestEnsureSessionDefaultsModeToChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

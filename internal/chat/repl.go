@@ -350,6 +350,47 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched agent backend to %s\n", newBackend)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Supported backends: %s\n", supportedAgentBackendsText())
 		return replCommandResult{handled: true, agentBackend: newBackend}, nil
+	case "/model":
+		if len(fields) > 1 {
+			newModel := strings.Join(fields[1:], " ")
+			if err := UpdateSessionModel(c, session.ID, newModel); err != nil {
+				return replCommandResult{}, err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched model to %s\n", newModel)
+			return replCommandResult{handled: true, model: newModel}, nil
+		}
+		if session.IsTTY && session.Picker != nil {
+			models, err := ListModels(c)
+			if err != nil {
+				return replCommandResult{}, err
+			}
+			if len(models) == 0 {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No models available.")
+				return replCommandResult{handled: true}, nil
+			}
+			selected, err := session.Picker("Select a model", models)
+			if err != nil {
+				return replCommandResult{handled: true}, nil
+			}
+			if selected == "" {
+				return replCommandResult{handled: true}, nil
+			}
+			if err := UpdateSessionModel(c, session.ID, selected); err != nil {
+				return replCommandResult{}, err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched model to %s\n", selected)
+			return replCommandResult{handled: true, model: selected}, nil
+		}
+		currentModel, err := CurrentModel(c, session.ID, session.Model)
+		if err != nil {
+			return replCommandResult{}, err
+		}
+		if currentModel == "" {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Current model: (server default)")
+		} else {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Current model: %s\n", currentModel)
+		}
+		return replCommandResult{handled: true, model: currentModel}, nil
 	case "/models":
 		models, err := ListModels(c)
 		if err != nil {
@@ -425,6 +466,8 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /apishape          Show the agent API request shape")
 	_, _ = fmt.Fprintln(w, "  /apishape <shape>  Switch agent API shape: anthropic or openai")
 	_, _ = fmt.Fprintln(w, "  /permissions       Toggle autopilot (auto-approve tool calls)")
+	_, _ = fmt.Fprintln(w, "  /model            Show or switch model, or open model picker in a terminal")
+	_, _ = fmt.Fprintln(w, "  /model <selector> Switch to a model selector")
 	_, _ = fmt.Fprintln(w, "  /models            Open model picker or list models")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
 	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")
@@ -445,12 +488,18 @@ func clearScreen(w io.Writer) {
 	_, _ = fmt.Fprint(w, "\033[2J\033[H")
 }
 
-func specWorkflowAgentPrompt(cmdSlash, toolName, arg string) string {
+func specWorkflowAgentPrompt(cmd specdriven.SpecCommand, arg string) string {
 	arg = strings.TrimSpace(arg)
-	if arg == "" {
-		return fmt.Sprintf("load the spec skill and run %s for %s", toolName, cmdSlash)
+	var sb strings.Builder
+	if cmd.Prompt != "" {
+		sb.WriteString(cmd.Prompt)
+		sb.WriteString("\n---\n\n")
 	}
-	return fmt.Sprintf("load the spec skill and run %s for %s with this intent: %s", toolName, cmdSlash, arg)
+	sb.WriteString(fmt.Sprintf("load the spec skill and run %s for %s.", cmd.Tool, cmd.Slash))
+	if arg != "" {
+		sb.WriteString(fmt.Sprintf(" User's intent: %s", arg))
+	}
+	return sb.String()
 }
 
 // handleDirectSpecCommand intercepts the offline-only spec scaffold commands
@@ -526,10 +575,14 @@ func handleSpecWorkflowSlashCommand(w io.Writer, fields []string, session *Sessi
 				session.SpecMode = cmd.Framework
 				session.Mode = "agent"
 			}
-			prompt := specWorkflowAgentPrompt(cmd.Slash, cmd.Tool, arg)
+			prompt := specWorkflowAgentPrompt(cmd, arg)
 			_, _ = fmt.Fprintf(w, "Spec mode: %s. Switched to agent mode.\n", cmd.Framework)
 			_, _ = fmt.Fprintf(w, "Mapped %s -> %s\n", cmd.Slash, cmd.Tool)
-			_, _ = fmt.Fprintf(w, "Running agent workflow: %s\n\n", prompt)
+			hasPrompt := ""
+			if cmd.Prompt != "" {
+				hasPrompt = " (with workflow instructions)"
+			}
+			_, _ = fmt.Fprintf(w, "Running agent workflow: %s%s\n\n", cmd.Tool, hasPrompt)
 			return true, prompt, nil
 		}
 	}

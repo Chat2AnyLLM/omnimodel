@@ -45,7 +45,10 @@ func runBashCommand(ctx context.Context, command string, timeoutSeconds int) Res
 		return runBashCommandInFirecracker(ctx, command, timeout)
 	}
 
-	return runShellCommand(ctx, command, timeoutSeconds)
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return runHostBashCommand(cmdCtx, command)
 }
 
 func runPowerShellCommand(ctx context.Context, command string, timeoutSeconds int) Result {
@@ -237,6 +240,36 @@ func runHostShellCommand(ctx context.Context, command string) Result {
 	}
 
 	output, err := cmd.CombinedOutput()
+	if runtime.GOOS == "windows" && err != nil {
+		text := strings.TrimSpace(string(output))
+		if shouldRetryWithBashOnWindows(text) {
+			return runHostBashCommand(ctx, command)
+		}
+	}
+	return resultFromCommandOutput(output, err)
+}
+
+func runHostBashCommand(ctx context.Context, command string) Result {
+	if runtime.GOOS == "windows" {
+		if path, err := exec.LookPath("bash"); err == nil {
+			cmd := exec.CommandContext(ctx, path, "-lc", command)
+			output, runErr := cmd.CombinedOutput()
+			return resultFromCommandOutput(output, runErr)
+		}
+		if path, err := exec.LookPath("wsl"); err == nil {
+			cmd := exec.CommandContext(ctx, path, "bash", "-lc", command)
+			output, runErr := cmd.CombinedOutput()
+			return resultFromCommandOutput(output, runErr)
+		}
+		return Result{Output: "error: bash tool requires a bash-compatible runtime on Windows (install Git Bash or WSL), or use the powershell tool", IsError: true}
+	}
+
+	cmd := exec.CommandContext(ctx, "sh", "-lc", command)
+	output, err := cmd.CombinedOutput()
+	return resultFromCommandOutput(output, err)
+}
+
+func resultFromCommandOutput(output []byte, err error) Result {
 	text := strings.TrimSpace(string(output))
 	if err != nil {
 		if text == "" {
@@ -248,4 +281,12 @@ func runHostShellCommand(ctx context.Context, command string) Result {
 		return Result{Output: "(no output)"}
 	}
 	return Result{Output: text}
+}
+
+func shouldRetryWithBashOnWindows(output string) bool {
+	if output == "" {
+		return false
+	}
+	return strings.Contains(output, "The token '&&' is not a valid statement separator") ||
+		strings.Contains(output, "The token '||' is not a valid statement separator")
 }

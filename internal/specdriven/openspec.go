@@ -6,17 +6,17 @@ import (
 )
 
 var openSpecCommands = []SpecCommand{
-	{Slash: "/openspec:propose", Tool: "openspec_propose", Summary: "create a change and generate planning artifacts", Artifact: "openspec/changes/<change>/", Framework: "openspec", Profile: "core"},
-	{Slash: "/openspec:explore", Tool: "openspec_explore", Summary: "investigate ideas before committing to a change", Artifact: "exploration notes", Framework: "openspec", Profile: "core"},
-	{Slash: "/openspec:apply", Tool: "openspec_apply", Summary: "implement or report pending tasks from a change", Artifact: "tasks.md status", Framework: "openspec", Profile: "core"},
-	{Slash: "/openspec:sync", Tool: "openspec_sync", Summary: "merge delta specs into main OpenSpec specs", Artifact: "openspec/specs/", Framework: "openspec", Profile: "core"},
-	{Slash: "/openspec:archive", Tool: "openspec_archive", Summary: "archive a completed change", Artifact: "openspec/changes/archive/", Framework: "openspec", Profile: "core"},
-	{Slash: "/openspec:new", Tool: "openspec_new", Summary: "start a new change scaffold", Artifact: ".openspec.yaml", Framework: "openspec", Profile: "expanded"},
-	{Slash: "/openspec:continue", Tool: "openspec_continue", Summary: "create the next ready artifact", Artifact: "next missing artifact", Framework: "openspec", Profile: "expanded"},
-	{Slash: "/openspec:ff", Tool: "openspec_ff", Summary: "fast-forward all planning artifacts", Artifact: "proposal/specs/design/tasks", Framework: "openspec", Profile: "expanded"},
-	{Slash: "/openspec:verify", Tool: "openspec_verify", Summary: "validate implementation against artifacts", Artifact: "verification.md", Framework: "openspec", Profile: "expanded"},
-	{Slash: "/openspec:bulk-archive", Tool: "openspec_bulk_archive", Summary: "archive multiple completed changes", Artifact: "archive folders", Framework: "openspec", Profile: "expanded"},
-	{Slash: "/openspec:onboard", Tool: "openspec_onboard", Summary: "guided tutorial through the workflow", Artifact: "onboarding plan", Framework: "openspec", Profile: "expanded"},
+	{Slash: "/openspec:propose", Tool: "openspec_propose", Summary: "create a change and generate planning artifacts", Artifact: "openspec/changes/<change>/", Framework: "openspec", Profile: "core", Prompt: OpenSpecPromptPropose},
+	{Slash: "/openspec:explore", Tool: "openspec_explore", Summary: "investigate ideas before committing to a change", Artifact: "exploration notes", Framework: "openspec", Profile: "core", Prompt: OpenSpecPromptExplore},
+	{Slash: "/openspec:apply", Tool: "openspec_apply", Summary: "implement or report pending tasks from a change", Artifact: "tasks.md status", Framework: "openspec", Profile: "core", Prompt: OpenSpecPromptApply},
+	{Slash: "/openspec:sync", Tool: "openspec_sync", Summary: "merge delta specs into main OpenSpec specs", Artifact: "openspec/specs/", Framework: "openspec", Profile: "core", Prompt: OpenSpecPromptSync},
+	{Slash: "/openspec:archive", Tool: "openspec_archive", Summary: "archive a completed change", Artifact: "openspec/changes/archive/", Framework: "openspec", Profile: "core", Prompt: OpenSpecPromptArchive},
+	{Slash: "/openspec:new", Tool: "openspec_new", Summary: "start a new change scaffold", Artifact: ".openspec.yaml", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptNew},
+	{Slash: "/openspec:continue", Tool: "openspec_continue", Summary: "create the next ready artifact", Artifact: "next missing artifact", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptContinue},
+	{Slash: "/openspec:ff", Tool: "openspec_ff", Summary: "fast-forward all planning artifacts", Artifact: "proposal/specs/design/tasks", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptFF},
+	{Slash: "/openspec:verify", Tool: "openspec_verify", Summary: "validate implementation against artifacts", Artifact: "verification.md", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptVerify},
+	{Slash: "/openspec:bulk-archive", Tool: "openspec_bulk_archive", Summary: "archive multiple completed changes", Artifact: "archive folders", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptBulkArchive},
+	{Slash: "/openspec:onboard", Tool: "openspec_onboard", Summary: "guided tutorial through the workflow", Artifact: "onboarding plan", Framework: "openspec", Profile: "expanded", Prompt: OpenSpecPromptOnboard},
 }
 
 // OpenSpecCommands returns the supported OpenSpec command inventory.

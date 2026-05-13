@@ -32,7 +32,7 @@ func TestSlashCommandsCatalogShape(t *testing.T) {
 		}
 	}
 
-	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/models", "/agent", "/max-turns", "/specify.init", "/speckit.specify", "/speckit.status", "/speckit.help", "/openspec:init", "/openspec:propose", "/openspec:help", "/clear", "/quit"} {
+	for _, must := range []string{"/help", "/new", "/sessions", "/session", "/mode", "/apishape", "/permissions", "/model", "/models", "/agent", "/max-turns", "/specify.init", "/speckit.specify", "/speckit.status", "/speckit.help", "/openspec:init", "/openspec:propose", "/openspec:help", "/clear", "/quit"} {
 		if !seen[must] {
 			t.Errorf("catalog missing required command %q", must)
 		}
@@ -63,8 +63,8 @@ func TestFuzzySlashFilter(t *testing.T) {
 	}{
 		{name: "empty returns all", filter: "", want: []string{"/help"}},
 		{name: "leading slash only returns all", filter: "/", want: []string{"/help"}},
-		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/models"}},
-		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/models"}},
+		{name: "prefix match", filter: "/mo", want: []string{"/mode", "/model", "/models"}},
+		{name: "no leading slash still matches", filter: "mo", want: []string{"/mode", "/model", "/models"}},
 		{name: "question mark alias", filter: "?", want: []string{"/help"}},
 		{name: "specify init prefix match", filter: "/specify", want: []string{"/specify.init"}},
 		{name: "speckit status fuzzy match", filter: "speckit.stat", want: []string{"/speckit.status"}},
@@ -110,7 +110,7 @@ func slashNames(cs []slashCommand) []string {
 
 func TestRenderSlashHelp(t *testing.T) {
 	out := renderSlashHelp(slashCommands())
-	for _, want := range []string{"/help", "/models", "/specify.init", "/speckit.status", "/openspec:init", "/quit", "show available commands"} {
+	for _, want := range []string{"/help", "/model", "/models", "/specify.init", "/speckit.status", "/openspec:init", "/quit", "show available commands"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSlashHelp output missing %q\n---\n%s", want, out)
 		}

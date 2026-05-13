@@ -856,7 +856,7 @@ func OpenSpecOnboard() Tool     { return &openSpecOnboardTool{} }
 
 func (t *openSpecProposeTool) Name() string { return "openspec_propose" }
 func (t *openSpecProposeTool) Description() string {
-	return "OpenSpec-compatible /opsx:propose: create a change and generate proposal, delta specs, design, and tasks artifacts."
+	return "Propose a new change with all artifacts generated in one step. Use when the user wants to quickly describe what they want to build and get a complete proposal with design, specs, and tasks ready for implementation."
 }
 func (t *openSpecProposeTool) InputSchema() map[string]any { return openSpecChangeSchema(true) }
 func (t *openSpecProposeTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -877,7 +877,7 @@ func (t *openSpecProposeTool) Execute(_ context.Context, _ Context, input json.R
 
 func (t *openSpecExploreTool) Name() string { return "openspec_explore" }
 func (t *openSpecExploreTool) Description() string {
-	return "OpenSpec-compatible /opsx:explore: write exploratory notes before committing to a change."
+	return "Enter explore mode — a thinking partner for exploring ideas, investigating problems, and clarifying requirements. Use when the user wants to think through something before or during a change."
 }
 func (t *openSpecExploreTool) InputSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"topic": map[string]any{"type": "string"}, "notes": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "openspec_dir": map[string]any{"type": "string"}}}
@@ -923,7 +923,7 @@ func (t *openSpecExploreTool) Execute(_ context.Context, _ Context, input json.R
 
 func (t *openSpecNewTool) Name() string { return "openspec_new" }
 func (t *openSpecNewTool) Description() string {
-	return "OpenSpec-compatible /opsx:new: start a new change scaffold with .openspec.yaml metadata."
+	return "Start a new OpenSpec change using the artifact workflow. Use when the user wants to create a new feature, fix, or modification with a structured step-by-step approach."
 }
 func (t *openSpecNewTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecNewTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -940,7 +940,7 @@ func (t *openSpecNewTool) Execute(_ context.Context, _ Context, input json.RawMe
 
 func (t *openSpecContinueTool) Name() string { return "openspec_continue" }
 func (t *openSpecContinueTool) Description() string {
-	return "OpenSpec-compatible /opsx:continue: create the next missing artifact in dependency order."
+	return "Continue working on an OpenSpec change by creating the next artifact. Use when the user wants to progress their change, create the next artifact, or continue their workflow."
 }
 func (t *openSpecContinueTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecContinueTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -971,7 +971,7 @@ func (t *openSpecContinueTool) Execute(_ context.Context, _ Context, input json.
 
 func (t *openSpecFFTool) Name() string { return "openspec_ff" }
 func (t *openSpecFFTool) Description() string {
-	return "OpenSpec-compatible /opsx:ff: fast-forward and create all planning artifacts."
+	return "Fast-forward through OpenSpec artifact creation. Use when the user wants to quickly create all artifacts needed for implementation without stepping through each one individually."
 }
 func (t *openSpecFFTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecFFTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -992,7 +992,7 @@ func (t *openSpecFFTool) Execute(_ context.Context, _ Context, input json.RawMes
 
 func (t *openSpecApplyTool) Name() string { return "openspec_apply" }
 func (t *openSpecApplyTool) Description() string {
-	return "OpenSpec-compatible /opsx:apply: report pending implementation tasks for a change."
+	return "Implement tasks from an OpenSpec change. Use when the user wants to start implementing, continue implementation, or work through tasks."
 }
 func (t *openSpecApplyTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecApplyTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -1015,7 +1015,7 @@ func (t *openSpecApplyTool) Execute(_ context.Context, _ Context, input json.Raw
 
 func (t *openSpecVerifyTool) Name() string { return "openspec_verify" }
 func (t *openSpecVerifyTool) Description() string {
-	return "OpenSpec-compatible /opsx:verify: validate artifact completeness and write verification.md."
+	return "Verify implementation matches change artifacts. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving."
 }
 func (t *openSpecVerifyTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecVerifyTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -1047,7 +1047,7 @@ func (t *openSpecVerifyTool) Execute(_ context.Context, _ Context, input json.Ra
 
 func (t *openSpecSyncTool) Name() string { return "openspec_sync" }
 func (t *openSpecSyncTool) Description() string {
-	return "OpenSpec-compatible /opsx:sync: copy delta specs from a change into openspec/specs."
+	return "Sync delta specs from a change to main specs. Use when the user wants to update main specs with changes from a delta spec, without archiving the change."
 }
 func (t *openSpecSyncTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecSyncTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -1093,7 +1093,7 @@ func (t *openSpecSyncTool) Execute(_ context.Context, _ Context, input json.RawM
 
 func (t *openSpecArchiveTool) Name() string { return "openspec_archive" }
 func (t *openSpecArchiveTool) Description() string {
-	return "OpenSpec-compatible /opsx:archive: move a completed change to openspec/changes/archive."
+	return "Archive a completed change. Use when the user wants to finalize and archive a change after implementation is complete."
 }
 func (t *openSpecArchiveTool) InputSchema() map[string]any { return openSpecChangeSchema(false) }
 func (t *openSpecArchiveTool) Execute(_ context.Context, _ Context, input json.RawMessage) Result {
@@ -1118,7 +1118,7 @@ func (t *openSpecArchiveTool) Execute(_ context.Context, _ Context, input json.R
 
 func (t *openSpecBulkArchiveTool) Name() string { return "openspec_bulk_archive" }
 func (t *openSpecBulkArchiveTool) Description() string {
-	return "OpenSpec-compatible /opsx:bulk-archive: archive multiple changes."
+	return "Archive multiple completed changes at once. Use when archiving several parallel changes."
 }
 func (t *openSpecBulkArchiveTool) InputSchema() map[string]any {
 	schema := openSpecChangeSchema(false)
@@ -1171,7 +1171,7 @@ func (t *openSpecBulkArchiveTool) Execute(_ context.Context, _ Context, input js
 
 func (t *openSpecOnboardTool) Name() string { return "openspec_onboard" }
 func (t *openSpecOnboardTool) Description() string {
-	return "OpenSpec-compatible /opsx:onboard: create a guided onboarding checklist for the workflow."
+	return "Guided onboarding for OpenSpec — walk through a complete workflow cycle with narration and real codebase work."
 }
 func (t *openSpecOnboardTool) InputSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"openspec_dir": map[string]any{"type": "string"}}}

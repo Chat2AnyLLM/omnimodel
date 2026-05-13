@@ -248,10 +248,10 @@ type modelPickerGroup struct {
 }
 
 type modelPickerEntry struct {
-	isGroup    bool
-	owner      string
-	model      ModelInfo
-	isCurrent  bool
+	isGroup   bool
+	owner     string
+	model     ModelInfo
+	isCurrent bool
 }
 
 type modelPickerState struct {
@@ -3096,6 +3096,26 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
 			}
 			return agentBackendChangedMsg(newBackend)
+		}
+	case "/model":
+		if len(fields) > 1 {
+			newModel := strings.Join(fields[1:], " ")
+			return m, func() tea.Msg {
+				if err := UpdateSessionModel(m.client, m.sessionID, newModel); err != nil {
+					return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
+				}
+				return modelChangedMsg(newModel)
+			}
+		}
+		return m, func() tea.Msg {
+			models, err := ListModels(m.client)
+			if err != nil {
+				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
+			}
+			if len(models) == 0 {
+				return appendLineMsg("No models available.")
+			}
+			return openModelPickerMsg{models: models, currentModel: m.model}
 		}
 	case "/models":
 		return m, func() tea.Msg {
