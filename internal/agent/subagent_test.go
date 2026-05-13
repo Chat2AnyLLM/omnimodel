@@ -50,7 +50,7 @@ func TestSessionOrchestratorPersistsWorkerHistoryAndMailboxes(t *testing.T) {
 	orch := SessionOrchestrator("main-session", SubAgentOptions{
 		Client:   client,
 		Model:    "deepseek-v4-flash",
-		Backend:  "google-adk",
+		Backend:  "omnicode",
 		APIShape: DefaultAPIShape,
 		MaxTurns: 8,
 	})

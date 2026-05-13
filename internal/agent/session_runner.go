@@ -140,11 +140,31 @@ func selectDispatch(c Client, model, _, apiShape string) DispatchFn {
 	case "openai":
 		base = OpenAISDKDispatch(omniLLMAPIKey(c), omniLLMOpenAIBaseURL(c), model)
 	default:
-		base = NewDispatch(c, model, DefaultAPIShape)
+		base = modelOverrideDispatch(AnthropicSDKDispatch(omniLLMAPIKey(c), omniLLMAnthropicBaseURL(c)), model)
 	}
 
 	// Add transient retry behavior for interactive agent turns.
 	return retryDispatch(base, 3, 500*time.Millisecond, 8*time.Second)
+}
+
+func modelOverrideDispatch(base DispatchFn, model string) DispatchFn {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return base
+	}
+	return func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error) {
+		request := cloneMessagesRequest(req)
+		request.Model = model
+		return base(ctx, request)
+	}
+}
+
+func omniLLMAnthropicBaseURL(c Client) string {
+	config, ok := c.(OmniLLMClientConfig)
+	if !ok {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(config.GetBaseURL()), "/")
 }
 
 func omniLLMOpenAIBaseURL(c Client) string {

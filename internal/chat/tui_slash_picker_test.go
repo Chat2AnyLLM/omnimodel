@@ -9,7 +9,7 @@ import (
 )
 
 func newTestTUIModel() chatTUIModel {
-	m := newChatTUIModel(nil, "sess", "model", "chat", "anthropic", "google-adk", nil, nil)
+	m := newChatTUIModel(nil, "sess", "model", "chat", "anthropic", "omnicode", nil, nil)
 	m.ready = true
 	m.width = 120
 	m.height = 40

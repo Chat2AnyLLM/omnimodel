@@ -6,12 +6,9 @@ import (
 	"time"
 )
 
-const DefaultAgentBackend = "google-adk"
+const DefaultAgentBackend = "omnicode"
 
-func normalizeAgentBackend(agentBackend string) string {
-	if agentBackend == DefaultAgentBackend {
-		return agentBackend
-	}
+func normalizeAgentBackend(_ string) string {
 	return DefaultAgentBackend
 }
 

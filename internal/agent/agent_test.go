@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,13 +18,13 @@ import (
 	"omnillm/internal/tools"
 )
 
-func TestBuildRequestRequiresInitialToolForLocalInfoPrompt(t *testing.T) {
+func TestBuildRequestUsesAutoForLocalInfoPrompt(t *testing.T) {
 	ag := newTestAgent()
 	ag.appendUserMessage("show CPU info")
 
 	req := ag.buildRequest(0, "show CPU info")
-	if req.ToolChoice != "required" {
-		t.Fatalf("tool choice = %#v, want required", req.ToolChoice)
+	if req.ToolChoice != "auto" {
+		t.Fatalf("tool choice = %#v, want auto", req.ToolChoice)
 	}
 
 	req = ag.buildRequest(1, "show CPU info")
@@ -42,13 +43,27 @@ func TestBuildRequestUsesAutoForConversationalPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildRequestRequiresInitialToolForRepoLookupPrompt(t *testing.T) {
+func TestBuildRequestUsesAutoForRepoLookupPrompt(t *testing.T) {
 	ag := newTestAgent()
 	ag.appendUserMessage("find all references to buildSystemPrompt")
 
 	req := ag.buildRequest(0, "find all references to buildSystemPrompt")
-	if req.ToolChoice != "required" {
-		t.Fatalf("tool choice = %#v, want required", req.ToolChoice)
+	if req.ToolChoice != "auto" {
+		t.Fatalf("tool choice = %#v, want auto", req.ToolChoice)
+	}
+}
+
+func TestBuildRequestRequiresGlobForCodebaseExplanationPrompt(t *testing.T) {
+	ag := newTestAgent()
+	ag.appendUserMessage("explain codebase")
+
+	req := ag.buildRequest(0, "explain codebase")
+	toolChoice, ok := req.ToolChoice.(map[string]any)
+	if !ok {
+		t.Fatalf("tool choice = %#v, want named tool choice", req.ToolChoice)
+	}
+	if toolChoice["type"] != "function" || toolChoice["functionName"] != "glob" {
+		t.Fatalf("tool choice = %#v, want glob function choice", req.ToolChoice)
 	}
 }
 
@@ -293,28 +308,34 @@ func TestChatCompletionsDispatchDoesNotRetryWithoutTools(t *testing.T) {
 
 func TestRunTurnPostsDefaultToolsAsOpenAIToolsNotDeprecatedFunctions(t *testing.T) {
 	var capturedPayload map[string]any
-	client := &stubAgentClient{
-		postFn: func(path string, body any) ([]byte, error) {
-			if path != "/v1/messages" {
-				t.Fatalf("path = %q, want /v1/messages", path)
-			}
-			data, err := json.Marshal(body)
-			if err != nil {
-				t.Fatalf("marshal body: %v", err)
-			}
-			if err := json.Unmarshal(data, &capturedPayload); err != nil {
-				t.Fatalf("unmarshal body: %v\n%s", err, string(data))
-			}
-			return []byte(`{"id":"msg_test","type":"message","role":"assistant","model":"deepseek-v4-flash","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}`), nil
-		},
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("path = %q, want /v1/messages", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if capturedPayload == nil {
+			capturedPayload = payload
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "msg_test",
+			"type":        "message",
+			"role":        "assistant",
+			"model":       "deepseek-v4-flash",
+			"content":     []map[string]any{{"type": "text", "text": "ok"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 5, "output_tokens": 1},
+		})
+	}))
+	defer server.Close()
 
-	result, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List this directory", nil, nil, nil, 10)
+	client := &sdkProxyTestClient{baseURL: server.URL, apiKey: "proxy-key"}
+	_, err := RunTurn(context.Background(), client, "session-1", "deepseek-v4-flash", "omnicode", DefaultAPIShape, "hello", nil, nil, nil, 10)
 	if err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
-	}
-	if result == nil || result.Output != "ok" {
-		t.Fatalf("unexpected result: %#v", result)
 	}
 
 	// All requests now use /v1/messages (Anthropic shape). Deprecated functions/function_call must not appear.
@@ -449,21 +470,96 @@ func TestBuildSystemPromptIncludesGoTUIOutputGuidance(t *testing.T) {
 		}
 	}
 }
-func TestSelectDispatchAlwaysUsesMessagesProxy(t *testing.T) {
+func TestSelectDispatchUsesAnthropicSDKAgainstProxyBaseURL(t *testing.T) {
 	var capturedPath string
-	client := &stubAgentClient{
-		postFn: func(path string, body any) ([]byte, error) {
-			capturedPath = path
-			return []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`), nil
-		},
-	}
-	dispatch := selectDispatch(client, "claude-opus-4-5", "google-adk", "responses")
-	_, err := dispatch(context.Background(), testMessagesRequest("", testUserMessage("hi")))
+	var capturedAPIKey string
+	var capturedBody map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedAPIKey = r.Header.Get("X-Api-Key")
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "msg_1",
+			"type":        "message",
+			"role":        "assistant",
+			"model":       "provider/custom-claude",
+			"content":     []map[string]any{{"type": "text", "text": "ok"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 3, "output_tokens": 1},
+		})
+	}))
+	defer server.Close()
+
+	client := &sdkProxyTestClient{baseURL: server.URL, apiKey: "proxy-key"}
+	dispatch := selectDispatch(client, "provider/custom-claude", "omnicode", DefaultAPIShape)
+	respCh, err := dispatch(context.Background(), testMessagesRequest("", testUserMessage("hi")))
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
+	for range respCh {
+	}
+
 	if capturedPath != "/v1/messages" {
-		t.Fatalf("expected /v1/messages, got %q", capturedPath)
+		t.Fatalf("expected SDK to post to /v1/messages, got %q", capturedPath)
+	}
+	if capturedAPIKey != "proxy-key" {
+		t.Fatalf("X-Api-Key = %q, want proxy-key", capturedAPIKey)
+	}
+	if capturedBody["model"] != "provider/custom-claude" {
+		t.Fatalf("request model = %#v", capturedBody["model"])
+	}
+}
+
+type sdkProxyTestClient struct {
+	baseURL string
+	apiKey  string
+}
+
+func (s *sdkProxyTestClient) GetBaseURL() string { return s.baseURL }
+func (s *sdkProxyTestClient) GetAPIKey() string  { return s.apiKey }
+
+func (s *sdkProxyTestClient) Post(path string, body any) ([]byte, error) {
+	return nil, fmt.Errorf("unexpected Client.Post call to %s with %#v", path, body)
+}
+
+func (s *sdkProxyTestClient) PostStream(path string, body any) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Client.PostStream call to %s with %#v", path, body)
+}
+
+func TestSelectDispatchKeepsOpenAIShapeOnOpenAIBaseURL(t *testing.T) {
+	var capturedPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "chatcmpl_1",
+			"choices": []map[string]any{{
+				"index":         0,
+				"finish_reason": "stop",
+				"message":       map[string]any{"role": "assistant", "content": "ok"},
+			}},
+			"usage": map[string]any{"prompt_tokens": 3, "completion_tokens": 1},
+		})
+	}))
+	defer server.Close()
+
+	client := &sdkProxyTestClient{baseURL: server.URL, apiKey: "proxy-key"}
+	dispatch := selectDispatch(client, "gpt-5.4", "omnicode", "openai")
+	respCh, err := dispatch(context.Background(), testMessagesRequest("", testUserMessage("hi")))
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	for range respCh {
+	}
+
+	if capturedPath != "/v1/chat/completions" {
+		t.Fatalf("expected OpenAI dispatch to post to /v1/chat/completions, got %q", capturedPath)
 	}
 }
 
@@ -517,7 +613,7 @@ func TestRunTurnAppendsDailyLogEntries(t *testing.T) {
 		},
 	}
 
-	_, err := RunTurn(context.Background(), client, "sess-log", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List files", nil, nil, nil, 10)
+	_, err := RunTurn(context.Background(), client, "sess-log", "deepseek-v4-flash", "omnicode", DefaultAPIShape, "List files", nil, nil, nil, 10)
 	if err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
 	}
@@ -546,7 +642,7 @@ func TestRunTurnAppendsDailyLogErrorEntry(t *testing.T) {
 		},
 	}
 
-	_, err := RunTurn(context.Background(), client, "sess-log-err", "deepseek-v4-flash", "google-adk", DefaultAPIShape, "List files", nil, nil, nil, 10)
+	_, err := RunTurn(context.Background(), client, "sess-log-err", "deepseek-v4-flash", "omnicode", DefaultAPIShape, "List files", nil, nil, nil, 10)
 	if err == nil {
 		t.Fatal("expected RunTurn error")
 	}

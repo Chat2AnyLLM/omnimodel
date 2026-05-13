@@ -110,7 +110,7 @@ var testModels = []modelCase{
 
 var testShapes = []string{"anthropic", "openai", "responses"}
 
-var testBackends = []string{"agent-sdk-go", "google-adk", "anthropic-sdk"}
+var testBackends = []string{"omnicode"}
 
 // ─── helper: run a single turn and return result or error ────────────────────
 

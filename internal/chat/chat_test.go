@@ -223,7 +223,7 @@ func TestRenderFooterStatusPrefersContextualState(t *testing.T) {
 }
 
 func TestRenderSidebarPrioritizesActionsOverMessageCount(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "google-adk", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "omnicode", nil, nil)
 	m.sidebarWidth = 30
 	m.height = 20
 	m.autopilot = true
@@ -245,7 +245,7 @@ func TestRenderSidebarPrioritizesActionsOverMessageCount(t *testing.T) {
 }
 
 func TestRenderSidebarShowsAgentTurnUsage(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "google-adk", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "omnicode", nil, nil)
 	m.sidebarWidth = 30
 	m.height = 20
 	m.maxTurns = 8
@@ -310,7 +310,7 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":            "session-1",
 				"model_id":      "gpt-4",
-				"agent_backend": "google-adk",
+				"agent_backend": "omnicode",
 				"messages":      []any{},
 			})
 		default:
@@ -321,60 +321,18 @@ func TestHandleSlashCommandAgentShow(t *testing.T) {
 
 	cmd := newTestCommandContext()
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: "google-adk"}
+	session := &SessionState{ID: "session-1", Mode: "agent", AgentBackend: "omnicode"}
 
 	result, err := handleSlashCommand(cmd, client, session, "/agent")
 	if err != nil {
 		t.Fatalf("handleSlashCommand returned error: %v", err)
 	}
-	if !result.handled || result.agentBackend != "google-adk" {
+	if !result.handled || result.agentBackend != "omnicode" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	text := cmd.out.String()
-	if !strings.Contains(text, "Current agent backend: google-adk") {
+	if !strings.Contains(text, "Agent backend: omnicode") {
 		t.Fatalf("unexpected output: %s", text)
-	}
-	if !strings.Contains(text, "Supported backends: google-adk") {
-		t.Fatalf("missing supported backends in output: %s", text)
-	}
-}
-
-func TestHandleSlashCommandAgentSwitch(t *testing.T) {
-	var updatedBackend string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/api/admin/chat/sessions/session-1":
-			var body map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode request: %v", err)
-			}
-			updatedBackend = body["agent_backend"]
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	cmd := newTestCommandContext()
-	client := &testClient{baseURL: server.URL, http: server.Client()}
-
-	result, err := handleSlashCommand(cmd, client, &SessionState{ID: "session-1", Mode: "agent"}, "/agent google-adk")
-	if err != nil {
-		t.Fatalf("handleSlashCommand returned error: %v", err)
-	}
-	if !result.handled || result.agentBackend != "google-adk" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if updatedBackend != "google-adk" {
-		t.Fatalf("updated backend = %q, want google-adk", updatedBackend)
-	}
-	text := cmd.out.String()
-	if !strings.Contains(text, "Switched agent backend to google-adk") {
-		t.Fatalf("unexpected output: %s", text)
-	}
-	if !strings.Contains(text, "Supported backends: google-adk") {
-		t.Fatalf("missing supported backends in output: %s", text)
 	}
 }
 
@@ -410,26 +368,6 @@ func TestHandleSlashCommandAPIShapeSwitchOpenAI(t *testing.T) {
 	}
 	if !strings.Contains(cmd.out.String(), "Switched API shape to openai (/v1/chat/completions)") {
 		t.Fatalf("unexpected output: %s", cmd.out.String())
-	}
-}
-
-func TestHandleSlashCommandAgentInvalid(t *testing.T) {
-	cmd := newTestCommandContext()
-	_, err := handleSlashCommand(cmd, nil, &SessionState{ID: "session-1", Mode: "agent"}, "/agent nope")
-	if err == nil || !strings.Contains(err.Error(), "supported backends: google-adk") {
-		t.Fatalf("expected supported backend error, got %v", err)
-	}
-}
-
-func TestSupportedAgentBackendsText(t *testing.T) {
-	if got := supportedAgentBackendsText(); got != "google-adk" {
-		t.Fatalf("supportedAgentBackendsText() = %q", got)
-	}
-	if !isSupportedAgentBackend("google-adk") {
-		t.Fatal("expected google-adk to be supported")
-	}
-	if isSupportedAgentBackend("nope") {
-		t.Fatal("did not expect nope to be supported")
 	}
 }
 
@@ -534,7 +472,7 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":            "session-1",
 				"model_id":      "gpt-5.4",
-				"agent_backend": "agent-sdk-go",
+				"agent_backend": "omnicode",
 				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
@@ -579,7 +517,7 @@ func TestRunAgentTurnWithCheckerExecutesPermissionedCommand(t *testing.T) {
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 	checkerCalls := 0
-	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "agent-sdk-go", DefaultAPIShape, "show me disk usage", func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "gpt-5.4", "omnicode", DefaultAPIShape, "show me disk usage", func(ctx context.Context, req toolspkg.PermissionRequest) (bool, error) {
 		checkerCalls++
 		if req.ToolName != "bash" {
 			t.Fatalf("tool name = %q", req.ToolName)
@@ -610,7 +548,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":            "session-1",
 				"model_id":      "gpt-5.4",
-				"agent_backend": "agent-sdk-go",
+				"agent_backend": "omnicode",
 				"messages":      []map[string]any{{"role": "user", "content": "show me disk usage"}},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
@@ -655,7 +593,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 	cmd.in.WriteString("y\n")
 	client := &testClient{baseURL: server.URL, http: server.Client()}
 
-	content, err := RunAgentTurn(client, "session-1", "gpt-5.4", "agent-sdk-go", DefaultAPIShape, "show me disk usage", cmd)
+	content, err := RunAgentTurn(client, "session-1", "gpt-5.4", "omnicode", DefaultAPIShape, "show me disk usage", cmd)
 	if err != nil {
 		t.Fatalf("RunAgentTurn returned error: %v", err)
 	}
@@ -671,7 +609,7 @@ func TestRunAgentTurnExecutesPermissionedCommand(t *testing.T) {
 }
 
 func TestTUIAgentTurnProgressMsgUpdatesCounter(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "anthropic-sdk", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "omnicode", nil, nil)
 
 	model, _ := m.Update(agentTurnProgressMsg{turn: 2, maxTurns: 5})
 	updated := model.(chatTUIModel)
@@ -681,7 +619,7 @@ func TestTUIAgentTurnProgressMsgUpdatesCounter(t *testing.T) {
 }
 
 func TestTUIAgentDoneMsgShowsVisibleCompletionWhenContentEmpty(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "anthropic-sdk", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "claude-haiku-4.5", "agent", DefaultAPIShape, "omnicode", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
 	m.viewport = viewport.New(80, 20)
@@ -1590,7 +1528,7 @@ func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(
 				"id":            "session-1",
 				"model_id":      "claude-haiku-4.5",
 				"mode":          "agent",
-				"agent_backend": "anthropic-sdk",
+				"agent_backend": "omnicode",
 				"messages":      []map[string]any{{"role": "user", "content": "show disk info"}},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
@@ -1628,7 +1566,7 @@ func TestStreamAgentTurnWithCheckerAllowsEmptyFinalTurnAndDropsPreToolNarration(
 	defer server.Close()
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	eventCh, err := StreamAgentTurnWithChecker(context.Background(), client, "session-1", "claude-haiku-4.5", "anthropic-sdk", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+	eventCh, err := StreamAgentTurnWithChecker(context.Background(), client, "session-1", "claude-haiku-4.5", "omnicode", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
 		return true, nil
 	}, 10)
 	if err != nil {
@@ -1684,7 +1622,7 @@ func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) 
 				"id":            "session-1",
 				"model_id":      "claude-sonnet-4.5",
 				"mode":          "agent",
-				"agent_backend": "anthropic-sdk",
+				"agent_backend": "omnicode",
 				"messages":      []map[string]any{{"role": "user", "content": "show disk info"}},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/admin/chat/sessions/session-1/messages":
@@ -1724,7 +1662,7 @@ func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) 
 	defer server.Close()
 
 	client := &testClient{baseURL: server.URL, http: server.Client()}
-	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "claude-sonnet-4.5", "anthropic-sdk", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
+	content, err := RunAgentTurnWithChecker(context.Background(), client, "session-1", "claude-sonnet-4.5", "omnicode", DefaultAPIShape, "show disk info", func(context.Context, toolspkg.PermissionRequest) (bool, error) {
 		return true, nil
 	}, 10)
 	if err != nil {
@@ -1739,7 +1677,7 @@ func TestRunAgentTurnWithCheckerReturnsEmptyForToolOnlyCompletion(t *testing.T) 
 }
 
 func TestTUIHandlesPermissionRequestInTranscript(t *testing.T) {
-	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", DefaultAPIShape, "agent-sdk-go", nil, nil)
+	m := newChatTUIModel(nil, "session-1", "gpt-5.4", "agent", DefaultAPIShape, "omnicode", nil, nil)
 	m.ready = true
 	m.mainWidth = 80
 	m.viewport = viewport.New(80, 20)

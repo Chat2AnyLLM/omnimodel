@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 
 	agentpkg "omnillm/internal/agent"
@@ -266,18 +265,6 @@ func StreamAgentTurnWithChecker(ctx context.Context, c Client, sessionID, model,
 	return agentpkg.StreamTurn(ctx, c, sessionID, model, backend, apiShape, prompt, history, checker, nil, maxTurns)
 }
 
-func supportedAgentBackends() []string {
-	return []string{DefaultAgentBackend}
-}
-
-func supportedAgentBackendsText() string {
-	return strings.Join(supportedAgentBackends(), ", ")
-}
-
-func isSupportedAgentBackend(backend string) bool {
-	return slices.Contains(supportedAgentBackends(), backend)
-}
-
 func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, line string) (replCommandResult, error) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
@@ -328,28 +315,12 @@ func handleSlashCommand(cmd CommandContext, c Client, session *SessionState, lin
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched API shape to %s\n", formatAPIShape(newShape))
 		return replCommandResult{handled: true, apiShape: newShape}, nil
 	case "/agent":
-		if len(fields) == 1 {
-			currentBackend, err := CurrentAgentBackend(c, session.ID, session.AgentBackend)
-			if err != nil {
-				return replCommandResult{}, err
-			}
-			if currentBackend == "" {
-				currentBackend = supportedAgentBackends()[0]
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Current agent backend: %s\n", currentBackend)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Supported backends: %s\n", supportedAgentBackendsText())
-			return replCommandResult{handled: true, agentBackend: currentBackend}, nil
-		}
-		newBackend := fields[1]
-		if !isSupportedAgentBackend(newBackend) {
-			return replCommandResult{}, fmt.Errorf("unknown agent backend %q; supported backends: %s", newBackend, supportedAgentBackendsText())
-		}
-		if err := UpdateSessionAgentBackend(c, session.ID, newBackend); err != nil {
+		currentBackend, err := CurrentAgentBackend(c, session.ID, session.AgentBackend)
+		if err != nil {
 			return replCommandResult{}, err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched agent backend to %s\n", newBackend)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Supported backends: %s\n", supportedAgentBackendsText())
-		return replCommandResult{handled: true, agentBackend: newBackend}, nil
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Agent backend: %s\n", currentBackend)
+		return replCommandResult{handled: true, agentBackend: currentBackend}, nil
 	case "/model":
 		if len(fields) > 1 {
 			newModel := strings.Join(fields[1:], " ")
@@ -470,8 +441,8 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  /model <selector> Switch to a model selector")
 	_, _ = fmt.Fprintln(w, "  /models            Open model picker or list models")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
-	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend and supported backends")
-	_, _ = fmt.Fprintln(w, "  /agent <backend>   Keep agent backend on google-adk")
+	_, _ = fmt.Fprintln(w, "  /agent             Show the current agent backend")
+	_, _ = fmt.Fprintln(w, "  /agent omnicode    Keep agent backend on omnicode")
 	_, _ = fmt.Fprintln(w, "  /models            Open the model selector in a terminal")
 	_, _ = fmt.Fprintln(w, "  /models <filter>   List model selectors matching a filter")
 	_, _ = fmt.Fprintln(w, "  /specify.init      Spec Kit: scaffold a new spec directory (offline)")

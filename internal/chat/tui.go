@@ -193,7 +193,6 @@ type streamDoneMsg struct{ err error }
 type submitInputMsg uint64
 type appendLineMsg string
 type modelChangedMsg string
-type agentBackendChangedMsg string
 type apiShapeChangedMsg string
 type openModelPickerMsg struct {
 	models       []ModelInfo
@@ -1218,12 +1217,6 @@ func (m chatTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveConfig()
 		m.syncViewport()
 		return m, nil
-	case agentBackendChangedMsg:
-		m.agentBackend = string(msg)
-		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched agent backend to `%s`", m.agentBackend))
-		m.saveConfig()
-		m.syncViewport()
-		return m, nil
 	case apiShapeChangedMsg:
 		m.apiShape = canonicalAPIShape(string(msg))
 		m.appendEntry(transcriptInfo, fmt.Sprintf("Switched API shape to `%s`", formatAPIShape(m.apiShape)))
@@ -2052,12 +2045,10 @@ func (m chatTUIModel) renderPermissionSection(text string) string {
 }
 
 func displayAgentBackendName(agentBackend string) string {
-	switch strings.TrimSpace(strings.ToLower(agentBackend)) {
-	case "google-adk":
-		return "Omnicode"
-	default:
-		return agentBackend
+	if strings.TrimSpace(agentBackend) == "" {
+		return ""
 	}
+	return "OmniCode"
 }
 
 func (m chatTUIModel) renderSidebar() string {
@@ -3074,29 +3065,13 @@ func (m chatTUIModel) handleSlash(text string) (tea.Model, tea.Cmd) {
 			return apiShapeChangedMsg(newShape)
 		}
 	case "/agent":
-		if len(fields) == 1 {
-			currentBackend, err := CurrentAgentBackend(m.client, m.sessionID, "")
-			if err != nil {
-				add(tuiErrorStyle.Render("Error: " + err.Error()))
-				return m, nil
-			}
-			if currentBackend == "" {
-				currentBackend = supportedAgentBackends()[0]
-			}
-			add(m.renderMD(fmt.Sprintf("Current agent backend: `%s`\n\nSupported backends: `%s`", currentBackend, supportedAgentBackendsText())))
+		currentBackend, err := CurrentAgentBackend(m.client, m.sessionID, "")
+		if err != nil {
+			add(tuiErrorStyle.Render("Error: " + err.Error()))
 			return m, nil
 		}
-		newBackend := fields[1]
-		if !isSupportedAgentBackend(newBackend) {
-			add(tuiErrorStyle.Render(fmt.Sprintf("Error: unknown agent backend %q — supported backends: %s", newBackend, supportedAgentBackendsText())))
-			return m, nil
-		}
-		return m, func() tea.Msg {
-			if err := UpdateSessionAgentBackend(m.client, m.sessionID, newBackend); err != nil {
-				return appendLineMsg(tuiErrorStyle.Render("Error: " + err.Error()))
-			}
-			return agentBackendChangedMsg(newBackend)
-		}
+		add(m.renderMD(fmt.Sprintf("Agent backend: `%s`", currentBackend)))
+		return m, nil
 	case "/model":
 		if len(fields) > 1 {
 			newModel := strings.Join(fields[1:], " ")

@@ -66,11 +66,7 @@ func NewAgent(registry *tools.Registry, memory Memory, maxSteps int, dispatch Di
 // so a failing summarizer does not abort the run.
 func (a *Agent) compactIfNeeded(ctx context.Context) {
 	threshold := int(float64(contextTokenBudget) * compactThresholdRatio)
-	total := 0
-	for _, msg := range a.memory.Messages() {
-		total += estimateMessageTokens(msg)
-	}
-	if total >= threshold {
+	if a.estimateTotalTokens() >= threshold {
 		_ = a.memory.Compact(ctx, a.Summarizer)
 	}
 }
@@ -117,6 +113,13 @@ func (a *Agent) Run(ctx context.Context, sessionID string, prompt string) (*RunR
 
 		toolCalls := extractToolCalls(response.Content)
 		if len(toolCalls) == 0 {
+			if response.StopReason == StopReasonToolUse {
+				return nil, errors.New("tool_use stop_reason received without tool_use content blocks")
+			}
+			if shouldContinueAfterToolIntentText(prompt, response.Content) {
+				a.memory.Append(toUserContinuationMessage("Use the read tool on a representative repository file now, then continue."))
+				continue
+			}
 			log.Debug().Int("step", step).Msg("agent: no tool calls, finishing")
 			finalOutput = extractTextContent(response.Content)
 			clearCheckpoint(sessionID)
@@ -238,6 +241,14 @@ func (a *Agent) Stream(ctx context.Context, sessionID string, prompt string) (<-
 
 			toolCalls := extractToolCalls(response.Content)
 			if len(toolCalls) == 0 {
+				if response.StopReason == StopReasonToolUse {
+					events <- Event{Type: EventError, Content: "tool_use stop_reason received without tool_use content blocks"}
+					return
+				}
+				if shouldContinueAfterToolIntentText(prompt, response.Content) {
+					a.memory.Append(toUserContinuationMessage("Use the read tool on a representative repository file now, then continue."))
+					continue
+				}
 				log.Debug().Int("step", step).Msg("agent: no tool calls, finishing")
 				clearCheckpoint(sessionID)
 				events <- Event{Type: EventDone}
@@ -343,6 +354,13 @@ func toAssistantMessage(content []ContentBlock) Message {
 	}
 }
 
+func toUserContinuationMessage(text string) Message {
+	return Message{
+		Role:    "user",
+		Content: []ContentBlock{TextBlock(text)},
+	}
+}
+
 func (a *Agent) dispatchAndCollect(ctx context.Context, step int, prompt string) (*MessagesResponse, error) {
 	req := a.buildRequest(step, prompt)
 
@@ -396,7 +414,9 @@ func (a *Agent) buildRequest(step int, prompt string) *MessagesRequest {
 	// Per OpenAI spec: tool_choice must only be set when tools are present.
 	if len(toolDefs) > 0 {
 		if step == 0 && shouldRequireInitialToolUse(prompt) {
-			req.ToolChoice = "required"
+			req.ToolChoice = map[string]any{"type": "function", "functionName": "glob"}
+		} else if shouldForceReadContinuation(filtered) {
+			req.ToolChoice = map[string]any{"type": "function", "functionName": "read"}
 		} else {
 			req.ToolChoice = "auto"
 		}
@@ -411,47 +431,66 @@ func shouldRequireInitialToolUse(prompt string) bool {
 		return false
 	}
 
-	conversationalPhrases := []string{
-		"hello", "hi", "thanks", "thank you", "what do you think", "how should we approach",
-		"explain the architecture", "explain this", "why does", "what is", "can you explain",
+	codebasePhrases := []string{
+		"explain codebase",
+		"explain the codebase",
+		"explain this codebase",
+		"explain repo",
+		"explain the repo",
+		"explain this repo",
+		"explain repository",
+		"explain the repository",
+		"explain this repository",
 	}
-	for _, phrase := range conversationalPhrases {
-		if p == phrase || strings.HasPrefix(p, phrase+" ") {
-			return false
-		}
-	}
-
-	actionPhrases := []string{
-		"list ", "show ", "find ", "search ", "grep ", "glob ", "read ", "open ",
-		"check ", "verify ", "inspect ", "look at ", "look for ", "run ", "test ",
-		"trace ", "locate ", "browse ", "scan ", "print ", "cat ",
-		"current directory", "working directory", "current time", "git status", "git diff",
-		"environment variable", "env var", "os info", "system info", "list directory", "show directory",
-		"references to", "where is", "does this exist", "is this wired", "is x wired",
-	}
-	for _, phrase := range actionPhrases {
-		if strings.Contains(p, phrase) {
-			return true
-		}
-	}
-
-	for _, term := range strings.FieldsFunc(p, func(r rune) bool {
-		return r < '0' || r > '9' && r < 'a' || r > 'z'
-	}) {
-		switch term {
-		case "cpu", "memory", "disk", "process", "file", "files", "directory", "repo", "repository", "branch", "commit", "test", "tests", "log", "logs", "config", "code", "symbol", "symbols":
-			return true
-		}
-	}
-
-	questionMarkers := []string{"does ", "is ", "are ", "which ", "where ", "what files", "what changed"}
-	for _, prefix := range questionMarkers {
-		if strings.HasPrefix(p, prefix) && (strings.Contains(p, "repo") || strings.Contains(p, "file") || strings.Contains(p, "directory") || strings.Contains(p, "branch") || strings.Contains(p, "config") || strings.Contains(p, "code")) {
+	for _, phrase := range codebasePhrases {
+		if p == phrase || strings.HasPrefix(p, phrase+" ") || strings.Contains(p, phrase+".") {
 			return true
 		}
 	}
 
 	return false
+}
+
+func shouldContinueAfterToolIntentText(prompt string, content []ContentBlock) bool {
+	if !shouldRequireInitialToolUse(prompt) {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(extractTextContent(content)))
+	if text == "" {
+		return false
+	}
+	intentPhrases := []string{
+		"let me explore",
+		"let me inspect",
+		"i'll inspect",
+		"i will inspect",
+		"i'll explore",
+		"i will explore",
+		"start by exploring",
+		"start by inspecting",
+		"inspect the repository",
+		"explore the directory",
+		"explore the repository",
+		"check the main directories",
+		"check main directories",
+		"look at the directory structure",
+		"look at directory structure",
+		"identify key directories",
+	}
+	for _, phrase := range intentPhrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldForceReadContinuation(messages []Message) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	last := messages[len(messages)-1]
+	return last.Role == "user" && strings.Contains(strings.ToLower(extractTextContent(last.Content)), "use the read tool on a representative repository file")
 }
 
 func extractToolCalls(content []ContentBlock) []tools.ToolCall {

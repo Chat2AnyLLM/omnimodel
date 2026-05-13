@@ -210,7 +210,7 @@ func TestSelectDispatchUsesOmniLLMEndpointAndAPIKeyForOpenAIShape(t *testing.T) 
 	}))
 	defer server.Close()
 
-	dispatch := selectDispatch(&openAIConfigStubClient{baseURL: server.URL, apiKey: "omnillm-test-key"}, "gpt-4o-mini", "google-adk", "openai")
+	dispatch := selectDispatch(&openAIConfigStubClient{baseURL: server.URL, apiKey: "omnillm-test-key"}, "gpt-4o-mini", "omnicode", "openai")
 	respCh, err := dispatch(context.Background(), testMessagesRequest("", testUserMessage("hi")))
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)

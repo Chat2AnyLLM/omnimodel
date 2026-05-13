@@ -4,7 +4,7 @@ package agent
 //
 // Tests every combination of:
 //   - 3 logical shape labels accepted by the agent settings UI
-//   - the single supported SDK backend: google-adk
+//   - the single supported OmniCode backend
 //   - 8 target models: gpt-5.4-mini, gpt-5-mini, claude-haiku-4.5, gemini-3.1-flash,
 //                      deepseek-v4-flash, qwen3.6-flash, kimi-k2.6, glm-5.1
 //
@@ -20,7 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
@@ -40,7 +42,7 @@ const (
 
 var allShapes = []apiShape{shapeMessages, shapeChatCompl, shapeResponses}
 
-var allBackends = []string{"google-adk"}
+var allBackends = []string{"omnicode"}
 
 var allModels = []string{
 	"gpt-5.4-mini",
@@ -144,9 +146,32 @@ type proxyStub struct {
 	calls           int
 	capturedPath    []string
 	capturedPayload []map[string]any
+	server          *httptest.Server
 	// toolCall: when true, first call returns tool_use; second returns text.
 	toolCall bool
 }
+
+func (s *proxyStub) GetBaseURL() string {
+	if s.server == nil {
+		s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				s.t.Fatalf("proxyStub HTTP: read body: %v", err)
+			}
+			body := json.RawMessage(data)
+			response, err := s.Post(r.URL.Path, body)
+			if err != nil {
+				s.t.Fatalf("proxyStub HTTP: post: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(response)
+		}))
+		s.t.Cleanup(s.server.Close)
+	}
+	return s.server.URL
+}
+
+func (s *proxyStub) GetAPIKey() string { return "test-api-key" }
 
 func (s *proxyStub) Post(path string, body any) ([]byte, error) {
 	s.calls++
@@ -386,7 +411,7 @@ func TestAgentMatrixAllAPIShapes(t *testing.T) {
 	}
 }
 
-// ─── matrix: selectDispatch — google-adk routes to /v1/messages ──────────────
+// ─── matrix: selectDispatch routes to /v1/messages ──────────────
 
 // TestAgentMatrixSelectDispatchAllBackends verifies that the supported backend
 // calls the OmniLLM proxy on /v1/messages with the correct model.
@@ -503,7 +528,7 @@ func TestAgentMatrixCoreToolsRegistered(t *testing.T) {
 			stub := &proxyStub{t: t, model: model}
 			result, err := RunTurn(
 				context.Background(), stub,
-				"sess-tools", model, "agent-sdk-go", DefaultAPIShape,
+				"sess-tools", model, "omnicode", DefaultAPIShape,
 				"list the current directory",
 				nil, nil, nil, 10,
 			)
@@ -759,6 +784,99 @@ func TestAgentMatrixMultiTurn(t *testing.T) {
 					tag, len(conversationScript), stub.totalCalls)
 			})
 		}
+	}
+}
+
+func TestStreamTurnExecutesProviderQualifiedClaudeToolUse(t *testing.T) {
+	model := "github-copilot-jian-zhu---zhujian0805-gmail-com/claude-haiku-4.5"
+	stub := &proxyStub{t: t, model: model, toolCall: true}
+	checkerCalls := 0
+
+	eventCh, err := StreamTurn(
+		context.Background(), stub,
+		"sess-copilot-claude-tool", model, "omnicode", DefaultAPIShape,
+		"explain codebase",
+		nil,
+		func(_ context.Context, _ toolspkg.PermissionRequest) (bool, error) {
+			checkerCalls++
+			return true, nil
+		},
+		nil, 10,
+	)
+	if err != nil {
+		t.Fatalf("StreamTurn error: %v", err)
+	}
+
+	var toolCalls int
+	var tokens []string
+	var errs []string
+	var done bool
+	for event := range eventCh {
+		switch event.Type {
+		case EventToken:
+			tokens = append(tokens, event.Content)
+		case EventToolCall:
+			toolCalls++
+		case EventDone:
+			done = true
+		case EventError:
+			errs = append(errs, event.Content)
+		}
+	}
+
+	if len(errs) > 0 {
+		t.Fatalf("stream errors: %v", errs)
+	}
+	if !done {
+		t.Fatal("EventDone never received")
+	}
+	if toolCalls != 1 {
+		t.Fatalf("tool call events = %d, want 1", toolCalls)
+	}
+	if checkerCalls != 1 {
+		t.Fatalf("permission checker calls = %d, want 1", checkerCalls)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("proxy calls = %d, want 2", stub.calls)
+	}
+	if got := strings.Join(tokens, ""); got != "ok" {
+		t.Fatalf("final token output = %q, want ok", got)
+	}
+	if stub.capturedPayload[0]["model"] != model {
+		t.Fatalf("request model = %#v, want %q", stub.capturedPayload[0]["model"], model)
+	}
+}
+
+func TestStreamTurnErrorsWhenToolUseStopReasonHasNoToolUseBlock(t *testing.T) {
+	ag := NewAgent(toolspkg.NewRegistry(), NewBufferMemory(8), 3, func(ctx context.Context, req *MessagesRequest) (<-chan *MessagesResponse, error) {
+		ch := make(chan *MessagesResponse, 1)
+		ch <- &MessagesResponse{
+			ID:         "msg-missing-tool",
+			Model:      req.Model,
+			Content:    []ContentBlock{TextBlock("Sure! Let me explore the codebase to give you a thorough explanation.")},
+			StopReason: StopReasonToolUse,
+		}
+		close(ch)
+		return ch, nil
+	})
+
+	eventCh, err := ag.Stream(context.Background(), "sess-missing-tool", "explain codebase")
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var errs []string
+	for event := range eventCh {
+		if event.Type == EventError {
+			errs = append(errs, event.Content)
+		}
+	}
+
+	if len(errs) != 1 {
+		t.Fatalf("errors = %v, want exactly one error", errs)
+	}
+	if !strings.Contains(errs[0], "tool_use stop_reason") {
+		t.Fatalf("error = %q, want tool_use stop_reason diagnostic", errs[0])
 	}
 }
 
