@@ -6,11 +6,12 @@ import (
 )
 
 // needsToolChoiceNil reports whether this DashScope model requires tool_choice
-// to be omitted (nil) when tools are present. All Qwen and GLM models on
-// DashScope reject explicit tool_choice values; DeepSeek models do not.
+// to be omitted (nil) when tools are present. All Qwen, GLM, and DeepSeek
+// models on DashScope reject explicit tool_choice values (DeepSeek models
+// reject it in thinking mode which is their default mode).
 func needsToolChoiceNil(modelID string) bool {
 	lower := strings.ToLower(RemapModel(modelID))
-	return strings.HasPrefix(lower, "qwen") || strings.HasPrefix(lower, "glm")
+	return strings.HasPrefix(lower, "qwen") || strings.HasPrefix(lower, "glm") || strings.HasPrefix(lower, "deepseek")
 }
 
 // dashScopeToolCallAliasModels: DashScope models that require both "id" and

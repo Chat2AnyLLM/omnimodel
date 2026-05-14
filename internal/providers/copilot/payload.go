@@ -105,8 +105,19 @@ func (a *CopilotAdapter) convertCIFToOpenAI(request *cif.CanonicalRequest, toolN
 	}
 
 	if request.ToolChoice != nil {
+		model := payload["model"].(string)
+		// Reasoning models (o1, o3, gpt-5 family) reject tool_choice with
+		// specific function names. Only pass through simple string choices
+		// like "auto" / "required" / "none" for them.
 		if toolChoice := convertCanonicalToolChoiceToOpenAI(request.ToolChoice, toolNameMapper); toolChoice != nil {
-			payload["tool_choice"] = toolChoice
+			if shared.IsReasoningModel(model) {
+				if _, isString := toolChoice.(string); isString {
+					payload["tool_choice"] = toolChoice
+				}
+				// else: drop non-string tool_choice for reasoning models
+			} else {
+				payload["tool_choice"] = toolChoice
+			}
 		}
 	}
 
