@@ -118,7 +118,15 @@ func (a *CopilotAdapter) buildResponsesPayload(request *cif.CanonicalRequest, st
 
 	if request.ToolChoice != nil {
 		if tc := shared.ConvertCanonicalToolChoiceToOpenAI(request.ToolChoice); tc != nil {
-			payload["tool_choice"] = tc
+			model := payload["model"].(string)
+			// Reasoning models reject tool_choice with specific function names.
+			if shared.IsReasoningModel(model) {
+				if _, isString := tc.(string); isString {
+					payload["tool_choice"] = tc
+				}
+			} else {
+				payload["tool_choice"] = tc
+			}
 		}
 	}
 
