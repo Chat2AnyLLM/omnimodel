@@ -21,6 +21,7 @@ func init() {
 	VirtualModelCmd.AddCommand(vmGetCmd)
 
 	vmCreateCmd.Flags().String("name", "", "Display name (required)")
+	vmCreateCmd.MarkFlagRequired("name")
 	vmCreateCmd.Flags().String("description", "", "Optional description")
 	vmCreateCmd.Flags().StringP("strategy", "s", "round-robin", "Load-balancing strategy: round-robin|random|priority|weighted")
 	vmCreateCmd.Flags().String("api-shape", "openai", "API shape: openai|anthropic")
@@ -35,6 +36,7 @@ func init() {
 	vmUpdateCmd.Flags().StringArrayP("upstream", "u", nil, "Upstream (repeatable, replaces all existing)")
 	vmUpdateCmd.Flags().Bool("disabled", false, "Disable the virtual model")
 	vmUpdateCmd.Flags().Bool("enabled", false, "Enable the virtual model")
+	vmUpdateCmd.MarkFlagsMutuallyExclusive("enabled", "disabled")
 	VirtualModelCmd.AddCommand(vmUpdateCmd)
 
 	vmDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation")
@@ -166,9 +168,6 @@ var vmCreateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
-		if name == "" {
-			return fmt.Errorf("--name is required")
-		}
 		desc, _ := cmd.Flags().GetString("description")
 		strategy, _ := cmd.Flags().GetString("strategy")
 		apiShape, _ := cmd.Flags().GetString("api-shape")

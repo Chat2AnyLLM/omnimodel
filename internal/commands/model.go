@@ -21,6 +21,8 @@ func init() {
 
 	modelToggleCmd.Flags().Bool("enable", false, "Enable the model")
 	modelToggleCmd.Flags().Bool("disable", false, "Disable the model")
+	modelToggleCmd.MarkFlagsOneRequired("enable", "disable")
+	modelToggleCmd.MarkFlagsMutuallyExclusive("enable", "disable")
 	ModelCmd.AddCommand(modelToggleCmd)
 
 	modelVersionCmd := &cobra.Command{
@@ -208,9 +210,6 @@ var modelToggleCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		enable, _ := cmd.Flags().GetBool("enable")
 		disable, _ := cmd.Flags().GetBool("disable")
-		if !enable && !disable {
-			return fmt.Errorf("specify --enable or --disable")
-		}
 		enabled := enable && !disable
 
 		c := NewClient(cmd)

@@ -22,6 +22,8 @@ func init() {
 
 	configSetCmd.Flags().StringP("file", "f", "", "Path to file to read content from")
 	configSetCmd.Flags().Bool("stdin", false, "Read content from stdin")
+	configSetCmd.MarkFlagsOneRequired("file", "stdin")
+	configSetCmd.MarkFlagsMutuallyExclusive("file", "stdin")
 	ConfigCmd.AddCommand(configSetCmd)
 
 	configImportCmd.Flags().StringP("file", "f", "", "Path to file to import (required)")
@@ -129,8 +131,6 @@ var configSetCmd = &cobra.Command{
 				return fmt.Errorf("read stdin: %w", err)
 			}
 			content = string(b)
-		default:
-			return fmt.Errorf("provide --file <path> or --stdin")
 		}
 
 		c := NewClient(cmd)

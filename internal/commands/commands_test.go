@@ -659,3 +659,49 @@ func TestNewClientDefaultServer(t *testing.T) {
 	const expectedDefault = "http://127.0.0.1:5000"
 	_ = expectedDefault // guard against renaming without updating
 }
+
+// ─── Cobra-level flag validation ─────────────────────────────────────────────
+
+func TestModelToggleRequiresEnableOrDisable(t *testing.T) {
+	for _, sub := range ModelCmd.Commands() {
+		if sub.Name() == "toggle" {
+			ModelCmd.SetArgs([]string{"toggle", "some-provider", "some-model"})
+			var errBuf bytes.Buffer
+			ModelCmd.SetErr(&errBuf)
+			err := ModelCmd.Execute()
+			if err == nil {
+				t.Fatal("expected error when neither --enable nor --disable is set")
+			}
+			return
+		}
+	}
+	t.Error("model toggle subcommand not found")
+}
+
+func TestConfigSetRequiresFileOrStdin(t *testing.T) {
+	for _, sub := range ConfigCmd.Commands() {
+		if sub.Name() == "set" {
+			ConfigCmd.SetArgs([]string{"set", "myconfig"})
+			var errBuf bytes.Buffer
+			ConfigCmd.SetErr(&errBuf)
+			err := ConfigCmd.Execute()
+			if err == nil {
+				t.Fatal("expected error when neither --file nor --stdin is set")
+			}
+			return
+		}
+	}
+	t.Error("config set subcommand not found")
+}
+
+func TestVirtualModelUpdateEnabledDisabledMutuallyExclusive(t *testing.T) {
+	for _, sub := range VirtualModelCmd.Commands() {
+		if sub.Name() == "update" {
+			if sub.Flags().Lookup("enabled") == nil || sub.Flags().Lookup("disabled") == nil {
+				t.Error("virtualmodel update: missing --enabled or --disabled flag")
+			}
+			return
+		}
+	}
+	t.Error("virtualmodel update subcommand not found")
+}
