@@ -416,3 +416,70 @@ func padRight(s string, n int) string {
 	}
 	return s + strings.Repeat(" ", n-len(s))
 }
+
+// resolveIDFromList presents a selection prompt if multiple items exist, or returns
+// the single item directly. Returns an error if items is empty.
+func resolveIDFromList(prompt string, items []string) (string, error) {
+	if len(items) == 0 {
+		return "", fmt.Errorf("no items available to select from")
+	}
+	if len(items) == 1 {
+		return items[0], nil
+	}
+	return SelectFromOptions(prompt, items)
+}
+
+// resolveProviderID returns the provider ID from args[0] if present, or
+// interactively prompts the operator to pick one from the running server.
+// Returns an error if not in a TTY and no arg was supplied.
+func resolveProviderID(cmd *cobra.Command, c *Client, args []string) (string, error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], nil
+	}
+	if !IsTerminalWriter(cmd.OutOrStdout()) {
+		return "", fmt.Errorf("provider ID is required")
+	}
+	data, err := c.Get("/api/admin/providers")
+	if err != nil {
+		return "", fmt.Errorf("fetch providers: %w", err)
+	}
+	var providers []map[string]interface{}
+	if err := json.Unmarshal(data, &providers); err != nil {
+		return "", fmt.Errorf("parse providers: %w", err)
+	}
+	ids := make([]string, 0, len(providers))
+	for _, p := range providers {
+		if id, ok := p["id"].(string); ok && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return resolveIDFromList("Select a provider:", ids)
+}
+
+// resolveVirtualModelID returns the virtual model ID from args[0] if present,
+// or interactively prompts the operator.
+func resolveVirtualModelID(cmd *cobra.Command, c *Client, args []string) (string, error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], nil
+	}
+	if !IsTerminalWriter(cmd.OutOrStdout()) {
+		return "", fmt.Errorf("virtual model ID is required")
+	}
+	data, err := c.Get("/api/admin/virtualmodels")
+	if err != nil {
+		return "", fmt.Errorf("fetch virtual models: %w", err)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("parse virtual models: %w", err)
+	}
+	items, _ := resp["data"].([]interface{})
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		vm, _ := item.(map[string]interface{})
+		if id, ok := vm["virtual_model_id"].(string); ok && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return resolveIDFromList("Select a virtual model:", ids)
+}

@@ -653,6 +653,25 @@ func TestIsLevelAtOrAboveFiltering(t *testing.T) {
 	}
 }
 
+// ─── resolveIDFromList ────────────────────────────────────────────────────────
+
+func TestResolveIDFromListPicksFirstWhenOnlyOne(t *testing.T) {
+	id, err := resolveIDFromList("Pick provider:", []string{"provider-one"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "provider-one" {
+		t.Errorf("expected 'provider-one', got %q", id)
+	}
+}
+
+func TestResolveIDFromListReturnsErrorOnEmpty(t *testing.T) {
+	_, err := resolveIDFromList("Pick provider:", []string{})
+	if err == nil {
+		t.Fatal("expected error for empty list")
+	}
+}
+
 // ─── NewClient defaults ───────────────────────────────────────────────────────
 
 func TestClientPrintJSONUsesCommandWriter(t *testing.T) {
