@@ -14,7 +14,7 @@ var VirtualModelCmd = &cobra.Command{
 	Aliases: []string{"virtual-model"},
 	Short:   "Manage virtual models (model aliases with load-balancing)",
 	Long: `Virtual models are stable model aliases that route requests to one or
-more upstream provider/model pairs with configurable load-balancing strategies.`,
+	more upstream provider/model pairs with configurable load-balancing strategies.`,
 }
 
 func init() {
@@ -88,6 +88,8 @@ var vmListCmd = &cobra.Command{
 		}
 
 		table := NewTable("ID", "NAME", "STRATEGY", "API SHAPE", "UPSTREAMS", "ENABLED")
+		table.SetMaxWidth(0, 32) // ID
+		table.SetMaxWidth(1, 32) // NAME
 		for _, item := range items {
 			vm, _ := item.(map[string]interface{})
 			id, _ := vm["virtual_model_id"].(string)
@@ -141,24 +143,24 @@ var vmGetCmd = &cobra.Command{
 		if err := PrintSection(out, "Virtual Model: "+vmID); err != nil {
 			return err
 		}
-		if err := PrintKeyValue(out, "Name", name); err != nil {
-			return err
-		}
-		if err := PrintKeyValue(out, "Description", desc); err != nil {
-			return err
-		}
-		if err := PrintKeyValue(out, "Strategy", strategy); err != nil {
-			return err
-		}
-		if err := PrintKeyValue(out, "API Shape", apiShape); err != nil {
-			return err
-		}
-		if err := PrintKeyValue(out, "Enabled", enabled); err != nil {
+		detailTable := NewTable("Field", "Value")
+		detailTable.SetMaxWidth(1, 48)
+		detailTable.AddRow("Name", name)
+		detailTable.AddRow("Description", desc)
+		detailTable.AddRow("Strategy", strategy)
+		detailTable.AddRow("API Shape", apiShape)
+		detailTable.AddRow("Enabled", fmt.Sprint(enabled))
+		if err := detailTable.Render(out); err != nil {
 			return err
 		}
 
 		if upstreams, ok := vm["upstreams"].([]interface{}); ok && len(upstreams) > 0 {
-			fmt.Fprintf(out, "\nUpstreams (%d):\n", len(upstreams))
+			if _, err := fmt.Fprintln(out); err != nil {
+				return err
+			}
+			if err := PrintSection(out, "Upstreams"); err != nil {
+				return err
+			}
 			table := NewTable("N", "PROVIDER", "MODEL", "WEIGHT", "PRIORITY")
 			for i, u := range upstreams {
 				upstream, _ := u.(map[string]interface{})
