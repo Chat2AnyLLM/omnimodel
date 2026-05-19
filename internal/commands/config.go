@@ -88,18 +88,19 @@ var configGetCmd = &cobra.Command{
 			return nil
 		}
 
+		out := cmd.OutOrStdout()
 		var resp map[string]interface{}
 		if err := json.Unmarshal(data, &resp); err != nil {
-			fmt.Println(string(data))
+			fmt.Fprintln(out, string(data))
 			return nil
 		}
 		if exists, ok := resp["exists"].(bool); ok && !exists {
 			msg, _ := resp["message"].(string)
-			fmt.Printf("(file does not exist yet: %s)\n", msg)
+			fmt.Fprintf(out, "(file does not exist yet: %s)\n", msg)
 			return nil
 		}
 		content, _ := resp["content"].(string)
-		fmt.Print(content)
+		fmt.Fprint(out, content)
 		return nil
 	},
 }
@@ -142,7 +143,7 @@ var configSetCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Config '%s' saved.", args[0])
+		SuccessMsg(cmd, "Config '%s' saved.", args[0])
 		return nil
 	},
 }
@@ -182,7 +183,7 @@ var configImportCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Config '%s' imported from %s.", args[0], filePath)
+		SuccessMsg(cmd, "Config '%s' imported from %s.", args[0], filePath)
 		return nil
 	},
 }
@@ -206,11 +207,11 @@ var configBackupCmd = &cobra.Command{
 		var resp map[string]interface{}
 		if err := json.Unmarshal(data, &resp); err == nil {
 			if backup, ok := resp["backup"].(string); ok {
-				SuccessMsg(cmd,"Backup saved to %s", backup)
+				SuccessMsg(cmd, "Backup saved to %s", backup)
 				return nil
 			}
 		}
-		SuccessMsg(cmd,"Config '%s' backed up.", args[0])
+		SuccessMsg(cmd, "Config '%s' backed up.", args[0])
 		return nil
 	},
 }

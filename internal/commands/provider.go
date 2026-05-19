@@ -388,7 +388,7 @@ func authAndCreateProvider(cmd *cobra.Command, providerType string) error {
 	if prov, ok := resp["provider"].(map[string]interface{}); ok {
 		id, _ := prov["id"].(string)
 		name, _ := prov["name"].(string)
-		SuccessMsg(cmd,"Provider '%s' (%s) added successfully.", id, name)
+		SuccessMsg(cmd, "Provider '%s' (%s) added successfully.", id, name)
 	}
 	return nil
 }
@@ -414,7 +414,7 @@ var providerDeleteCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Provider '%s' deleted.", id)
+		SuccessMsg(cmd, "Provider '%s' deleted.", id)
 		return nil
 	},
 }
@@ -435,7 +435,7 @@ var providerActivateCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Provider '%s' activated.", args[0])
+		SuccessMsg(cmd, "Provider '%s' activated.", args[0])
 		return nil
 	},
 }
@@ -456,7 +456,7 @@ var providerDeactivateCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Provider '%s' deactivated.", args[0])
+		SuccessMsg(cmd, "Provider '%s' deactivated.", args[0])
 		return nil
 	},
 }
@@ -478,7 +478,7 @@ var providerSwitchCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Switched active provider to '%s'.", args[0])
+		SuccessMsg(cmd, "Switched active provider to '%s'.", args[0])
 		return nil
 	},
 }
@@ -511,7 +511,7 @@ var providerRenameCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Provider '%s' renamed.", args[0])
+		SuccessMsg(cmd, "Provider '%s' renamed.", args[0])
 		return nil
 	},
 }
@@ -569,7 +569,7 @@ var providerPrioritiesCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Provider priorities updated.")
+		SuccessMsg(cmd, "Provider priorities updated.")
 		return nil
 	},
 }
@@ -592,14 +592,17 @@ var providerUsageCmd = &cobra.Command{
 		}
 		var usage map[string]interface{}
 		if err := json.Unmarshal(data, &usage); err != nil {
-			fmt.Println(string(data))
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			return nil
 		}
-		fmt.Printf("Usage for %s:\n", args[0])
-		fmt.Println(strings.Repeat("─", 40))
-		for k, v := range usage {
-			fmt.Printf("  %-24s %v\n", k+":", v)
+		out := cmd.OutOrStdout()
+		if err := PrintSection(out, "Usage for "+args[0]); err != nil {
+			return err
 		}
-		return nil
+		table := NewTable("METRIC", "VALUE")
+		for k, v := range usage {
+			table.AddRow(k, fmt.Sprintf("%v", v))
+		}
+		return table.Render(out)
 	},
 }

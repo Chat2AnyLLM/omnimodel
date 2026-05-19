@@ -114,24 +114,44 @@ var vmGetCmd = &cobra.Command{
 		apiShape, _ := vm["api_shape"].(string)
 		enabled, _ := vm["enabled"].(bool)
 
-		fmt.Printf("Virtual Model: %s\n", id)
-		fmt.Println(strings.Repeat("─", 50))
-		fmt.Printf("  Name:        %s\n", name)
-		fmt.Printf("  Description: %s\n", desc)
-		fmt.Printf("  Strategy:    %s\n", strategy)
-		fmt.Printf("  API Shape:   %s\n", apiShape)
-		fmt.Printf("  Enabled:     %v\n", enabled)
+		out := cmd.OutOrStdout()
+		if err := PrintSection(out, "Virtual Model: "+id); err != nil {
+			return err
+		}
+		if err := PrintKeyValue(out, "Name", name); err != nil {
+			return err
+		}
+		if err := PrintKeyValue(out, "Description", desc); err != nil {
+			return err
+		}
+		if err := PrintKeyValue(out, "Strategy", strategy); err != nil {
+			return err
+		}
+		if err := PrintKeyValue(out, "API Shape", apiShape); err != nil {
+			return err
+		}
+		if err := PrintKeyValue(out, "Enabled", enabled); err != nil {
+			return err
+		}
 
 		if upstreams, ok := vm["upstreams"].([]interface{}); ok && len(upstreams) > 0 {
-			fmt.Printf("\nUpstreams (%d):\n", len(upstreams))
+			fmt.Fprintf(out, "\nUpstreams (%d):\n", len(upstreams))
+			table := NewTable("N", "PROVIDER", "MODEL", "WEIGHT", "PRIORITY")
 			for i, u := range upstreams {
 				upstream, _ := u.(map[string]interface{})
 				provID, _ := upstream["provider_id"].(string)
 				modelID, _ := upstream["model_id"].(string)
 				weight, _ := upstream["weight"].(float64)
 				priority, _ := upstream["priority"].(float64)
-				fmt.Printf("  %d. %s / %s  (weight=%.0f priority=%.0f)\n",
-					i+1, provID, modelID, weight, priority)
+				table.AddRow(
+					fmt.Sprintf("%d", i+1),
+					provID, modelID,
+					fmt.Sprintf("%.0f", weight),
+					fmt.Sprintf("%.0f", priority),
+				)
+			}
+			if err := table.Render(out); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -181,7 +201,7 @@ var vmCreateCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Virtual model '%s' created.", args[0])
+		SuccessMsg(cmd, "Virtual model '%s' created.", args[0])
 		return nil
 	},
 }
@@ -241,7 +261,7 @@ var vmUpdateCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Virtual model '%s' updated.", args[0])
+		SuccessMsg(cmd, "Virtual model '%s' updated.", args[0])
 		return nil
 	},
 }
@@ -267,7 +287,7 @@ var vmDeleteCmd = &cobra.Command{
 			c.PrintJSON(data)
 			return nil
 		}
-		SuccessMsg(cmd,"Virtual model '%s' deleted.", args[0])
+		SuccessMsg(cmd, "Virtual model '%s' deleted.", args[0])
 		return nil
 	},
 }
