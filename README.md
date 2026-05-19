@@ -212,6 +212,8 @@ The current codebase supports these provider families in user-facing flows:
 | Codex | API key | OpenAI Codex provider integration |
 | Antigravity | Google OAuth | Onboarded through the admin OAuth flow |
 
+The admin UI adds providers through auth-first onboarding: credentials or OAuth are validated before the provider instance is registered, so failed setup attempts do not leave unauthenticated placeholder providers behind.
+
 See [docs/ADDING_A_PROVIDER.md](docs/ADDING_A_PROVIDER.md) if you want to add another provider.
 
 ## API Surface

@@ -185,16 +185,7 @@ In `internal/providers/types/types.go`:
 const Provider<Name> ProviderID = "<provider-type>"
 ```
 
-### 2b. Add provider instance creation
-
-In `internal/routes/admin_providers.go`, add a case to `handleAddProviderInstance`:
-
-```go
-case "<provider-type>":
-    provider = <name>pkg.NewProvider(instanceID, "")
-```
-
-### 2c. Add auth-and-create handler
+### 2b. Add auth-and-create handler
 
 In `internal/routes/admin_providers.go`, add a case to `handleAuthAndCreateProvider`:
 
@@ -239,7 +230,7 @@ For **OAuth/device-code flows** (like GitHub Copilot), the handler needs to:
 2. Return `{ requiresAuth: true, user_code, verification_uri, pending_id }` to the frontend
 3. Poll for completion in a background goroutine
 
-### 2d. Add config normalization (if the provider has custom config fields)
+### 2c. Add config normalization (if the provider has custom config fields)
 
 In `internal/routes/admin_provider_config.go`, add cases to:
 
@@ -291,7 +282,6 @@ In `frontend/src/pages/ProvidersPage.tsx`:
 The frontend API layer (`frontend/src/api/index.ts`) already provides generic functions:
 
 - `authAndCreateProvider(type, body)` — POST `/api/admin/providers/auth-and-create/:type`
-- `addProviderInstance(type)` — POST `/api/admin/providers/add/:type`
 - `authProvider(id, body)` — POST `/api/admin/providers/:id/auth`
 - `updateProviderConfig(id, config)` — PUT `/api/admin/providers/:id/config`
 - `getProviderModels(id)` — GET `/api/admin/providers/:id/models`
@@ -353,7 +343,6 @@ The following stores are available (all in `internal/database/`):
 - [ ] Implemented `types.ProviderAdapter` (Execute, ExecuteStream, RemapModel)
 - [ ] Added token/config persistence via `TokenStore` and `ProviderConfigStore`
 - [ ] Implemented `LoadFromDB` or `ensureConfig` for startup rehydration
-- [ ] Added case to `handleAddProviderInstance` in `admin_providers.go`
 - [ ] Added case to `handleAuthAndCreateProvider` in `admin_providers.go`
 - [ ] Added config normalization in `admin_provider_config.go` (if needed)
 - [ ] Added provider to frontend registry (`providerRegistry.ts`)

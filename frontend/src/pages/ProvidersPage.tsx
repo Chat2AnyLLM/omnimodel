@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   activateProvider,
-  addProviderInstance,
   authAndCreateProvider,
   authProvider,
   cancelAuth,
@@ -4428,134 +4427,6 @@ const PROVIDER_TYPES = [
   },
 ]
 
-function _AddProviderModal({
-  onAdd,
-  disabled,
-}: {
-  onAdd: (type: string) => void
-  disabled: boolean
-}) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <>
-      <button
-        className="btn btn-primary btn-sm"
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-      >
-        Add Provider
-      </button>
-      {open && (
-        <div
-          className="dialog-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setOpen(false)
-          }}
-        >
-          <div className="dialog-box" style={{ maxWidth: 460 }}>
-            <div className="dialog-header">
-              <div
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 15,
-                }}
-              >
-                Add Provider
-              </div>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => setOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="dialog-body">
-              <p
-                style={{
-                  fontSize: 13,
-                  color: "var(--color-text-secondary)",
-                  marginBottom: 16,
-                }}
-              >
-                Select a provider type. You can add multiple accounts of the
-                same type.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {PROVIDER_TYPES.map((pt) => {
-                  const accent = PROVIDER_ACCENT[pt.id] ?? "#0a84ff"
-                  return (
-                    <button
-                      key={pt.id}
-                      onClick={() => {
-                        onAdd(pt.id)
-                        setOpen(false)
-                      }}
-                      className="provider-type-btn"
-                      style={
-                        { "--provider-accent": accent } as React.CSSProperties
-                      }
-                    >
-                      <div
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: "var(--radius-sm)",
-                          background: `${accent}18`,
-                          border: `1px solid ${accent}28`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: accent,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {PROVIDER_ICONS[pt.id] ?? (
-                          <span style={{ fontSize: 18 }}>◌</span>
-                        )}
-                      </div>
-                      <div>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            fontSize: 14,
-                            letterSpacing: "-0.01em",
-                          }}
-                        >
-                          {pt.name}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "var(--color-text-secondary)",
-                            marginTop: 2,
-                          }}
-                        >
-                          {pt.desc}
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          marginLeft: "auto",
-                          color: "var(--color-text-tertiary)",
-                          fontSize: 16,
-                        }}
-                      >
-                        ›
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
 // ─── Collapsible Group Header ─────────────────────────────────────────────────
 
 // ─── Providers Page ───────────────────────────────────────────────────────────
@@ -4745,21 +4616,6 @@ export function ProvidersPage({ showToast }: ProvidersPageProps) {
     } catch (e) {
       showToast(
         "Auth failed: " + (e instanceof Error ? e.message : String(e)),
-        "error",
-      )
-    }
-  }
-
-  const _handleAddInstance = async (providerType: string) => {
-    try {
-      const result = await addProviderInstance(providerType)
-      if (result.success && result.provider) {
-        showToast(`Created ${result.provider.name}`)
-        await load()
-      }
-    } catch (e) {
-      showToast(
-        "Add failed: " + (e instanceof Error ? e.message : String(e)),
         "error",
       )
     }

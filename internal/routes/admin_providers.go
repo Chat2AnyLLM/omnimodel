@@ -7,21 +7,19 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rs/zerolog/log"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 
+	"omnillm/internal/database"
 	alibabapkg "omnillm/internal/providers/alibaba"
-	antigravitypkg "omnillm/internal/providers/antigravity"
 	azurepkg "omnillm/internal/providers/azure"
 	codexpkg "omnillm/internal/providers/codex"
 	copilot "omnillm/internal/providers/copilot"
-	googlepkg "omnillm/internal/providers/google"
+	kimipkg "omnillm/internal/providers/kimi"
 	modelscopepkg "omnillm/internal/providers/modelscope"
 	openaicompatprovider "omnillm/internal/providers/openaicompatprovider"
-	kimipkg "omnillm/internal/providers/kimi"
-	"omnillm/internal/database"
-	"omnillm/internal/registry"
 	"omnillm/internal/providers/types"
+	"omnillm/internal/registry"
 	ghservice "omnillm/internal/services/github"
 )
 
@@ -114,57 +112,6 @@ func handleSwitchProvider(c *gin.Context) {
 		"success":  true,
 		"message":  fmt.Sprintf("Switched to provider %s", provider.GetInstanceID()),
 		"provider": provider.GetInstanceID(),
-	})
-}
-
-func handleAddProviderInstance(c *gin.Context) {
-	providerType := c.Param("type")
-
-	providerRegistry := registry.GetProviderRegistry()
-	instanceID := providerRegistry.NextInstanceID(providerType)
-
-	var provider types.Provider
-	switch providerType {
-	case "github-copilot":
-		provider = copilot.NewGitHubCopilotProvider(instanceID, "")
-	case "alibaba-modelscope":
-		provider = modelscopepkg.NewProvider(instanceID, "")
-	case "antigravity":
-		provider = antigravitypkg.NewProvider(instanceID, "")
-	case "alibaba":
-		provider = alibabapkg.NewProvider(instanceID, "")
-	case "azure-openai":
-		provider = azurepkg.NewProvider(instanceID, "")
-	case "google":
-		provider = googlepkg.NewProvider(instanceID, "")
-	case "kimi":
-		provider = kimipkg.NewProvider(instanceID, "")
-	case "openai-compatible":
-		provider = openaicompatprovider.NewProvider(instanceID, "")
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Unknown provider type '%s'", providerType),
-		})
-		return
-	}
-
-	if err := providerRegistry.Register(provider, true); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to register provider: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"provider": gin.H{
-			"id":         provider.GetInstanceID(),
-			"type":       provider.GetID(),
-			"name":       provider.GetName(),
-			"isActive":   false,
-			"authStatus": "unauthenticated",
-		},
 	})
 }
 
@@ -537,10 +484,18 @@ func handleAuthAndCreateProvider(c *gin.Context) {
 						deployment, _ := typed["deployment"].(string)
 						model = strings.TrimSpace(model)
 						deployment = strings.TrimSpace(deployment)
-						if model == "" { model = deployment }
-						if deployment == "" { deployment = model }
-						if model != "" { _ = modelStateStore.SetEnabled(prov.GetInstanceID(), model, true) }
-						if deployment != "" && deployment != model { _ = modelStateStore.SetEnabled(prov.GetInstanceID(), deployment, true) }
+						if model == "" {
+							model = deployment
+						}
+						if deployment == "" {
+							deployment = model
+						}
+						if model != "" {
+							_ = modelStateStore.SetEnabled(prov.GetInstanceID(), model, true)
+						}
+						if deployment != "" && deployment != model {
+							_ = modelStateStore.SetEnabled(prov.GetInstanceID(), deployment, true)
+						}
 					}
 				}
 			}
