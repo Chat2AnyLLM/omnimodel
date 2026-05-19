@@ -105,14 +105,14 @@ func (t *Table) buildRow(cols []string) string {
 			val = cols[i]
 		}
 		sb.WriteString(" ")
-		sb.WriteString(padRight(val, w))
+		sb.WriteString(padRightRunes(val, w))
 		sb.WriteString(" │")
 	}
 	return sb.String()
 }
 
-// padRight pads s with spaces on the right so the visible rune count reaches w.
-func padRight(s string, w int) string {
+// padRightRunes pads s with spaces on the right so the visible rune count reaches w.
+func padRightRunes(s string, w int) string {
 	r := []rune(s)
 	if len(r) >= w {
 		return s

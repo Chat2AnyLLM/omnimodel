@@ -409,6 +409,14 @@ func ErrorMsg(cmd *cobra.Command, format string, a ...any) {
 	fmt.Fprintf(cmd.ErrOrStderr(), "Error: "+format+"\n", a...)
 }
 
+// padRight pads a string to at least n bytes (suitable for ASCII strings).
+func padRight(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
+}
+
 // resolveIDFromList presents a selection prompt if multiple items exist, or returns
 // the single item directly. Returns an error if items is empty.
 func resolveIDFromList(prompt string, items []string) (string, error) {
