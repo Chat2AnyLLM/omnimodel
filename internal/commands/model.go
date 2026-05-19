@@ -99,6 +99,8 @@ var modelMetadataCmd = &cobra.Command{
 		}
 
 		table := NewTable("MODEL", "PROVIDER", "INPUT $/1M", "OUTPUT $/1M", "CTX", "IN", "OUT")
+		table.SetMaxWidth(0, 40) // MODEL
+		table.SetMaxWidth(1, 24) // PROVIDER
 		count := 0
 		for _, item := range resp.Data {
 			if filter != "" {
@@ -164,6 +166,8 @@ var modelListCmd = &cobra.Command{
 		}
 
 		table := NewTable("MODEL ID", "NAME", "ENABLED")
+		table.SetMaxWidth(0, 40) // MODEL ID
+		table.SetMaxWidth(1, 36) // NAME
 		for _, m := range models {
 			model, _ := m.(map[string]interface{})
 			id, _ := model["id"].(string)
