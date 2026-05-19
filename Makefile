@@ -7,7 +7,7 @@
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-SERVER_PORT   ?= 5002
+SERVER_PORT   ?= 5000
 FRONTEND_PORT ?= 5080
 HOST          ?= 127.0.0.1
 REBUILD       ?=
@@ -166,43 +166,54 @@ docker-run:
 
 ## help: List all available targets with descriptions
 help:
-	@echo ""
-	@echo "Usage:   make <target> [VARIABLE=value ...]"
-	@echo ""
-	@echo "Variables:"
-	@echo "  SERVER_PORT=5002        Backend API port (default: 5002)"
-	@echo "  FRONTEND_PORT=5080      Frontend dev server port (default: 5080)"
-	@echo "  HOST=127.0.0.1          Bind address (default: 127.0.0.1)"
-	@echo "  REBUILD=--rebuild       Add --rebuild flag to restart target"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make start"
-	@echo "  make restart HOST=localhost"
-	@echo "  make restart SERVER_PORT=5000 FRONTEND_PORT=5080 HOST=localhost"
-	@echo "  make restart REBUILD=--rebuild"
-	@echo ""
-	@echo "Targets:"
-	@echo "  install         - Build all Go binaries and install to ~/.local/bin"
-	@echo "  build           - Build the Go backend binary and install to ~/.local/bin"
-	@echo "  build-go        - Compile the Go backend and install to ~/.local/bin"
-	@echo "  build-frontend  - Build the frontend assets (outputs to pages/)"
-	@echo "  build-all       - Build both the Go backend and the frontend assets"
-	@echo "  start           - Build the Go backend and start all services in the background"
-	@echo "  stop            - Stop all background services"
-	@echo "  restart         - Restart background services (no rebuild)"
-	@echo "  restart-rebuild - Rebuild everything and restart background services"
-	@echo "  status          - Show running service status and ports"
-	@echo "  logs            - Print the last 50 lines of service logs"
-	@echo "  logs-follow     - Stream service logs in real time"
-	@echo "  dev             - Start both backend and frontend in the foreground"
-	@echo "  dev-frontend    - Start only the Vite frontend dev server"
-	@echo "  test            - Run the full test suite"
-	@echo "  test-frontend   - Run frontend tests only"
-	@echo "  lint            - Run ESLint on changed files"
-	@echo "  typecheck       - Run TypeScript type checking on the frontend"
-	@echo "  release-patch   - Bump patch version, commit, tag, and push"
-	@echo "  release-minor   - Bump minor version, commit, tag, and push"
-	@echo "  release-major   - Bump major version, commit, tag, and push"
-	@echo "  docker-build    - Build the Docker image tagged as omnillm"
-	@echo "  docker-run      - Run the Docker image on port 5002"
-	@echo ""
+	@echo OmniLLM Development Tasks
+	@echo Usage: make [target] [VARIABLE=value ...]
+	@cmd /c echo.
+	@echo VARIABLES:
+	@echo   SERVER_PORT=5000       Backend API port (default: 5000)
+	@echo   FRONTEND_PORT=5080     Frontend dev server port (default: 5080)
+	@echo   HOST=127.0.0.1         Bind address (default: 127.0.0.1)
+	@echo   REBUILD=--rebuild      Add --rebuild flag to restart target
+	@cmd /c echo.
+	@echo QUICK START:
+	@echo   start                Build the Go backend and start all services in the background
+	@echo   stop                 Stop all background services
+	@echo   dev                  Start both backend and frontend in the foreground (Ctrl+C to stop)
+	@echo   status               Show running service status and ports
+	@cmd /c echo.
+	@echo BUILD:
+	@echo   install              Build all Go binaries and install to ~/.local/bin
+	@echo   build                Build the Go backend binary and install to ~/.local/bin
+	@echo   build-go             Compile the Go backend and install to ~/.local/bin
+	@echo   build-frontend       Build the frontend assets (outputs to pages/)
+	@echo   build-all            Build both the Go backend and the frontend assets
+	@cmd /c echo.
+	@echo DEVELOPMENT:
+	@echo   dev-frontend         Start only the Vite frontend dev server
+	@echo   restart              Restart background services (no rebuild)
+	@echo   restart-rebuild      Rebuild everything and restart background services
+	@cmd /c echo.
+	@echo MONITORING:
+	@echo   logs                 Print the last 50 lines of service logs
+	@echo   logs-follow          Stream service logs in real time
+	@cmd /c echo.
+	@echo TESTING and QUALITY:
+	@echo   test                 Run the full test suite
+	@echo   test-frontend        Run frontend tests only
+	@echo   lint                 Run ESLint on changed files
+	@echo   typecheck            Run TypeScript type checking on the frontend
+	@cmd /c echo.
+	@echo RELEASE:
+	@echo   release-patch        Bump patch version, commit, tag, and push
+	@echo   release-minor        Bump minor version, commit, tag, and push
+	@echo   release-major        Bump major version, commit, tag, and push
+	@cmd /c echo.
+	@echo DOCKER:
+	@echo   docker-build         Build the Docker image tagged as omnillm
+	@echo   docker-run           Run the Docker image on port 5000
+	@cmd /c echo.
+	@echo EXAMPLES:
+	@echo   make dev
+	@echo   make start SERVER_PORT=5000 FRONTEND_PORT=5080
+	@echo   make restart REBUILD=--rebuild
+	@echo   make logs-follow
