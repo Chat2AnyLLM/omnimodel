@@ -164,6 +164,8 @@ var providerListCmd = &cobra.Command{
 		}
 
 		table := NewTable("ID", "TYPE", "NAME", "AUTH", "ACTIVE", "MODELS")
+		table.SetMaxWidth(0, 32) // ID
+		table.SetMaxWidth(2, 36) // NAME
 		for _, p := range providers {
 			id, _ := p["id"].(string)
 			pType, _ := p["type"].(string)
