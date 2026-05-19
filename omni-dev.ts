@@ -375,32 +375,6 @@ async function waitForPortAvailable(
   return checkPortAvailable(port)
 }
 
-async function copyInstalledBinary(localBin: string, installPath: string) {
-  const { copyFileSync } = await import("node:fs")
-  let lastError: unknown
-
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      copyFileSync(localBin, installPath)
-      return
-    } catch (error) {
-      lastError = error
-      const code =
-        typeof error === "object" && error && "code" in error ?
-          String(error.code)
-        : ""
-
-      if (code !== "EBUSY" && code !== "EPERM") {
-        throw error
-      }
-
-      await Bun.sleep(300)
-    }
-  }
-
-  throw lastError
-}
-
 function stripAnsi(value: string): string {
   return value.replaceAll(ANSI_PATTERN, "")
 }
@@ -754,9 +728,8 @@ async function startServices() {
 
   const bunExe = process.execPath
 
-  // Build Go backend: build locally first, then copy to ~/.local/bin
+  // Build Go backend directly to ~/.local/bin
   const isWindows = process.platform === "win32"
-  const localBin = isWindows ? "omnillm.exe" : "omnillm"
   const installPath =
     isWindows ?
       `${process.env.USERPROFILE}/.local/bin/omnillm.exe`
@@ -765,18 +738,19 @@ async function startServices() {
   consola.info("🔨 Building Golang backend...")
   const goExe =
     process.platform === "win32" ? `C:\\Program Files\\Go\\bin\\go.exe` : `go`
-  const buildResult = Bun.spawn([goExe, "build", "-o", localBin, "main.go"], {
-    stdout: "inherit",
-    stderr: "inherit",
-  })
+  const buildResult = Bun.spawn(
+    [goExe, "build", "-o", installPath, "main.go"],
+    {
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  )
   await buildResult.exited
   if (buildResult.exitCode !== 0) {
     consola.error("❌ Failed to build Golang backend")
     process.exit(1)
   }
 
-  // Copy to install path
-  await copyInstalledBinary(localBin, installPath)
   consola.success("✅ Golang backend built successfully")
 
   const backendProc = createLoggedProcess("go-backend", {
@@ -1136,9 +1110,8 @@ if (values.help || command === "help") {
       await stopServices()
       await Bun.sleep(2000)
       if (rebuild) {
-        // Rebuild Go backend: build locally first, then copy to ~/.local/bin
+        // Rebuild Go backend directly to ~/.local/bin
         const isWindows = process.platform === "win32"
-        const localBin = isWindows ? "omnillm.exe" : "omnillm"
         const installPath =
           isWindows ?
             `${process.env.USERPROFILE}/.local/bin/omnillm.exe`
@@ -1149,7 +1122,7 @@ if (values.help || command === "help") {
             `C:\\Program Files\\Go\\bin\\go.exe`
           : `go`
         const backendBuild = Bun.spawn(
-          [goExe, "build", "-o", localBin, "main.go"],
+          [goExe, "build", "-o", installPath, "main.go"],
           {
             stdout: "inherit",
             stderr: "inherit",
@@ -1161,8 +1134,6 @@ if (values.help || command === "help") {
           process.exit(1)
         }
 
-        // Copy to install path
-        await copyInstalledBinary(localBin, installPath)
         consola.success("✅ Golang backend rebuilt successfully")
         // Rebuild frontend
         consola.info("🔨 Rebuilding frontend...")
