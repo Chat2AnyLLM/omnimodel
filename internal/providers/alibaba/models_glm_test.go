@@ -15,9 +15,9 @@ func TestNeedsToolChoiceNil(t *testing.T) {
 		{"alibaba-sk/qwen3.6-plus", true},
 		{"glm-5.1", true},
 		{"GLM-5.1", true},
-		{"deepseek-v3", false},
-		{"deepseek-v4-flash", false},
-		{"deepseek-r1", false},
+		{"deepseek-v3", true},
+		{"deepseek-v4-flash", true},
+		{"deepseek-r1", true},
 		{"gpt-4o", false},
 		{"", false},
 	}
@@ -28,3 +28,4 @@ func TestNeedsToolChoiceNil(t *testing.T) {
 		}
 	}
 }
+

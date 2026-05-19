@@ -1,0 +1,102 @@
+<h2>CLI output direction</h2>
+<p class="subtitle">Previewing three ways to make <code>omnillm status</code>, <code>doctor</code>, and list output cleaner and easier to scan.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A — Framed sections</div>
+        <div class="mockup-body" style="font-family: monospace; white-space: pre; font-size: 13px; line-height: 1.4;">
++----------------------+
+| Server status        |
++----------------------+
+| Status         healthy |
+| Uptime         6m48s   |
+| Models         273     |
+| Manual approve no      |
++----------------------+
+
++--------------------------------------+
+| Active providers                     |
++----------------------+---------------+
+| Name                 | ID            |
++----------------------+---------------+
+| GitHub Copilot (...) | copilot-...   |
+| Kimi (global)        | kimi          |
++----------------------+---------------+
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Framed sections</h3>
+      <p>Traditional CLI look with visible boxes around each section and stronger boundaries between summary blocks and tables.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B — Summary + clean tables</div>
+        <div class="mockup-body" style="font-family: monospace; white-space: pre; font-size: 13px; line-height: 1.4;">
+STATUS     healthy      UPTIME    6m48s
+MODELS     273          PROVIDERS 3/19 active
+
+Server
+┌────────────────┬──────────┐
+│ Field          │ Value    │
+├────────────────┼──────────┤
+│ Manual approve │ no       │
+│ Rate limit     │ none     │
+└────────────────┴──────────┘
+
+Active providers
+┌────────────────────────────┬───────────────┐
+│ Name                       │ ID            │
+├────────────────────────────┼───────────────┤
+│ GitHub Copilot (James...)  │ copilot-zh... │
+│ Kimi (global)              │ kimi          │
+└────────────────────────────┴───────────────┘
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Summary + clean tables</h3>
+      <p>Top-level facts become a compact summary band, with boxed tables only where tabular data actually helps.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C — Table-first everywhere</div>
+        <div class="mockup-body" style="font-family: monospace; white-space: pre; font-size: 13px; line-height: 1.4;">
+Server status
+┌────────────────┬──────────────┐
+│ Status         │ healthy      │
+│ Uptime         │ 6m48s        │
+│ Model count    │ 273          │
+│ Manual approve │ no           │
+│ Rate limit     │ none         │
+└────────────────┴──────────────┘
+
+Services
+┌───────────┬──────────────┐
+│ Service   │ Status       │
+├───────────┼──────────────┤
+│ API       │ running      │
+│ Database  │ connected    │
+│ Providers │ 19 / 3 active│
+└───────────┴──────────────┘
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Table-first everywhere</h3>
+      <p>Very consistent and structured, but denser and a bit heavier for simple yes/no checks.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="subtitle">Question: which direction feels best for this CLI overall?</p>
+</div>

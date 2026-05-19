@@ -167,9 +167,9 @@ func TestBuildRequestDeepSeekV4FlashNoEnableThinking(t *testing.T) {
 	if _, ok := chatReq.Extras["enable_thinking"]; ok {
 		t.Fatalf("expected deepseek-v4-flash to not receive enable_thinking, got %#v", chatReq.Extras["enable_thinking"])
 	}
-	// DeepSeek models on DashScope keep their tool_choice (unlike Qwen/GLM).
-	if chatReq.ToolChoice != "required" {
-		t.Fatalf("expected deepseek-v4-flash tool_choice to be preserved, got %#v", chatReq.ToolChoice)
+	// DeepSeek models on DashScope strip tool_choice (like Qwen/GLM).
+	if chatReq.ToolChoice != nil {
+		t.Fatalf("expected deepseek-v4-flash tool_choice to be nil, got %#v", chatReq.ToolChoice)
 	}
 }
 
@@ -240,4 +240,5 @@ func TestAdapterExecuteUsesOpenAIClientWithRawJSONPayload(t *testing.T) {
 		t.Fatalf("stream = %#v, want false", gotPayload["stream"])
 	}
 }
+
 

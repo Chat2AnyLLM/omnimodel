@@ -2,6 +2,8 @@ package commands
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -719,6 +721,47 @@ func TestDoctorCmdWritesToCommandOutput(t *testing.T) {
 	cmd := DoctorCmd
 	if cmd.OutOrStdout() == nil {
 		t.Fatal("DoctorCmd OutOrStdout() is nil")
+	}
+}
+
+func TestDoctorCmdWritesHealthyStatusWithSuccessMarker(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/api/admin/status":
+			_, _ = w.Write([]byte(`{"status":"healthy","uptime":"39s","modelCount":273}`))
+		case "/api/admin/providers":
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/admin/virtualmodels":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case "/api/admin/auth-status":
+			_, _ = w.Write([]byte(`{"status":"idle"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	t.Setenv("OMNILLM_SERVER", ts.URL)
+	t.Setenv("OMNILLM_API_KEY", "test-key")
+
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	if err := runDoctor(cmd, nil); err != nil {
+		t.Fatalf("runDoctor returned error: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "  ✓  Status:") {
+		t.Fatalf("expected healthy server status to use success marker, got output:\n%s", output)
+	}
+	if strings.Contains(output, "  ✗  Status:                healthy") {
+		t.Fatalf("expected healthy server status to avoid failure marker, got output:\n%s", output)
 	}
 }
 
