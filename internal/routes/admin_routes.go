@@ -28,7 +28,6 @@ func SetupAdminRoutes(router *gin.RouterGroup, port int) {
 	router.POST("/providers/:id/deactivate", handleDeactivateProvider)
 
 	// Provider type-specific routes (use specific path to avoid conflicts with wildcard :id routes)
-	router.POST("/providers/add/:type", handleAddProviderInstance)
 	router.POST("/providers/auth-and-create/:type", handleAuthAndCreateProvider)
 
 	// Antigravity Google OAuth2 authorization-code flow

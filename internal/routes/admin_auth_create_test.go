@@ -101,6 +101,30 @@ func resetAdminTestState(t *testing.T) {
 	activeAuthFlowMu.Unlock()
 }
 
+func TestHandleAddProviderInstanceRouteIsRemoved(t *testing.T) {
+	resetAdminTestState(t)
+	t.Cleanup(func() { resetAdminTestState(t) })
+
+	router := newAdminTestRouter()
+
+	recorder := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/admin/providers/add/alibaba",
+		`{}`,
+	)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected legacy add-provider route to be removed with 404, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	reg := registry.GetProviderRegistry()
+	if reg.IsRegistered("alibaba") {
+		t.Fatal("did not expect legacy add route to register placeholder alibaba provider")
+	}
+}
+
 func TestHandleAuthAndCreateProviderAzureOpenAISavesAuthenticatedProvider(t *testing.T) {
 	resetAdminTestState(t)
 	t.Cleanup(func() { resetAdminTestState(t) })

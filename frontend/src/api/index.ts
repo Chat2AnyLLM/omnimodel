@@ -416,12 +416,6 @@ export const authProvider = (id: string, body: Record<string, string>) =>
     { method: "POST", body: JSON.stringify(body) },
   )
 
-export const addProviderInstance = (providerType: string) =>
-  apiFetch<{ success?: boolean; provider?: Provider }>(
-    `/api/admin/providers/add/${providerType}`,
-    { method: "POST" },
-  )
-
 export const authAndCreateProvider = (
   providerType: string,
   body: Record<string, string>,
