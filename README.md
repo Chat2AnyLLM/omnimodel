@@ -73,18 +73,18 @@ Prerequisites:
 Build and run the main binary:
 
 ```sh
-bun install
-bun run build:go
+make build-go
 $HOME/.local/bin/omnillm start
 ```
 
 Windows PowerShell:
 
 ```powershell
-bun install
-bun run build:go
-$env:USERPROFILE/.local/bin/omnillm.exe start
+make build-go
+$env:USERPROFILE\.local\bin\omnillm.exe start
 ```
+
+For Bun-based workflows such as frontend builds, linting, tests, or dev mode, use `make deps` to install dependencies explicitly, or just run the relevant `make` target and let it install dependencies automatically when needed.
 
 ### Run `omniproxy`
 
@@ -154,12 +154,18 @@ bun run dev
 Useful scripts:
 
 ```sh
-bun run dev
-bun run dev:frontend
-bun run omni start
-bun run omni status
-bun run omni restart --rebuild
+make help
+make deps
+make build-go
+make build-frontend
+make dev
+make dev-frontend
+make start
+make status
+make restart REBUILD=--rebuild
 ```
+
+The `make` targets wrap the same Bun-based workflows for Linux and Windows. On Windows, use PowerShell or Command Prompt with `make` available in `PATH`. Bun-backed targets automatically run `bun install` when dependencies are missing or when `bun.lock` or `package.json` changes.
 
 The `bun run omni` wrapper is a development manager around the backend binary and Vite server. It is not the same thing as the production runtime path.
 

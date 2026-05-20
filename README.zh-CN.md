@@ -69,18 +69,18 @@ bunx omnillm@latest start
 构建并运行主二进制：
 
 ```sh
-bun install
-bun run build:go
+make build-go
 $HOME/.local/bin/omnillm start
 ```
 
 Windows PowerShell：
 
 ```powershell
-bun install
-bun run build:go
-$env:USERPROFILE/.local/bin/omnillm.exe start
+make build-go
+$env:USERPROFILE\.local\bin\omnillm.exe start
 ```
+
+对于前端构建、lint、测试或开发模式这类依赖 Bun 的流程，你可以显式运行 `make deps` 安装依赖，也可以直接执行对应的 `make` 目标，让它在需要时自动安装依赖。
 
 ### 运行 `omniproxy`
 
@@ -150,12 +150,18 @@ bun run dev
 常用脚本：
 
 ```sh
-bun run dev
-bun run dev:frontend
-bun run omni start
-bun run omni status
-bun run omni restart --rebuild
+make help
+make deps
+make build-go
+make build-frontend
+make dev
+make dev-frontend
+make start
+make status
+make restart REBUILD=--rebuild
 ```
+
+这些 `make` 目标对 Linux 和 Windows 使用同一套 Bun 驱动流程。在 Windows 上，请使用已经把 `make` 加入 `PATH` 的 PowerShell 或命令提示符。所有依赖 Bun 的目标会在缺少依赖，或 `bun.lock` / `package.json` 发生变化时自动执行 `bun install`。
 
 其中 `bun run omni` 是开发环境管理器，用来同时管理后端二进制和 Vite 服务，不等同于生产或发布时的运行方式。
 
