@@ -323,6 +323,51 @@ func TestVirtualModelStoresCRUD(t *testing.T) {
 	}
 }
 
+func TestProviderInstanceStoreDeleteRemovesProviderModelsCache(t *testing.T) {
+	instanceID := "cache-delete-provider"
+	instanceStore := NewProviderInstanceStore()
+	cacheStore := NewProviderModelsCacheStore()
+
+	if err := instanceStore.Save(&ProviderInstanceRecord{InstanceID: instanceID, ProviderID: "google", Name: "Google"}); err != nil {
+		t.Fatalf("setup provider instance: %v", err)
+	}
+	if err := cacheStore.Save(instanceID, "google", `[{"id":"gemini"}]`); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	if err := instanceStore.Delete(instanceID); err != nil {
+		t.Fatalf("delete provider instance: %v", err)
+	}
+
+	cached, err := cacheStore.Get(instanceID, "google", DefaultCacheTTL)
+	if err != nil {
+		t.Fatalf("get cache: %v", err)
+	}
+	if cached != nil {
+		t.Fatalf("expected provider deletion to remove model cache, got %#v", cached)
+	}
+}
+
+func TestProviderModelsCacheStoreGetIgnoresProviderTypeMismatch(t *testing.T) {
+	instanceID := "cache-type-provider"
+	instanceStore := NewProviderInstanceStore()
+	cacheStore := NewProviderModelsCacheStore()
+
+	if err := instanceStore.Save(&ProviderInstanceRecord{InstanceID: instanceID, ProviderID: "google", Name: "Google"}); err != nil {
+		t.Fatalf("setup provider instance: %v", err)
+	}
+	if err := cacheStore.Save(instanceID, "openai-compatible", `[{"id":"moonshot"}]`); err != nil {
+		t.Fatalf("save stale cache: %v", err)
+	}
+
+	cached, err := cacheStore.Get(instanceID, "google", DefaultCacheTTL)
+	if err != nil {
+		t.Fatalf("get cache: %v", err)
+	}
+	if cached != nil {
+		t.Fatalf("expected provider-type mismatch to miss cache, got %#v", cached)
+	}
+}
+
 func TestCreateTablesIsIdempotentForBackfill(t *testing.T) {
 	db := GetDatabase()
 	if err := db.createTables(); err != nil {
@@ -413,7 +458,7 @@ func TestCreateTablesMigratesLegacyProviderModelsCache(t *testing.T) {
 	}
 
 	cacheStore := &ProviderModelsCacheStore{db: legacy}
-	if err := cacheStore.Save("legacy-provider", `{"models":["x"]}`); err != nil {
+	if err := cacheStore.Save("legacy-provider", "mock", `{"models":["x"]}`); err != nil {
 		t.Fatalf("save migrated cache row: %v", err)
 	}
 

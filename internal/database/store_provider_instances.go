@@ -84,6 +84,9 @@ func (pis *ProviderInstanceStore) Save(record *ProviderInstanceRecord) error {
 }
 
 func (pis *ProviderInstanceStore) Delete(instanceID string) error {
+	if err := NewProviderModelsCacheStore().Delete(instanceID); err != nil {
+		return err
+	}
 	_, err := pis.db.db.Exec("DELETE FROM provider_instances WHERE instance_id = ?", instanceID)
 	if err == nil {
 		GetModelResolutionCache().InvalidateInstances()

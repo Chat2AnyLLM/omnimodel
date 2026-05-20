@@ -139,6 +139,7 @@ func (db *Database) createTables() error {
 		// Cached model list returned by each provider's /models endpoint.
 		`CREATE TABLE IF NOT EXISTS provider_models_cache (
 			instance_id TEXT PRIMARY KEY,
+			provider_id TEXT    NOT NULL DEFAULT '',
 			models_data TEXT    NOT NULL,
 			cached_at   DATETIME NOT NULL DEFAULT (datetime('now')),
 			updated_at  DATETIME NOT NULL DEFAULT (datetime('now')),
@@ -266,11 +267,11 @@ var migrations = []migration{
 	// v1: add subtitle to provider_instances (backfill for pre-subtitle databases).
 	{1, []string{`ALTER TABLE provider_instances ADD COLUMN subtitle TEXT NOT NULL DEFAULT ''`}},
 	// v2: add provider_id to virtual_model_upstreams (backfill for pre-provider_id databases).
-	{2, []string{`ALTER TABLE virtual_model_upstreams ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`} },
+	{2, []string{`ALTER TABLE virtual_model_upstreams ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`}},
 	// v3: add provider_id column to tokens for existing rows that pre-date its removal
 	//     from the schema (kept for backward-compat reads; new code ignores it).
 	//     No-op on fresh databases where the column was never added.
-	{3, []string{`ALTER TABLE tokens ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`} },
+	{3, []string{`ALTER TABLE tokens ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`}},
 	// v4: add updated_at to provider_models_cache using a SQLite-safe backfill path.
 	{4, []string{
 		`ALTER TABLE provider_models_cache ADD COLUMN updated_at DATETIME`,
@@ -377,6 +378,8 @@ var migrations = []migration{
 		`UPDATE chat_sessions SET api_shape = 'anthropic' WHERE api_shape IS NULL OR api_shape = '' OR api_shape != 'anthropic'`,
 		`UPDATE chat_sessions SET agent_backend = 'omnicode' WHERE agent_backend IS NULL OR agent_backend = '' OR agent_backend != 'omnicode'`,
 	}},
+	// v14: bind provider model cache rows to provider type so reused instance IDs cannot read stale model lists.
+	{14, []string{`ALTER TABLE provider_models_cache ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`}},
 }
 
 // applyMigrations runs any migrations that have not yet been applied.

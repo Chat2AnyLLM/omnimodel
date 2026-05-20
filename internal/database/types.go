@@ -79,6 +79,7 @@ type ModelConfigRecord struct {
 
 type ProviderModelsCacheRecord struct {
 	InstanceID string    `json:"instance_id"`
+	ProviderID string    `json:"provider_id"`
 	ModelsData string    `json:"models_data"` // JSON array of cached models
 	CachedAt   time.Time `json:"cached_at"`
 }

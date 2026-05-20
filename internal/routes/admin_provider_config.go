@@ -190,7 +190,7 @@ func loadProviderModels(provider types.Provider, forceRefresh bool) ([]providerM
 
 	// Check cache first (unless force refresh)
 	if !forceRefresh {
-		if cached, err := cacheStore.Get(instanceID, database.DefaultCacheTTL); err == nil && cached != nil {
+		if cached, err := cacheStore.Get(instanceID, provider.GetID(), database.DefaultCacheTTL); err == nil && cached != nil {
 			var models []providerModelView
 			if err := json.Unmarshal([]byte(cached.ModelsData), &models); err == nil {
 				// Re-apply enabled states from DB (may have changed since cache)
@@ -282,7 +282,7 @@ func loadProviderModels(provider types.Provider, forceRefresh bool) ([]providerM
 
 	// Save to cache
 	if modelsJSON, err := json.Marshal(models); err == nil {
-		if err := cacheStore.Save(instanceID, string(modelsJSON)); err != nil {
+		if err := cacheStore.Save(instanceID, provider.GetID(), string(modelsJSON)); err != nil {
 			log.Warn().Err(err).Str("provider", instanceID).Msg("Failed to cache provider models")
 		}
 	}
