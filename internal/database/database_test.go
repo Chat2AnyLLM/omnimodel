@@ -20,6 +20,12 @@ func TestMain(m *testing.M) {
 	if err := InitializeDatabase(tmpDir); err != nil {
 		panic(err)
 	}
+	defer func() {
+		if err := GetDatabase().Close(); err != nil {
+			panic(err)
+		}
+	}()
+	defer StopAsyncWorkers()
 
 	os.Exit(m.Run())
 }

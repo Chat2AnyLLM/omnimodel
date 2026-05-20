@@ -1,13 +1,17 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -19,9 +23,9 @@ import (
 	"omnillm/internal/lib/ratelimit"
 	alibabapkg "omnillm/internal/providers/alibaba"
 	antigravitypkg "omnillm/internal/providers/antigravity"
-	"omnillm/internal/providers/copilot"
 	azurepkg "omnillm/internal/providers/azure"
 	codexpkg "omnillm/internal/providers/codex"
+	"omnillm/internal/providers/copilot"
 	googlepkg "omnillm/internal/providers/google"
 	kimipkg "omnillm/internal/providers/kimi"
 	modelscopepkg "omnillm/internal/providers/modelscope"
@@ -30,6 +34,7 @@ import (
 	"omnillm/internal/registry"
 	"omnillm/internal/routes"
 )
+
 type StartOptions struct {
 	Port                int
 	Host                string
@@ -124,7 +129,44 @@ func RunServer(options StartOptions) error {
 
 	log.Info().Str("api_key_path", filepath.Join(configDir, apiKeyFileName)).Msg("Inbound API authentication enabled")
 
-	return r.Run(bindAddr)
+	srv := &http.Server{
+		Addr:    bindAddr,
+		Handler: r.Handler(),
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			return err
+		}
+		return nil
+	case sig := <-sigCh:
+		log.Info().Str("signal", sig.String()).Msg("OmniLLM server shutting down")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown server: %w", err)
+	}
+
+	database.StopAsyncWorkers()
+	if err := database.GetDatabase().Close(); err != nil {
+		return fmt.Errorf("close database: %w", err)
+	}
+	return nil
 }
 
 func buildRouter(port int, apiKey string, chatOptions routes.ChatCompletionOptions) *gin.Engine {
