@@ -69,20 +69,22 @@ $(DEPS): bun.lock package.json
 	$(BUN) install
 	@touch "$(DEPS)"
 
-## build: Build the Go backend binary and install to ~/.local/bin
+## build: Build all Go binaries and install to ~/.local/bin
 build: build-go
 
-## build-go: Compile the Go backend and install to ~/.local/bin
+## build-go: Compile all Go binaries and install to ~/.local/bin
 build-go:
 	$(call MKDIR_TARGET,$(INSTALL_DIR))
 	$(GO) build -o "$(OMNILLM_BIN)" .
+	$(GO) build -o "$(OMNIPROXY_BIN)" ./cmd/omniproxy
 	@echo Built omnillm$(EXE) to $(OMNILLM_BIN)
+	@echo Built omniproxy$(EXE) to $(OMNIPROXY_BIN)
 
 ## build-frontend: Build the frontend assets (outputs to pages/)
 build-frontend: $(DEPS)
 	$(BUN) run build
 
-## build-all: Build both the Go backend and the frontend assets
+## build-all: Build all Go binaries and the frontend assets
 build-all: build-go build-frontend
 
 # ── Dev / Start ───────────────────────────────────────────────────────────────
@@ -201,10 +203,10 @@ help:
 	@echo BUILD:
 	@echo   deps                 Install Node.js dependencies with Bun
 	@echo   install              Build all Go binaries and install to ~/.local/bin
-	@echo   build                Build the Go backend binary and install to ~/.local/bin
-	@echo   build-go             Compile the Go backend and install to ~/.local/bin
+	@echo   build                Build all Go binaries: omnillm and omniproxy - install to ~/.local/bin
+	@echo   build-go             Compile all Go binaries: omnillm and omniproxy - install to ~/.local/bin
 	@echo   build-frontend       Build the frontend assets - outputs to pages/
-	@echo   build-all            Build both the Go backend and the frontend assets
+	@echo   build-all            Build all Go binaries and the frontend assets
 	$(PRINT_BLANK)
 	@echo DEVELOPMENT:
 	@echo   dev-frontend         Start only the Vite frontend dev server
